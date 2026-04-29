@@ -53,7 +53,8 @@ export class AccountsService {
   async update(id: string, dto: UpdateAccountDto): Promise<Account> {
     const account = await this.findOne(id);
     Object.assign(account, dto);
-    return this.repo.save(account);
+    await this.repo.save(account);
+    return this.findOne(id);
   }
 
   async remove(id: string): Promise<void> {

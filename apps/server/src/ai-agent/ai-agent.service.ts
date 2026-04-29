@@ -1,4 +1,10 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  BadGatewayException,
+  Inject,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import OpenAI from 'openai';
@@ -24,22 +30,60 @@ Keep responses under 100 words. Be direct and factual.`;
 
 @Injectable()
 export class AiAgentService {
-  private readonly client: OpenAI;
+  private readonly client: OpenAI | null;
   private readonly model: string;
   private readonly logger = new Logger(AiAgentService.name);
+  private readonly configured: boolean;
 
   constructor(
     private readonly config: ConfigService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
-    this.client = new OpenAI({
-      apiKey: this.config.get<string>('OPENAI_API_KEY', ''),
-      baseURL: this.config.get<string>('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
-    });
+    const apiKey = this.config.get<string>('OPENAI_API_KEY', '');
+    this.configured = Boolean(apiKey);
     this.model = this.config.get<string>('OPENAI_MODEL', 'gpt-4o-mini');
+    if (this.configured) {
+      this.client = new OpenAI({
+        apiKey,
+        baseURL: this.config.get<string>('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
+      });
+    } else {
+      this.client = null;
+      this.logger.warn('OPENAI_API_KEY not set — AI endpoints will return 503 until configured');
+    }
+  }
+
+  private ensureConfigured(): OpenAI {
+    if (!this.client) {
+      throw new ServiceUnavailableException(
+        'AI provider not configured. Set OPENAI_API_KEY in environment.',
+      );
+    }
+    return this.client;
+  }
+
+  private translateUpstreamError(err: unknown): never {
+    const e = err as { status?: number; code?: string; message?: string };
+    const status = e?.status;
+    const code = e?.code;
+    const msg = e?.message ?? 'AI provider request failed';
+    this.logger.error(`AI upstream error status=${status} code=${code} message=${msg}`);
+
+    if (status === 401 || status === 403 || code === 'invalid_api_key') {
+      throw new ServiceUnavailableException(
+        'AI provider authentication failed. Check OPENAI_API_KEY validity.',
+      );
+    }
+    if (status === 429 || code === 'insufficient_quota' || code === 'rate_limit_exceeded') {
+      throw new ServiceUnavailableException(
+        'AI provider rate limit or quota exceeded.',
+      );
+    }
+    throw new BadGatewayException('AI provider returned an error.');
   }
 
   async reply(dto: AiReplyDto): Promise<{ reply: string; tokens: number }> {
+    const client = this.ensureConfigured();
     const key = `${CONV_KEY_PREFIX}${dto.chatId}`;
     const history = await this.loadHistory(key);
 
@@ -50,12 +94,17 @@ export class AiAgentService {
       { role: 'user', content: dto.userMessage },
     ];
 
-    const completion = await this.client.chat.completions.create({
-      model: this.model,
-      messages,
-      max_tokens: 512,
-      temperature: 0.7,
-    });
+    let completion;
+    try {
+      completion = await client.chat.completions.create({
+        model: this.model,
+        messages,
+        max_tokens: 512,
+        temperature: 0.7,
+      });
+    } catch (err) {
+      this.translateUpstreamError(err);
+    }
 
     const assistantReply = completion.choices[0]?.message?.content ?? '';
     const tokens = completion.usage?.total_tokens ?? 0;
@@ -73,6 +122,7 @@ export class AiAgentService {
   }
 
   async faq(dto: AiFaqDto): Promise<{ answer: string; tokens: number }> {
+    const client = this.ensureConfigured();
     const messages: ConversationMessage[] = [
       { role: 'system', content: DEFAULT_FAQ_SYSTEM },
     ];
@@ -83,12 +133,17 @@ export class AiAgentService {
 
     messages.push({ role: 'user', content: dto.question });
 
-    const completion = await this.client.chat.completions.create({
-      model: this.model,
-      messages,
-      max_tokens: 200,
-      temperature: 0.3,
-    });
+    let completion;
+    try {
+      completion = await client.chat.completions.create({
+        model: this.model,
+        messages,
+        max_tokens: 200,
+        temperature: 0.3,
+      });
+    } catch (err) {
+      this.translateUpstreamError(err);
+    }
 
     const answer = completion.choices[0]?.message?.content ?? '';
     const tokens = completion.usage?.total_tokens ?? 0;

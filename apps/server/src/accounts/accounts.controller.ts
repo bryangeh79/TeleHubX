@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -44,13 +45,13 @@ export class AccountsController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.findOne(id);
   }
 
   @Patch(':id')
   update(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateAccountDto,
   ) {
     return this.service.update(id, dto);
@@ -58,13 +59,13 @@ export class AccountsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id') id: string) {
+  remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.remove(id);
   }
 
   @Post(':id/session')
   updateSession(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateSessionDto,
   ) {
     return this.service.updateSession(id, dto.sessionString);
@@ -72,7 +73,7 @@ export class AccountsController {
 
   @Post(':id/health')
   reportHealth(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ReportHealthDto,
   ) {
     return this.service.reportHealth(id, dto.healthScore, dto.remark || dto.note);
@@ -80,7 +81,7 @@ export class AccountsController {
 
   @Post(':id/heartbeat')
   @HttpCode(HttpStatus.OK)
-  heartbeat(@Param('id') id: string) {
+  heartbeat(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.heartbeat(id);
   }
 
@@ -90,29 +91,29 @@ export class AccountsController {
   }
 
   @Post(':id/warmup/start')
-  warmupStart(@Param('id') id: string) {
+  warmupStart(@Param('id', ParseUUIDPipe) id: string) {
     return this.warmupService.start(id);
   }
 
   @Post(':id/warmup/advance')
   @HttpCode(HttpStatus.OK)
-  warmupAdvance(@Param('id') id: string) {
+  warmupAdvance(@Param('id', ParseUUIDPipe) id: string) {
     return this.warmupService.advance(id);
   }
 
   @Get(':id/warmup')
-  warmupStatus(@Param('id') id: string) {
+  warmupStatus(@Param('id', ParseUUIDPipe) id: string) {
     return this.warmupService.getStatus(id);
   }
 
   @Post(':id/bind-ip')
   @HttpCode(HttpStatus.OK)
-  bindIp(@Param('id') id: string, @Body('ip') ip: string) {
+  bindIp(@Param('id', ParseUUIDPipe) id: string, @Body('ip') ip: string) {
     return this.service.bindIp(id, ip);
   }
 
   @Get(':id/session/raw')
-  getDecryptedSession(@Param('id') id: string) {
+  getDecryptedSession(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.getDecryptedSession(id).then((session) => ({ session }));
   }
 }

@@ -31,7 +31,8 @@ export class CampaignsService {
   async update(id: string, dto: UpdateCampaignDto): Promise<Campaign> {
     const campaign = await this.findOne(id);
     Object.assign(campaign, dto);
-    return this.repo.save(campaign);
+    await this.repo.save(campaign);
+    return this.findOne(id);
   }
 
   async remove(id: string): Promise<void> {

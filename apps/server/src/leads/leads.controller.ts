@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Post,
   Query,
 } from '@nestjs/common';
@@ -37,25 +38,25 @@ export class LeadsController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.findOne(id);
   }
 
   @Post(':id/assign')
   @HttpCode(HttpStatus.OK)
-  assign(@Param('id') id: string, @Body() dto: AssignLeadDto) {
+  assign(@Param('id', ParseUUIDPipe) id: string, @Body() dto: AssignLeadDto) {
     return this.service.assign(id, dto);
   }
 
   @Post(':id/note')
   @HttpCode(HttpStatus.OK)
-  addNote(@Param('id') id: string, @Body('note') note: string) {
+  addNote(@Param('id', ParseUUIDPipe) id: string, @Body('note') note: string) {
     return this.service.addNote(id, note);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id') id: string) {
+  remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.remove(id);
   }
 }

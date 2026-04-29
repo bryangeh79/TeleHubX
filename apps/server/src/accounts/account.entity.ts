@@ -1,3 +1,4 @@
+import { Exclude } from 'class-transformer';
 import {
   Column,
   CreateDateColumn,
@@ -35,6 +36,7 @@ export class Account {
   @Column({ unique: true })
   phoneNumber: string;
 
+  @Exclude({ toPlainOnly: true })
   @Column({ nullable: true, select: false })
   sessionString: string;
 

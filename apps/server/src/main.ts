@@ -1,8 +1,9 @@
-import { NestFactory } from '@nestjs/core';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { NestFactory, Reflector } from '@nestjs/core';
+import { ClassSerializerInterceptor, Logger, ValidationPipe } from '@nestjs/common';
 import * as compression from 'compression';
 import { AppModule } from './app.module';
 import { AppLoggerService } from './logger/app-logger.service';
+import { QueryFailedExceptionFilter } from './common/filters/query-failed.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -21,6 +22,8 @@ async function bootstrap() {
       transform: true,
     }),
   );
+  app.useGlobalFilters(new QueryFailedExceptionFilter());
+  app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
 
   const port = process.env.APP_PORT || 9600;
   await app.listen(port);
