@@ -69,6 +69,13 @@ export const proxiesApi = {
   delete: (id: string) => api.delete(`/proxies/${id}`),
 };
 
+export const slotsApi = {
+  list: () => api.get('/slots'),
+  get: (id: string) => api.get(`/slots/${id}`),
+  reset: (id: string) => api.post(`/slots/${id}/reset`),
+  delete: (id: string) => api.delete(`/slots/${id}`),
+};
+
 interface DashboardOverview {
   totalAccounts: number;
   onlineAccounts: number;

@@ -8,6 +8,7 @@ import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { CsvAccountRow, ImportResult } from './dto/import-accounts.dto';
 import { deriveKey, encryptSession, decryptSession } from '../crypto/session-crypto.util';
+import { SlotsService } from '../slots/slots.service';
 
 export interface HealthStats {
   total: number;
@@ -27,14 +28,18 @@ export class AccountsService {
     @InjectRepository(Account)
     private readonly repo: Repository<Account>,
     private readonly config: ConfigService,
+    private readonly slots: SlotsService,
   ) {
     const raw = this.config.get<string>('SESSION_ENCRYPTION_KEY');
     this.encKey = raw ? deriveKey(raw) : null;
   }
 
-  create(dto: CreateAccountDto): Promise<Account> {
+  async create(dto: CreateAccountDto): Promise<Account> {
     const account = this.repo.create(dto);
-    return this.repo.save(account);
+    const saved = await this.repo.save(account);
+    // Assign a slot (lowest VACANT, or new at max+1) so the tenant gets a stable No.
+    await this.slots.assignToAccount(saved.id);
+    return saved;
   }
 
   findAll(filters: { role?: AccountRole; status?: AccountStatus }): Promise<Account[]> {
@@ -59,6 +64,8 @@ export class AccountsService {
 
   async remove(id: string): Promise<void> {
     const account = await this.findOne(id);
+    // Mark this account's slot as RELEASED (waiting for explicit reset before reuse)
+    await this.slots.releaseFromAccount(id);
     await this.repo.remove(account);
   }
 
@@ -154,7 +161,8 @@ export class AccountsService {
             : undefined;
 
         const account = this.repo.create({ phoneNumber: row.phoneNumber, role, proxyConfig });
-        await this.repo.save(account);
+        const saved = await this.repo.save(account);
+        await this.slots.assignToAccount(saved.id);
         result.created++;
       } catch (err: any) {
         result.errors.push({ row: i + 2, phone: row.phoneNumber, reason: err?.message ?? 'Unknown' });
