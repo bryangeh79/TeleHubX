@@ -1,9 +1,24 @@
 # TeleHubX — Handoff Doc
 
-> 交接时间: 2026-04-30 02:08 GMT+8  
-> 当前状态: 100% 代码完成，15/15 API 回归测试通过  
+> 交接时间: 2026-04-30 02:08 GMT+8 (Captain) → 03:15 GMT+8 (CC debug pass)  
+> 当前状态: 后端 21/21 回归通过 + Dashboard 首屏修复，可演示  
 > 项目根: `C:\AI_WORKSPACE\Telegram Auto Bot`  
 > GitHub: `https://github.com/bryangeh79/TeleHubX`
+
+---
+
+## CC Debug Pass 修复摘要 (2026-04-30 03:15)
+
+| Bug | 修法 |
+|---|---|
+| 非 UUID `:id` → 500 | 全控制器 `ParseUUIDPipe` + 全局 `QueryFailedExceptionFilter` |
+| 重复 phoneNumber → 500 | 同上 filter (PG 23505 → 409) |
+| API 泄漏 `sessionString` | `@Exclude({toPlainOnly:true})` + 全局 `ClassSerializerInterceptor` |
+| `PATCH` 响应字段缺失 | service.update 改为 save 后 `findOne()` 重读 |
+| AI 模块 invalid key → 500 | `ensureConfigured()` 守门 + `translateUpstreamError()` 映射上游错误为 503/502 |
+| Dashboard 首屏 import error | 创建 `components/DashboardLayout.tsx` |
+| Dashboard API 三处方法缺失 | `services/api.ts` 补 `warmupApi.pause` / `leadsApi.reply` / `statsApi.overview` |
+| Dashboard warmup URL 错 | 改为 `/accounts/:id/warmup/start` 等正确路径 |
 
 ---
 
@@ -14,7 +29,7 @@
 | Backend (NestJS) | 9600 | pm2 (telehubx-server) | ✅ online |
 | Dashboard (Vite) | 3000 | pm2 (telehubx-dashboard) | ✅ online |
 | PostgreSQL | 5433 | 本地服务 | ✅ connected |
-| Redis | 6379 | 本地服务 | ✅ connected |
+| Redis | 6380 | 本地服务 | ✅ connected |
 
 快速查看：`pm2 list`  
 实时日志：`pm2 logs telehubx-server`  
@@ -117,9 +132,90 @@ telehubx/
 
 ---
 
+## 3.1 DTO 字段契约（必须严格按这个发请求）
+
+> 全局 `ValidationPipe` 开了 `whitelist + forbidNonWhitelisted`，多/错字段直接 400。
+
+### POST `/accounts`
+```json
+{
+  "phoneNumber": "+60123456789",       // required
+  "role": "cs",                         // "cs" | "ad" | "hybrid"，默认 cs
+  "proxyConfig": { "host": "...", "port": 1080 } // optional
+}
+```
+
+### POST `/campaigns`
+```json
+{
+  "name": "Spring Promo",                                  // required
+  "type": "broadcast",                                     // "broadcast" | "sequential" — 不接受 "private"
+  "targets": ["@user1", "@user2"],                         // string[]
+  "messageVariants": [{"text": "你好"}, {"text": "Hi"}],   // 必须是 {text, mediaUrl?} 对象，不是字符串
+  "description": "...",                                    // optional
+  "scheduledAt": "2026-05-01T10:00:00Z"                    // optional ISO8601
+}
+```
+
+### POST `/leads`
+```json
+{
+  "tgUserId": "123456789",       // required (NOT `telegramUserId`)
+  "tgUsername": "buyer",          // optional (NOT `telegramUsername` / `displayName`)
+  "campaignId": "<uuid>",         // optional (NOT `campaignName`)
+  "product": "Pro Plan",          // optional
+  "budget": "500+",               // optional
+  "intent": "hot",                // "cold" | "warm" | "hot"
+  "needsHuman": true              // optional
+}
+```
+
+### POST `/leads/:id/assign`
+```json
+{ "csAccountId": "<uuid>" }       // NOT `assignedTo`
+```
+
+### POST `/leads/:id/note`
+```json
+{ "note": "follow up tomorrow" }
+```
+
+### POST `/accounts/:id/bind-ip`
+```json
+{ "ip": "203.0.113.7" }
+```
+
+### POST `/accounts/:id/health`
+```json
+{ "healthScore": 85, "remark": "smoke test" }
+```
+
+### POST `/ai/reply` / `/ai/faq`
+```json
+// reply
+{ "chatId": "user-1", "userMessage": "你好", "systemPrompt": "可选" }
+// faq
+{ "question": "How much?", "context": "可选" }
+```
+
+### 错误码对照
+| 场景 | HTTP | Body |
+|---|---|---|
+| 必填字段缺失 / 枚举非法 | 400 | `class-validator` message[] |
+| `:id` 非 UUID 格式 | 400 | `Validation failed (uuid is expected)` |
+| `:id` UUID 格式但记录不存在 | 404 | `<Resource> <id> not found` |
+| 重复 `phoneNumber` | 409 | PG detail message |
+| Warmup 已启动后再 `start` | 409 | `Warmup already started for account ...` |
+| 多余字段 | 400 | `property X should not exist` |
+| AI key 缺失 / 无效 | 503 | `AI provider not configured / authentication failed` |
+| AI 上游错误 (5xx, network) | 502 | `AI provider returned an error` |
+
+---
+
 ## 4. 环境变量 (.env)
 
 ```
+NODE_ENV=development
 APP_PORT=9600
 DB_HOST=localhost
 DB_PORT=5433
@@ -128,21 +224,29 @@ DB_PASSWORD=telehubx
 DB_NAME=telehubx
 DB_LOGGING=false
 REDIS_HOST=localhost
-REDIS_PORT=6379
+REDIS_PORT=6380          # 注意：不是 6379
+# 可选 — 不设置时 AI 模块返回 503，不会崩
 SESSION_ENCRYPTION_KEY=your-32-char-secret
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o-mini
 LOG_LEVEL=info
 ```
 
+> 当前实际 `.env` **没有** `OPENAI_API_KEY`，但进程从 Windows 系统环境变量继承到了一个 invalid key（`sk-proj-...EsEA`）。AI 接口因此会返回 503 + 清晰错误信息。要恢复正常用 `setx OPENAI_API_KEY <valid-key>` 然后 `pm2 restart telehubx-server`。
+
 ---
 
 ## 5. 已知限制 / 待办
 
-### ⚠️ 代码层面
-1. **No API key → 500**: AI 模块没设 OPENAI_API_KEY 时会抛 500。这在.env 配了 key 后自动解决。
-2. **Warmup 不能重复启动**: 已设计为 409 Conflict，正常。
-3. **Dashboard 可能不编译**: `pnpm --filter @telehubx/dashboard build` 没跑过验证，Vite dev server 在 pm2 下跑着但生产 build 未知。
+### ⚠️ 代码层面（已修复，留档）
+1. ~~No API key → 500~~ → **已修**：返回 503 + 清晰消息（"AI provider not configured / authentication failed"）
+2. **Warmup 不能重复启动**：保持 409 Conflict 设计
+3. ~~Dashboard 不编译~~ → **已修**：缺失的 `DashboardLayout` 组件已建，api.ts 已补齐 `warmupApi.pause` / `leadsApi.reply` / `statsApi.overview` 并修正 warmup URL
+
+### ⚠️ 仍未做的
+1. **Backend 暂无 warmup pause / lead reply 接口** — 前端目前调用会 404，UI 层有 try/catch 和 mock 回退；后端日后补 `POST /accounts/:id/warmup/pause` 和 `POST /leads/:id/reply` 才能真正联动
+2. **Dashboard 生产 build 没验证过**：`pnpm --filter @telehubx/dashboard build` 没跑过；目前只验证了 Vite dev server (`tsc --noEmit` 0 错)
+3. **AI 路径只有 OpenAI**：DeepSeek/Gemini/Claude 的 Provider 抽象未建
 
 ### 📦 部署
 1. **Inno Setup 打包**: 脚本 `installer.iss` 写好了，需安装 Inno Setup 6 后运行 `ISCC.exe installer.iss` 生成 .exe
@@ -205,3 +309,5 @@ pnpm --filter @telehubx/server build
 ---
 
 *Captain sign-off: 2026-04-30 02:08 GMT+8 — P1-P6 代码 100%, API 15/15 全绿, 准备交接给 CC 接手测试阶段。*
+
+*CC sign-off: 2026-04-30 03:15 GMT+8 — Debug pass complete: 5 backend bugs (P0/P1) + 3 dashboard bugs fixed; 21/21 regression green; tsc --noEmit clean on server/agent/dashboard.*
