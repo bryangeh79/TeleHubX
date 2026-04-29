@@ -1,17 +1,10 @@
-﻿# Claude Code working files
-.claude/
-state/
-memory/
-Chat History/
-
-# Logs
+﻿node_modules/
+dist/
+.env
+data/
+logs/
 *.log
-*.err
-
-# Node
-node_modules/
-.npm/
-
-# OS
 .DS_Store
-Thumbs.db
+.npm/
+Chat History/
+memory/
