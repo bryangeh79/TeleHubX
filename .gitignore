@@ -4,7 +4,13 @@ dist/
 *.log
 logs/
 data/contexts/
-dist/
 *.exe
 *.iss
 !installer.iss
+.npm/
+Chat History/
+example.env
+CLAUDE.md
+HEARTBEAT.md
+memory/
+tools/
