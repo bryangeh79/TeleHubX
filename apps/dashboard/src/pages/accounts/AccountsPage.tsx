@@ -21,10 +21,11 @@ import {
   LockOutlined,
   UnlockOutlined,
   RedoOutlined,
+  LogoutOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { slotsApi } from '../../services/api';
+import { accountsApi, slotsApi } from '../../services/api';
 
 type Role = 'cs' | 'ad' | 'hybrid';
 type AccountStatus = 'online' | 'offline' | 'connecting' | 'error' | 'banned';
@@ -99,6 +100,19 @@ export default function AccountsPage() {
       await reload();
     } catch (err: any) {
       antdMessage.error(err?.response?.data?.message ?? 'Reset failed');
+    }
+  };
+
+  const handleRelease = async (slot: ApiSlot) => {
+    if (!slot.account) return;
+    try {
+      await accountsApi.delete(slot.account.id);
+      antdMessage.warning(
+        `Account on slot No.${slot.no} deleted. Slot is now "released" — click Reset to free it.`,
+      );
+      await reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? 'Delete failed');
     }
   };
 
@@ -222,13 +236,32 @@ export default function AccountsPage() {
     {
       title: 'Actions',
       key: 'actions',
-      width: 130,
+      width: 220,
       render: (_, slot) => {
         if (slot.status === 'occupied' && slot.account) {
           return (
-            <Button size="small" onClick={() => navigate(`/accounts/${slot.account!.id}`)}>
-              Detail
-            </Button>
+            <Space size={4}>
+              <Button size="small" onClick={() => navigate(`/accounts/${slot.account!.id}`)}>
+                Detail
+              </Button>
+              <Popconfirm
+                title={`Delete account on slot No.${slot.no}?`}
+                description={
+                  <div style={{ maxWidth: 280 }}>
+                    Removes the encrypted session and all account-bound data.
+                    Slot No.{slot.no} becomes <Typography.Text strong>released</Typography.Text>{' '}
+                    and stays parked until you click <Typography.Text strong>Reset</Typography.Text>.
+                  </div>
+                }
+                okText="Delete"
+                okButtonProps={{ danger: true }}
+                onConfirm={() => handleRelease(slot)}
+              >
+                <Button size="small" danger icon={<LogoutOutlined />}>
+                  Release
+                </Button>
+              </Popconfirm>
+            </Space>
           );
         }
         if (slot.status === 'released') {

@@ -6,112 +6,259 @@ import { registerSignalHandlers, onShutdown } from './shutdown';
 import { ConnectionManager } from './telegram/telegram-client.service';
 import { attachMessageHandler } from './telegram/message-handler';
 import { KeepOnlineService } from './telegram/keeponline';
-import { WarmupController, WarmupPhase } from './warmup/warmup.controller';
-import { CampaignExecutor } from './campaign/campaign.executor';
 import { AiReplyService } from './ai/ai-reply.service';
 
-// Register signal + uncaughtException handlers first so nothing slips through
+// ───────────────────────────────────────────────────────────────────────────
+// DB-driven multi-account agent.
+//
+// On boot it asks the server for every account with sessionEncrypted=true,
+// fetches each session via /accounts/:id/session/raw, and connects them
+// over GramJS using the platform's TG_API_ID / TG_API_HASH. Then a poll
+// loop every POLL_INTERVAL_MS:
+//   - picks up newly-bound accounts (BindWizard / CSV import)
+//   - drops accounts that were deleted from the dashboard
+//   - sends /accounts/:id/heartbeat for every connected account so the
+//     dashboard's status column reflects reality instead of stale 'offline'
+//
+// The legacy single-account .env path (TG_PHONE / TG_SESSION / ACCOUNT_ID)
+// is gone — DB is now the source of truth. TG_API_ID / TG_API_HASH stay
+// in .env because they're platform-level credentials.
+// ───────────────────────────────────────────────────────────────────────────
+
+interface ApiAccount {
+  id: string;
+  phoneNumber: string;
+  role: 'cs' | 'ad' | 'hybrid';
+  sessionEncrypted: boolean;
+  proxyConfig?: { host: string; port: number; username?: string; password?: string } | null;
+  proxyId?: string | null;
+}
+
+interface ApiProxy {
+  id: string;
+  type: string;
+  host: string;
+  port: number;
+  username?: string;
+  password?: string;
+  status: string;
+}
+
+interface ConnectedSlot {
+  client: import('telegram').TelegramClient;
+  keepOnline: KeepOnlineService;
+  role: ApiAccount['role'];
+}
+
+const SERVER_URL = (process.env.SERVER_URL ?? 'http://localhost:9600').replace(/\/$/, '');
+const API_BASE = `${SERVER_URL}/api/v1`;
+const POLL_INTERVAL_MS = parseInt(process.env.AGENT_POLL_INTERVAL_MS ?? '30000', 10);
+const HEARTBEAT_TIMEOUT_MS = 5_000;
+const FETCH_TIMEOUT_MS = 10_000;
+
 registerSignalHandlers();
+
+async function fetchJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      signal: ctrl.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init.headers ?? {}),
+      },
+    });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} ${res.statusText} on ${path}`);
+    }
+    return (await res.json()) as T;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function postNoBody(path: string): Promise<void> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), HEARTBEAT_TIMEOUT_MS);
+  try {
+    await fetch(`${API_BASE}${path}`, { method: 'POST', signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function bootstrap(): Promise<void> {
   const apiId = parseInt(process.env.TG_API_ID ?? '0', 10);
   const apiHash = process.env.TG_API_HASH ?? '';
-  const phone = process.env.TG_PHONE ?? '';
-  const session = process.env.TG_SESSION ?? '';
-
-  if (!apiId || !apiHash || !phone) {
-    logger.warn('TeleHubX Agent — set TG_API_ID, TG_API_HASH, TG_PHONE, TG_SESSION in .env to connect');
+  if (!apiId || !apiHash) {
+    logger.error('TG_API_ID / TG_API_HASH missing in .env — agent cannot start');
     return;
   }
 
-  // --- Telegram connection ---
   const manager = new ConnectionManager();
-  const keepOnline = new KeepOnlineService();
+  const slots = new Map<string, ConnectedSlot>(); // accountId → connected resources
 
-  const proxy = process.env.TG_PROXY_IP
-    ? {
-        ip: process.env.TG_PROXY_IP,
-        port: parseInt(process.env.TG_PROXY_PORT ?? '1080', 10),
-        socksType: 5 as const,
-        username: process.env.TG_PROXY_USER,
-        password: process.env.TG_PROXY_PASS,
-      }
-    : undefined;
-
-  const accountId = process.env.ACCOUNT_ID ?? 'account-1';
-  const accountRole = (process.env.ACCOUNT_ROLE ?? 'ad') as 'ad' | 'cs' | 'hybrid';
-
-  logger.info(`Connecting account ${accountId} (role: ${accountRole})`);
-
-  const client = await manager.addAccount(accountId, {
-    phoneNumber: phone,
-    sessionString: session,
-    apiId,
-    apiHash,
-    proxy,
-  });
-
-  const me = await client.getMe();
-  logger.info(`Logged in as ${(me as { username?: string }).username ?? phone} (state: ${manager.getState(accountId)})`);
-
-  // --- P4: AI Reply (cs role only, opt-in via env) ---
+  // Optional CS-role AI reply (shared across all cs accounts)
   let aiReplyService: AiReplyService | undefined;
-  if (accountRole === 'cs' && process.env.AI_API_KEY) {
+  if (process.env.AI_API_KEY ?? process.env.OPENAI_API_KEY ?? process.env.DEEPSEEK_API_KEY) {
     aiReplyService = new AiReplyService({
       provider: (process.env.AI_PROVIDER ?? 'openai') as AiReplyService['config']['provider'],
-      apiKey: process.env.AI_API_KEY,
+      apiKey:
+        process.env.AI_API_KEY ??
+        process.env.OPENAI_API_KEY ??
+        process.env.DEEPSEEK_API_KEY ??
+        '',
       baseUrl: process.env.AI_BASE_URL,
       model: process.env.AI_MODEL,
       systemPrompt: process.env.AI_SYSTEM_PROMPT,
       tenantName: process.env.TENANT_NAME ?? 'TeleHubX',
       botName: process.env.BOT_USERNAME ?? 'your_bot',
     });
-    logger.info(`[AI] Provider: ${process.env.AI_PROVIDER ?? 'openai'}, model: ${process.env.AI_MODEL ?? 'default'}`);
+    logger.info(`[AI] Reply service initialized (provider=${process.env.AI_PROVIDER ?? 'openai'})`);
   }
 
-  // --- Message handler ---
-  attachMessageHandler(client, {
-    role: accountRole,
-    accountId,
-    botUsername: process.env.BOT_USERNAME ?? 'your_bot',
-    adGroupFaqReply: process.env.AD_GROUP_FAQ_REPLY ?? 'For more details please DM our bot!',
-    aiReplyService,
-  });
-
-  // --- KeepOnline heartbeat ---
-  keepOnline.start(client);
-  logger.info('KeepOnline active');
-
-  // --- P2: Warmup controller (opt-in via env) ---
-  let warmup: WarmupController | undefined;
-  const warmupPhaseEnv = process.env.WARMUP_PHASE;
-  if (warmupPhaseEnv !== undefined) {
-    const phase = parseInt(warmupPhaseEnv, 10) as WarmupPhase;
-    const groupPeers = process.env.WARMUP_PEERS?.split(',').map((s) => s.trim()).filter(Boolean) ?? [];
-    const contentPool = process.env.WARMUP_CONTENT?.split('|').map((s) => s.trim()).filter(Boolean) ?? [];
-    warmup = new WarmupController(client, { accountId, phase, groupPeers, contentPool });
-    warmup.start();
+  async function resolveProxy(account: ApiAccount): Promise<ConnectedSlot extends never ? never : import('./telegram/telegram-client.factory').ProxyConfig | undefined> {
+    if (account.proxyConfig?.host && account.proxyConfig.port) {
+      return {
+        ip: account.proxyConfig.host,
+        port: account.proxyConfig.port,
+        socksType: 5 as const,
+        username: account.proxyConfig.username,
+        password: account.proxyConfig.password,
+      };
+    }
+    if (account.proxyId) {
+      try {
+        const p = await fetchJson<ApiProxy>(`/proxies/${account.proxyId}`);
+        if (p && p.status === 'active' && (p.type === 'socks5' || p.type === 'socks4')) {
+          return {
+            ip: p.host,
+            port: p.port,
+            socksType: (p.type === 'socks4' ? 4 : 5) as 4 | 5,
+            username: p.username,
+            password: p.password,
+          };
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.warn(`[proxy] failed to load ${account.proxyId.slice(0, 8)}: ${msg}`);
+      }
+    }
+    return undefined;
   }
 
-  // --- P3: Campaign executor (opt-in via env) ---
-  let campaign: CampaignExecutor | undefined;
-  const serverUrl = process.env.SERVER_URL;
-  if (serverUrl) {
-    campaign = new CampaignExecutor(client, accountId, serverUrl);
-    campaign.start();
-    logger.info(`[Campaign] Executor polling ${serverUrl}`);
+  async function connect(account: ApiAccount): Promise<void> {
+    if (slots.has(account.id)) return;
+
+    let session: string;
+    try {
+      const r = await fetchJson<{ session: string }>(`/accounts/${account.id}/session/raw`);
+      session = r.session ?? '';
+    } catch (err: unknown) {
+      logger.error(`[connect] ${account.id.slice(0, 8)} session fetch failed: ${err instanceof Error ? err.message : err}`);
+      return;
+    }
+    if (!session) {
+      logger.warn(`[connect] ${account.id.slice(0, 8)} has empty session — skipping`);
+      return;
+    }
+
+    const proxy = await resolveProxy(account);
+
+    let client: import('telegram').TelegramClient;
+    try {
+      client = await manager.addAccount(account.id, {
+        phoneNumber: account.phoneNumber,
+        sessionString: session,
+        apiId,
+        apiHash,
+        proxy,
+      });
+    } catch (err: unknown) {
+      logger.error(`[connect] ${account.id.slice(0, 8)} addAccount failed: ${err instanceof Error ? err.message : err}`);
+      return;
+    }
+
+    attachMessageHandler(client, {
+      role: account.role,
+      accountId: account.id,
+      botUsername: process.env.BOT_USERNAME ?? 'your_bot',
+      adGroupFaqReply: process.env.AD_GROUP_FAQ_REPLY ?? 'For more details please DM our bot!',
+      aiReplyService: account.role === 'cs' ? aiReplyService : undefined,
+    });
+
+    const keepOnline = new KeepOnlineService();
+    keepOnline.start(client);
+
+    slots.set(account.id, { client, keepOnline, role: account.role });
+    logger.info(`[connect] ${account.id.slice(0, 8)} role=${account.role} phone=${account.phoneNumber} proxy=${proxy ? proxy.ip + ':' + proxy.port : '(direct)'} ✓`);
   }
 
-  // --- Graceful shutdown hooks ---
+  async function disconnect(accountId: string): Promise<void> {
+    const slot = slots.get(accountId);
+    if (!slot) return;
+    slot.keepOnline.stop();
+    await manager.removeAccount(accountId).catch(() => {});
+    slots.delete(accountId);
+    logger.info(`[disconnect] ${accountId.slice(0, 8)} ✓`);
+  }
+
+  async function syncFromDb(): Promise<void> {
+    let accounts: ApiAccount[];
+    try {
+      accounts = await fetchJson<ApiAccount[]>('/accounts');
+    } catch (err: unknown) {
+      logger.warn(`[sync] /accounts unreachable: ${err instanceof Error ? err.message : err}`);
+      return;
+    }
+
+    const wantConnected = accounts.filter((a) => a.sessionEncrypted);
+    const dbIds = new Set(wantConnected.map((a) => a.id));
+
+    // Connect newcomers
+    for (const a of wantConnected) {
+      if (!slots.has(a.id)) {
+        await connect(a);
+      }
+    }
+
+    // Drop departed
+    for (const id of [...slots.keys()]) {
+      if (!dbIds.has(id)) {
+        await disconnect(id);
+      }
+    }
+
+    // Heartbeat: tell server we're online for each connected account
+    for (const id of slots.keys()) {
+      try {
+        await postNoBody(`/accounts/${id}/heartbeat`);
+      } catch (err: unknown) {
+        // non-fatal — server may briefly be unavailable; next tick retries
+        logger.warn(`[heartbeat] ${id.slice(0, 8)} ${err instanceof Error ? err.message : err}`);
+      }
+    }
+  }
+
+  // Initial sync (block boot until first attempt; subsequent are fire-and-forget)
+  await syncFromDb();
+  logger.info(`Initial sync complete — ${slots.size} account(s) connected`);
+
+  const pollTimer = setInterval(() => {
+    void syncFromDb();
+  }, POLL_INTERVAL_MS);
+
   onShutdown(async () => {
-    warmup?.stop();
-    campaign?.stop();
-    keepOnline.stop();
-    await manager.removeAccount(accountId);
-    logger.info(`Account ${accountId} disconnected`);
+    clearInterval(pollTimer);
+    for (const id of [...slots.keys()]) {
+      await disconnect(id);
+    }
+    logger.info('Agent shutdown complete');
   });
 
-  logger.info(`TeleHubX Agent ready — account ${accountId}, role ${accountRole}`);
+  logger.info(`TeleHubX Agent ready — server=${SERVER_URL} poll=${POLL_INTERVAL_MS}ms`);
 }
 
 bootstrap().catch((err: unknown) => {
