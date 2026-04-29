@@ -34,6 +34,7 @@ export const warmupApi = {
   advance: (id: string) => api.post(`/accounts/${id}/warmup/advance`),
   status:  (id: string) => api.get(`/accounts/${id}/warmup`),
   pause:   (id: string) => api.post(`/accounts/${id}/warmup/pause`),
+  resume:  (id: string) => api.post(`/accounts/${id}/warmup/resume`),
 };
 
 export const campaignsApi = {
@@ -48,6 +49,8 @@ export const campaignsApi = {
 export const leadsApi = {
   list: (params?: any) => api.get('/leads', { params }),
   get: (id: string) => api.get(`/leads/${id}`),
+  create: (data: any) => api.post('/leads', data),
+  delete: (id: string) => api.delete(`/leads/${id}`),
   assign: (id: string, csAccountId: string) =>
     api.post(`/leads/${id}/assign`, { csAccountId }),
   addNote: (id: string, note: string) =>
@@ -57,8 +60,10 @@ export const leadsApi = {
 };
 
 export const aiApi = {
+  info: () => api.get('/ai/info'),
   reply: (data: any) => api.post('/ai/reply', data),
   faq: (data: any) => api.post('/ai/faq', data),
+  clearConversation: (chatId: string) => api.delete(`/ai/conversation/${chatId}`),
 };
 
 export const proxiesApi = {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Table,
@@ -8,31 +8,38 @@ import {
   Space,
   Typography,
   Popconfirm,
-  message,
   Badge,
+  Tooltip,
+  message as antdMessage,
 } from 'antd';
 import {
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
-  PlayCircleOutlined,
-  PauseCircleOutlined,
+  SendOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import { campaignsApi } from '../../services/api';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
 type CampaignStatus = 'draft' | 'scheduled' | 'running' | 'paused' | 'completed';
+type CampaignType = 'broadcast' | 'sequential';
 
-interface Campaign {
+interface ApiCampaign {
   id: string;
   name: string;
+  description: string | null;
+  type: CampaignType;
   status: CampaignStatus;
-  targetGroups: number;
-  accountCount: number;
+  targets: string[] | null;
+  messageVariants: Array<{ text: string; mediaUrl?: string }> | null;
   sentCount: number;
-  targetCount: number;
+  replyCount: number;
+  scheduledAt: string | null;
+  completedAt: string | null;
   createdAt: string;
 }
 
@@ -44,75 +51,113 @@ const STATUS_BADGE: Record<CampaignStatus, 'default' | 'warning' | 'processing' 
   completed: 'success',
 };
 
-const MOCK: Campaign[] = [
-  { id: '1', name: 'April Property Leads',  status: 'running',   targetGroups: 8,  accountCount: 3, sentCount: 180, targetCount: 300, createdAt: '2026-04-20T08:00:00Z' },
-  { id: '2', name: 'Insurance Warm Leads',  status: 'paused',    targetGroups: 5,  accountCount: 2, sentCount: 60,  targetCount: 200, createdAt: '2026-04-22T10:00:00Z' },
-  { id: '3', name: 'May Launch — Draft',    status: 'draft',     targetGroups: 0,  accountCount: 0, sentCount: 0,   targetCount: 0,   createdAt: '2026-04-29T15:00:00Z' },
-  { id: '4', name: 'Q1 Promo Recap',        status: 'completed', targetGroups: 12, accountCount: 5, sentCount: 500, targetCount: 500, createdAt: '2026-03-01T08:00:00Z' },
-];
-
 export default function CampaignsPage() {
   const navigate = useNavigate();
-  const [campaigns, setCampaigns] = useState<Campaign[]>(MOCK);
+  const [campaigns, setCampaigns] = useState<ApiCampaign[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const handleDelete = (id: string) => {
-    setCampaigns(prev => prev.filter(c => c.id !== id));
-    message.success('Campaign deleted');
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await campaignsApi.list();
+      setCampaigns(Array.isArray(res.data) ? res.data : []);
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? 'Failed to load campaigns');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const handleDelete = async (c: ApiCampaign) => {
+    try {
+      await campaignsApi.delete(c.id);
+      antdMessage.success(`Deleted "${c.name}"`);
+      await reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? 'Delete failed');
+    }
   };
 
-  const toggleStatus = (id: string) => {
-    setCampaigns(prev =>
-      prev.map(c => {
-        if (c.id !== id) return c;
-        const next: CampaignStatus = c.status === 'running' ? 'paused' : 'running';
-        return { ...c, status: next };
-      })
-    );
+  const handleSend = async (c: ApiCampaign) => {
+    try {
+      const res = await campaignsApi.send(c.id);
+      const targets = res.data?.targets ?? 0;
+      antdMessage.success(`Campaign queued — ${targets} target(s)`);
+      await reload();
+    } catch (err: any) {
+      const msg = err?.response?.data?.message;
+      antdMessage.error(Array.isArray(msg) ? msg.join('; ') : msg ?? 'Send failed');
+    }
   };
 
-  const columns: ColumnsType<Campaign> = [
+  const columns: ColumnsType<ApiCampaign> = [
     {
       title: 'Name',
       dataIndex: 'name',
       key: 'name',
+      render: (v: string, r) => (
+        <div>
+          <Text strong>{v}</Text>
+          {r.description ? (
+            <div>
+              <Text type="secondary" style={{ fontSize: 11 }}>{r.description}</Text>
+            </div>
+          ) : null}
+        </div>
+      ),
+    },
+    {
+      title: 'Type',
+      dataIndex: 'type',
+      key: 'type',
+      width: 110,
+      render: (t: CampaignType) => (
+        <Tag color={t === 'broadcast' ? 'blue' : 'purple'}>{t.toUpperCase()}</Tag>
+      ),
     },
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: 120,
-      render: (s: CampaignStatus) => (
-        <Badge status={STATUS_BADGE[s]} text={s} />
-      ),
+      width: 110,
+      render: (s: CampaignStatus) => <Badge status={STATUS_BADGE[s]} text={s} />,
     },
     {
-      title: 'Groups',
-      dataIndex: 'targetGroups',
-      key: 'targetGroups',
+      title: 'Targets',
+      key: 'targets',
       width: 80,
       align: 'center',
+      render: (_, r) => r.targets?.length ?? 0,
     },
     {
-      title: 'Accounts',
-      dataIndex: 'accountCount',
-      key: 'accountCount',
-      width: 90,
+      title: 'Variants',
+      key: 'variants',
+      width: 80,
       align: 'center',
+      render: (_, r) => r.messageVariants?.length ?? 0,
     },
     {
       title: 'Progress',
       key: 'progress',
       width: 180,
       render: (_, r) => {
-        if (r.targetCount === 0) return <Tag>Not started</Tag>;
-        const pct = Math.round((r.sentCount / r.targetCount) * 100);
+        const total = r.targets?.length ?? 0;
+        if (total === 0) return <Tag>No targets</Tag>;
+        const pct = Math.round((r.sentCount / total) * 100);
         return (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
               <span>{r.sentCount} sent</span>
-              <span>{r.targetCount} target</span>
+              <span>{total} target</span>
             </div>
             <Progress percent={pct} size="small" showInfo={false} />
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              {r.replyCount} replies
+            </Text>
           </div>
         );
       },
@@ -121,59 +166,74 @@ export default function CampaignsPage() {
       title: 'Created',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      width: 130,
+      width: 110,
       render: (v: string) => dayjs(v).format('YYYY-MM-DD'),
     },
     {
       title: 'Actions',
       key: 'actions',
-      width: 160,
-      render: (_, record) => (
-        <Space size="small">
-          {(record.status === 'running' || record.status === 'paused' || record.status === 'scheduled') && (
+      width: 200,
+      render: (_, record) => {
+        const canSend = record.status === 'draft' || record.status === 'scheduled' || record.status === 'paused';
+        return (
+          <Space size={4}>
+            {canSend && (record.targets?.length ?? 0) > 0 && (
+              <Tooltip title="Queue this campaign for dispatch">
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={<SendOutlined />}
+                  onClick={() => handleSend(record)}
+                >
+                  Send
+                </Button>
+              </Tooltip>
+            )}
             <Button
               size="small"
-              icon={record.status === 'running' ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
-              onClick={() => toggleStatus(record.id)}
+              icon={<EditOutlined />}
+              onClick={() => navigate(`/campaigns/${record.id}/edit`)}
+            />
+            <Popconfirm
+              title={`Delete "${record.name}"?`}
+              onConfirm={() => handleDelete(record)}
+              okText="Delete"
+              okButtonProps={{ danger: true }}
             >
-              {record.status === 'running' ? 'Pause' : 'Resume'}
-            </Button>
-          )}
-          <Button
-            size="small"
-            icon={<EditOutlined />}
-            onClick={() => navigate(`/campaigns/${record.id}/edit`)}
-          />
-          <Popconfirm
-            title="Delete this campaign?"
-            onConfirm={() => handleDelete(record.id)}
-            okText="Delete"
-            okType="danger"
-          >
-            <Button size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
-      ),
+              <Button size="small" danger icon={<DeleteOutlined />} />
+            </Popconfirm>
+          </Space>
+        );
+      },
     },
   ];
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>Campaigns</Title>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => navigate('/campaigns/new')}
-        >
-          New Campaign
-        </Button>
+        <Title level={4} style={{ margin: 0 }}>
+          Campaigns{' '}
+          <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>({campaigns.length})</Text>
+        </Title>
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>
+            Refresh
+          </Button>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => navigate('/campaigns/new')}
+          >
+            New Campaign
+          </Button>
+        </Space>
       </div>
 
       <Table
         columns={columns}
         dataSource={campaigns}
         rowKey="id"
+        loading={loading}
         pagination={{ pageSize: 20, hideOnSinglePage: true }}
         size="middle"
       />

@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom';
 import DashboardLayout from './components/DashboardLayout';
 import DashboardPage from './pages/DashboardPage';
 import AccountsPage from './pages/accounts/AccountsPage';
+import AccountDetailPage from './pages/accounts/AccountDetailPage';
 import BindWizard from './pages/accounts/BindWizard';
 import ImportAccounts from './pages/accounts/ImportAccounts';
 import WarmupPage from './pages/warmup/WarmupPage';
@@ -21,6 +22,7 @@ const App: React.FC = () => (
       <Route path="accounts" element={<AccountsPage />} />
       <Route path="accounts/bind" element={<BindWizard />} />
       <Route path="accounts/import" element={<ImportAccounts />} />
+      <Route path="accounts/:id" element={<AccountDetailPage />} />
       <Route path="warmup" element={<WarmupPage />} />
       <Route path="campaigns" element={<CampaignsPage />} />
       <Route path="campaigns/new" element={<CampaignForm />} />
