@@ -104,6 +104,9 @@ telehubx/
 | POST | `/:id/warmup/pause` | 暂停暖号 |
 | POST | `/:id/warmup/resume` | 恢复暖号 |
 | GET | `/:id/warmup` | 暖号状态 |
+| POST | `/:id/bind/init` | 触发 Telegram OTP（BindWizard 第 1 步）|
+| POST | `/:id/bind/verify` | 提交 OTP（+ 可选 2FA 密码）完成绑定 |
+| POST | `/:id/bind/cancel` | 取消进行中的 bind 会话 |
 
 ### Campaigns (`/api/v1/campaigns`)
 | Method | Path | Description |
@@ -191,6 +194,43 @@ telehubx/
 ```json
 { "text": "thanks for reaching out, can we schedule a call?" }
 ```
+
+### POST `/accounts/:id/bind/init`
+```json
+{ "phone": "+60123456789" }
+```
+返回 `{phoneCodeHash, expiresIn, codeType}`。Telegram 立刻给该手机的官方 Telegram App 发 OTP（不是 SMS，除非该手机没装 app）。`phoneCodeHash` 客户端不用管，server 端记在内存里 5 分钟。
+
+### POST `/accounts/:id/bind/verify`
+```json
+// 第一次提交 OTP
+{ "code": "12345" }
+
+// 如果上一步返回了 needsPassword:true，再提交一次带 2FA 密码
+{ "code": "12345", "password": "your-cloud-pw" }
+```
+
+返回有两种形态：
+
+**需要 2FA**：
+```json
+{ "ok": false, "needsPassword": true, "hint": "可选，TG 给的密码提示" }
+```
+
+**绑定成功**：
+```json
+{
+  "ok": true, "needsPassword": false,
+  "user": { "id": "12345678", "username": "bg19", "firstName": "BG", "phone": "60xxxx" }
+}
+```
+session string 已加密存进 `accounts.session_string`，**不会**通过响应返回。
+
+### POST `/accounts/:id/bind/cancel`
+```json
+// no body
+```
+返回 `{ok: true, cancelled: <bool>}`。把 server 端 in-memory 的 GramJS client disconnect 并清掉。幂等 — 没在进行中的 bind 也返回 `cancelled:false`。
 追加到 `lead.replies[]`（`{text, sentBy:'human', ts}`）；若 lead 不在 `converted`/`closed`，状态更新为 `in_progress`。**当前是数据层 audit，不会真去 Telegram 发；后续 agent 拨号时再绑发送。**
 
 ### POST `/accounts/:id/bind-ip`
@@ -295,10 +335,12 @@ AI_BASE_URL=                  # 全局覆盖 baseURL（不设则用 provider 标
 ### ⚠️ 仍未做的
 1. ~~Backend 暂无 warmup pause / lead reply~~ → **已补**
 2. ~~Dashboard 生产 build 没验证过~~ → **已验证**
-3. ~~AI 路径只有 OpenAI~~ → **已补**：openai / deepseek / gemini 三家共用 OpenAI SDK，`AI_PROVIDER` env + 每请求 `provider` 字段切换；新增 `GET /ai/info` 列可用性
-4. **Lead reply 是数据层 audit**：写 `lead.replies[]` + 切 `in_progress`，**没有真发到 Telegram**。等 agent 拨号工人接入后才能形成完整闭环
-5. **Schema 变更需手动 SQL**：`pm2` 跑的是 `dist/main.js` 且 ecosystem 强制 `NODE_ENV=production`，TypeORM `synchronize` 关闭。新增列时必须手动 `ALTER TABLE`。生产应改用 typeorm migrations
-6. **Anthropic Claude 没列在 provider 里**：和 GPT/DeepSeek/Gemini 不同，Claude 的 wire 协议不兼容 OpenAI Chat Completions（messages shape 不同），不能共用一个 SDK。要支持得加 `@anthropic-ai/sdk` 依赖 + 第二份 client 实现
+3. ~~AI 路径只有 OpenAI~~ → **已补**
+4. ~~BindWizard 是空 placeholder~~ → **已补**（B1）：dashboard 3 步向导（Setup → Verify → Done），server 端 `/bind/init` + `/bind/verify` + `/bind/cancel` 三端点，2FA 自动 fallback
+5. **Lead reply 是数据层 audit**：写 `lead.replies[]` + 切 `in_progress`，**没有真发到 Telegram**。等 agent 拨号工人接入后才能形成完整闭环
+6. **Agent 不会自动发现 BindWizard 新绑的账号**：bind 完后 session 进 DB，但 agent 启动时只读 `.env` 里的 `TG_SESSION`。要让 agent 多账号热加载需要：(a) agent 启动时 `SELECT * FROM accounts WHERE session_encrypted=true` 全部连，或 (b) server → agent 推送 "new account ready" 事件。两者都属于 C2 / 多账号编排范畴
+7. **Schema 变更需手动 SQL**：`pm2` 跑 `dist/main.js` 且 ecosystem 强制 `NODE_ENV=production`，TypeORM `synchronize` 关闭。新增列必须手动 `ALTER TABLE`。生产应改用 typeorm migrations
+8. **Anthropic Claude 没列在 provider 里**：和 GPT/DeepSeek/Gemini 不同，Claude wire 协议不兼容 OpenAI Chat Completions，不能共用一个 SDK。要支持得加 `@anthropic-ai/sdk` 依赖 + 第二份 client 实现
 
 ### 📦 部署
 1. **Inno Setup 打包**: 脚本 `installer.iss` 写好了，需安装 Inno Setup 6 后运行 `ISCC.exe installer.iss` 生成 .exe
@@ -367,3 +409,9 @@ pnpm --filter @telehubx/server build
 *CC follow-up: 2026-04-30 03:30 GMT+8 — Filled gaps surfaced during debug: dashboard prod build validated; new endpoints `POST /accounts/:id/warmup/{pause,resume}` and `POST /leads/:id/reply`; lead replies audit column added; dead `health/` subdir removed; `example.env` updated to match runtime config; 13/13 new-endpoint smoke + 3/3 regression green.*
 
 *CC follow-up #2: 2026-04-30 03:45 GMT+8 — AI multi-provider abstraction landed. Single `openai` SDK serves three providers (openai / deepseek / gemini) via baseURL switching; provider chosen by `AI_PROVIDER` env or per-request `provider` field in DTO; new `GET /ai/info` exposes configured-state matrix. Verified end-to-end: gemini routing literally reaches Google's API (logs show `provider=gemini status=429`). 9/10 smoke + 4/4 regression green; tsc + nest build clean. Claude not included — it doesn't speak OpenAI wire protocol natively.*
+
+*CC follow-up #3: 2026-04-30 04:30 GMT+8 — Real-account end-to-end validation. Built one-shot CLI login wizard at `apps/agent/scripts/login-wizard.ts` (tsx). User completed phone+OTP+2FA dance against a live Malaysian Telegram account; StringSession persisted to `.env`. Agent went online via pm2, connected to TG DC 91.108.56.155 LAYER 198, KeepOnline ticking. Inbound DM auto-divert to bot username + group @-mention FAQ reply both verified live. Confirmed `.env` was leaking into git tracking; fixed by extending `.gitignore` and `git rm --cached .env` (no secrets actually pushed yet — only project default DB creds were ever tracked).*
+
+*CC follow-up #4: 2026-04-30 04:50 GMT+8 — B1 BindWizard. Server-side `BindOrchestratorService` (in-memory `accountId → TelegramClient` map, 5min TTL, GC every 60s) drives `auth.SendCode` / `auth.SignIn` / `auth.CheckPassword` for tenant-self-service account binding. Three new endpoints (`/bind/init`, `/bind/verify`, `/bind/cancel`) on `accounts` controller. Dashboard `BindWizard.tsx` rewritten as real 3-step UI (Setup → Verify → Done), with automatic 2FA gate, OTP resend, and rollback-on-error (deletes the account record if `/bind/init` fails). Boundary smoke green (10/10: phone format, missing fields, non-UUID id, missing account, verify-without-init, idempotent cancel, etc). Live-flow smoke deferred — would consume a real OTP on the user's phone.*
+
+*Important sidefix: server's `ConfigModule` was loading `.env` at relative path `'.env'`, which under pm2 (cwd=`apps/server`) failed to find the project-root file. Only OPENAI_API_KEY was working because it's set as a Windows system env var. Changed to `envFilePath: ['../../.env', '.env']`. Now TG_API_ID / TG_API_HASH / DEEPSEEK_API_KEY / etc. flow correctly through ConfigService.*

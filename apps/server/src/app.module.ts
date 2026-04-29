@@ -14,7 +14,8 @@ import { LoggerModule } from './logger/logger.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      // Project-root .env (cwd when pm2 launches dist/main.js is apps/server)
+      envFilePath: ['../../.env', '.env'],
     }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],

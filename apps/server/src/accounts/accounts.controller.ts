@@ -13,6 +13,9 @@ import {
 } from '@nestjs/common';
 import { AccountRole, AccountStatus } from './account.entity';
 import { AccountsService } from './accounts.service';
+import { BindOrchestratorService } from './bind/bind.service';
+import { BindInitDto } from './bind/dto/bind-init.dto';
+import { BindVerifyDto } from './bind/dto/bind-verify.dto';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { ReportHealthDto } from './dto/report-health.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
@@ -24,6 +27,7 @@ export class AccountsController {
   constructor(
     private readonly service: AccountsService,
     private readonly warmupService: WarmupService,
+    private readonly bindService: BindOrchestratorService,
   ) {}
 
   @Post()
@@ -127,5 +131,31 @@ export class AccountsController {
   @Get(':id/session/raw')
   getDecryptedSession(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.getDecryptedSession(id).then((session) => ({ session }));
+  }
+
+  // === BindWizard endpoints ===
+
+  @Post(':id/bind/init')
+  @HttpCode(HttpStatus.OK)
+  bindInit(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: BindInitDto,
+  ) {
+    return this.bindService.init(id, dto.phone);
+  }
+
+  @Post(':id/bind/verify')
+  @HttpCode(HttpStatus.OK)
+  bindVerify(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: BindVerifyDto,
+  ) {
+    return this.bindService.verify(id, dto.code, dto.password);
+  }
+
+  @Post(':id/bind/cancel')
+  @HttpCode(HttpStatus.OK)
+  bindCancel(@Param('id', ParseUUIDPipe) id: string) {
+    return this.bindService.cancel(id);
   }
 }

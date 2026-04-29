@@ -21,6 +21,12 @@ export const accountsApi = {
   heartbeat: (id: string) => api.post(`/accounts/${id}/heartbeat`),
   import: (accounts: any[]) => api.post('/accounts/import', { accounts }),
   healthStats: () => api.get('/accounts/health-stats'),
+  // BindWizard endpoints
+  bindInit: (id: string, phone: string) =>
+    api.post(`/accounts/${id}/bind/init`, { phone }),
+  bindVerify: (id: string, code: string, password?: string) =>
+    api.post(`/accounts/${id}/bind/verify`, password ? { code, password } : { code }),
+  bindCancel: (id: string) => api.post(`/accounts/${id}/bind/cancel`),
 };
 
 export const warmupApi = {
