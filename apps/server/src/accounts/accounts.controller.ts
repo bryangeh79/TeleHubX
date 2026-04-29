@@ -106,6 +106,18 @@ export class AccountsController {
     return this.warmupService.getStatus(id);
   }
 
+  @Post(':id/warmup/pause')
+  @HttpCode(HttpStatus.OK)
+  warmupPause(@Param('id', ParseUUIDPipe) id: string) {
+    return this.warmupService.pause(id);
+  }
+
+  @Post(':id/warmup/resume')
+  @HttpCode(HttpStatus.OK)
+  warmupResume(@Param('id', ParseUUIDPipe) id: string) {
+    return this.warmupService.resume(id);
+  }
+
   @Post(':id/bind-ip')
   @HttpCode(HttpStatus.OK)
   bindIp(@Param('id', ParseUUIDPipe) id: string, @Body('ip') ip: string) {

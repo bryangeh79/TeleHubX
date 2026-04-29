@@ -20,6 +20,12 @@ export enum LeadStatus {
   CLOSED = 'closed',
 }
 
+export interface LeadReply {
+  text: string;
+  sentBy: 'system' | 'human';
+  ts: string;
+}
+
 @Entity('leads')
 export class Lead {
   @PrimaryGeneratedColumn('uuid')
@@ -54,6 +60,9 @@ export class Lead {
 
   @Column({ type: 'simple-array', nullable: true })
   notes: string[];
+
+  @Column({ type: 'jsonb', nullable: true })
+  replies: LeadReply[];
 
   @CreateDateColumn()
   createdAt: Date;

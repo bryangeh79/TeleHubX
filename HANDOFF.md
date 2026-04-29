@@ -101,6 +101,8 @@ telehubx/
 | POST | `/:id/bind-ip` | IP 绑定 |
 | POST | `/:id/warmup/start` | 启动暖号 (Phase 0) |
 | POST | `/:id/warmup/advance` | 推进暖号阶段 |
+| POST | `/:id/warmup/pause` | 暂停暖号 |
+| POST | `/:id/warmup/resume` | 恢复暖号 |
 | GET | `/:id/warmup` | 暖号状态 |
 
 ### Campaigns (`/api/v1/campaigns`)
@@ -121,6 +123,7 @@ telehubx/
 | GET | `/:id` | 获取详情 |
 | POST | `/:id/assign` | 分配 CS 账号 |
 | POST | `/:id/note` | 添加跟进备注 |
+| POST | `/:id/reply` | 客服回复（写 audit + 状态→in_progress） |
 | DELETE | `/:id` | 删除 |
 
 ### AI (`/api/v1/ai`)
@@ -179,6 +182,12 @@ telehubx/
 ```json
 { "note": "follow up tomorrow" }
 ```
+
+### POST `/leads/:id/reply`
+```json
+{ "text": "thanks for reaching out, can we schedule a call?" }
+```
+追加到 `lead.replies[]`（`{text, sentBy:'human', ts}`）；若 lead 不在 `converted`/`closed`，状态更新为 `in_progress`。**当前是数据层 audit，不会真去 Telegram 发；后续 agent 拨号时再绑发送。**
 
 ### POST `/accounts/:id/bind-ip`
 ```json
@@ -244,9 +253,11 @@ LOG_LEVEL=info
 3. ~~Dashboard 不编译~~ → **已修**：缺失的 `DashboardLayout` 组件已建，api.ts 已补齐 `warmupApi.pause` / `leadsApi.reply` / `statsApi.overview` 并修正 warmup URL
 
 ### ⚠️ 仍未做的
-1. **Backend 暂无 warmup pause / lead reply 接口** — 前端目前调用会 404，UI 层有 try/catch 和 mock 回退；后端日后补 `POST /accounts/:id/warmup/pause` 和 `POST /leads/:id/reply` 才能真正联动
-2. **Dashboard 生产 build 没验证过**：`pnpm --filter @telehubx/dashboard build` 没跑过；目前只验证了 Vite dev server (`tsc --noEmit` 0 错)
-3. **AI 路径只有 OpenAI**：DeepSeek/Gemini/Claude 的 Provider 抽象未建
+1. ~~Backend 暂无 warmup pause / lead reply~~ → **已补**：`POST /accounts/:id/warmup/{pause,resume}` + `POST /leads/:id/reply` 全部上线
+2. ~~Dashboard 生产 build 没验证过~~ → **已验证**：`vite build` 5.6s 通过，3136 modules，0 错误（dist 单 chunk 1.2MB，仅 perf 提示）
+3. **AI 路径只有 OpenAI**：DeepSeek / Gemini / Claude 的 Provider 抽象未建
+4. **Lead reply 是数据层 audit**：写 `lead.replies[]` + 切 `in_progress`，**没有真发到 Telegram**。等 agent 拨号工人接入后才能形成完整闭环
+5. **Schema 变更需手动 SQL**：`pm2` 跑的是 `dist/main.js` 且 ecosystem 强制 `NODE_ENV=production`，TypeORM `synchronize` 关闭。新增列时必须手动 `ALTER TABLE`（或临时 `pnpm dev` 一次让 synchronize 跑）。生产应改用 typeorm migrations
 
 ### 📦 部署
 1. **Inno Setup 打包**: 脚本 `installer.iss` 写好了，需安装 Inno Setup 6 后运行 `ISCC.exe installer.iss` 生成 .exe
@@ -311,3 +322,5 @@ pnpm --filter @telehubx/server build
 *Captain sign-off: 2026-04-30 02:08 GMT+8 — P1-P6 代码 100%, API 15/15 全绿, 准备交接给 CC 接手测试阶段。*
 
 *CC sign-off: 2026-04-30 03:15 GMT+8 — Debug pass complete: 5 backend bugs (P0/P1) + 3 dashboard bugs fixed; 21/21 regression green; tsc --noEmit clean on server/agent/dashboard.*
+
+*CC follow-up: 2026-04-30 03:30 GMT+8 — Filled gaps surfaced during debug: dashboard prod build validated; new endpoints `POST /accounts/:id/warmup/{pause,resume}` and `POST /leads/:id/reply`; lead replies audit column added; dead `health/` subdir removed; `example.env` updated to match runtime config; 13/13 new-endpoint smoke + 3/3 regression green.*

@@ -39,6 +39,12 @@ export class WarmupPlan {
   @Column({ default: false })
   completed: boolean;
 
+  @Column({ default: false })
+  paused: boolean;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  pausedAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

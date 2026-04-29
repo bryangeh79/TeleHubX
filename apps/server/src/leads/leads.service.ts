@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, Repository } from 'typeorm';
-import { Lead, LeadIntent, LeadStatus } from './lead.entity';
+import { Lead, LeadIntent, LeadReply, LeadStatus } from './lead.entity';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { AssignLeadDto } from './dto/assign-lead.dto';
 
@@ -47,6 +47,20 @@ export class LeadsService {
   async addNote(id: string, note: string): Promise<Lead> {
     const lead = await this.findOne(id);
     lead.notes = [...(lead.notes || []), note];
+    return this.repo.save(lead);
+  }
+
+  async reply(id: string, text: string): Promise<Lead> {
+    const lead = await this.findOne(id);
+    const entry: LeadReply = {
+      text,
+      sentBy: 'human',
+      ts: new Date().toISOString(),
+    };
+    lead.replies = [...(lead.replies || []), entry];
+    if (lead.status !== LeadStatus.CONVERTED && lead.status !== LeadStatus.CLOSED) {
+      lead.status = LeadStatus.IN_PROGRESS;
+    }
     return this.repo.save(lead);
   }
 

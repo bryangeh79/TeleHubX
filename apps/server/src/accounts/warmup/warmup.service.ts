@@ -54,6 +54,32 @@ export class WarmupService {
     return this.repo.save(plan);
   }
 
+  async pause(accountId: string): Promise<WarmupPlan> {
+    const plan = await this.findByAccount(accountId);
+    if (plan.completed) throw new ConflictException('Warmup already completed');
+    if (plan.paused) throw new ConflictException('Warmup already paused');
+    plan.paused = true;
+    plan.pausedAt = new Date();
+    plan.actionsLog = [
+      ...(plan.actionsLog || []),
+      { phase: plan.currentPhase, action: 'paused', ts: new Date().toISOString() },
+    ];
+    return this.repo.save(plan);
+  }
+
+  async resume(accountId: string): Promise<WarmupPlan> {
+    const plan = await this.findByAccount(accountId);
+    if (plan.completed) throw new ConflictException('Warmup already completed');
+    if (!plan.paused) throw new ConflictException('Warmup is not paused');
+    plan.paused = false;
+    plan.pausedAt = null;
+    plan.actionsLog = [
+      ...(plan.actionsLog || []),
+      { phase: plan.currentPhase, action: 'resumed', ts: new Date().toISOString() },
+    ];
+    return this.repo.save(plan);
+  }
+
   async logAction(accountId: string, action: string): Promise<void> {
     const plan = await this.findByAccount(accountId);
     plan.actionsLog = [

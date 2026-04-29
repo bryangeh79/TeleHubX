@@ -14,6 +14,7 @@ import { LeadIntent, LeadStatus } from './lead.entity';
 import { LeadsService } from './leads.service';
 import { AssignLeadDto } from './dto/assign-lead.dto';
 import { CreateLeadDto } from './dto/create-lead.dto';
+import { ReplyLeadDto } from './dto/reply-lead.dto';
 
 @Controller('leads')
 export class LeadsController {
@@ -52,6 +53,12 @@ export class LeadsController {
   @HttpCode(HttpStatus.OK)
   addNote(@Param('id', ParseUUIDPipe) id: string, @Body('note') note: string) {
     return this.service.addNote(id, note);
+  }
+
+  @Post(':id/reply')
+  @HttpCode(HttpStatus.OK)
+  reply(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ReplyLeadDto) {
+    return this.service.reply(id, dto.text);
   }
 
   @Delete(':id')
