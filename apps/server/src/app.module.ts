@@ -10,6 +10,9 @@ import { AiAgentModule } from './ai-agent/ai-agent.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
 import { ProxiesModule } from './proxies/proxies.module';
 import { SlotsModule } from './slots/slots.module';
+import { TenantsModule } from './tenants/tenants.module';
+import { LicensesModule } from './licenses/licenses.module';
+import { AuthModule } from './auth/auth.module';
 import { RedisModule } from './redis/redis.module';
 import { LoggerModule } from './logger/logger.module';
 
@@ -45,6 +48,9 @@ import { LoggerModule } from './logger/logger.module';
     ProxiesModule,
     SlotsModule,
     KnowledgeModule,
+    TenantsModule,
+    LicensesModule,
+    AuthModule,
   ],
   controllers: [HealthController],
 })

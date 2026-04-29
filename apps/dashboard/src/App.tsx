@@ -13,11 +13,15 @@ import LeadsInbox from './pages/leads/LeadsInbox';
 import AiSettingsPage from './pages/ai/AiSettingsPage';
 import ProxiesPage from './pages/proxies/ProxiesPage';
 import KnowledgePage from './pages/knowledge/KnowledgePage';
+import LoginPage from './pages/auth/LoginPage';
+import ActivatePage from './pages/auth/ActivatePage';
 
 // BrowserRouter and ConfigProvider live in main.tsx (single source).
 // Wrapping again here threw "You cannot render a <Router> inside another <Router>".
 const App: React.FC = () => (
   <Routes>
+    <Route path="/login" element={<LoginPage />} />
+    <Route path="/activate" element={<ActivatePage />} />
     <Route path="/" element={<DashboardLayout />}>
       <Route index element={<DashboardPage />} />
       <Route path="accounts" element={<AccountsPage />} />

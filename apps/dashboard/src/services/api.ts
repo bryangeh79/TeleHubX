@@ -8,6 +8,16 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+// Inject Bearer token if present in localStorage (set by LoginPage)
+api.interceptors.request.use((config) => {
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('telehubx:token') : null;
+  if (token) {
+    config.headers = config.headers ?? {};
+    (config.headers as any).Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 export const accountsApi = {
   list: (params?: any) => api.get('/accounts', { params }),
   get: (id: string) => api.get(`/accounts/${id}`),
@@ -62,6 +72,29 @@ export const leadsApi = {
   release: (id: string) => api.post(`/leads/${id}/release`),
   setState: (id: string, state: 'ai' | 'human' | 'closed' | 'dnr') =>
     api.post(`/leads/${id}/state`, { state }),
+};
+
+export const authApi = {
+  login: (username: string, password: string) =>
+    api.post('/auth/login', { username, password }),
+  me: () => api.get('/auth/me'),
+  changePassword: (oldPassword: string, newPassword: string) =>
+    api.post('/auth/change-password', { oldPassword, newPassword }),
+};
+
+export const licensesApi = {
+  list: () => api.get('/licenses'),
+  issue: (data: { plan?: string; notes?: string }) => api.post('/licenses/issue', data),
+  activate: (key: string, tenantName?: string, machineId?: string) =>
+    api.post('/licenses/activate', { key, tenantName, machineId }),
+  status: () => api.get('/licenses/status'),
+  revoke: (id: string) => api.post(`/licenses/${id}/revoke`),
+};
+
+export const tenantsApi = {
+  list: () => api.get('/tenants'),
+  get: (id: string) => api.get(`/tenants/${id}`),
+  getDefault: () => api.get('/tenants/default'),
 };
 
 export const knowledgeApi = {
