@@ -1,4 +1,5 @@
-import { IsOptional, IsString } from 'class-validator';
+import { IsIn, IsOptional, IsString } from 'class-validator';
+import type { AiProviderId } from '../ai-providers';
 
 export class AiReplyDto {
   @IsString()
@@ -14,4 +15,12 @@ export class AiReplyDto {
   @IsOptional()
   @IsString()
   accountId?: string;
+
+  @IsOptional()
+  @IsIn(['openai', 'deepseek', 'gemini'])
+  provider?: AiProviderId;
+
+  @IsOptional()
+  @IsString()
+  model?: string;
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
 import { AiAgentService } from './ai-agent.service';
 import { AiFaqDto } from './dto/ai-faq.dto';
 import { AiReplyDto } from './dto/ai-reply.dto';
@@ -6,6 +6,11 @@ import { AiReplyDto } from './dto/ai-reply.dto';
 @Controller('ai')
 export class AiAgentController {
   constructor(private readonly service: AiAgentService) {}
+
+  @Get('info')
+  info() {
+    return this.service.info();
+  }
 
   @Post('reply')
   reply(@Body() dto: AiReplyDto) {

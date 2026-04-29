@@ -129,9 +129,13 @@ telehubx/
 ### AI (`/api/v1/ai`)
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/reply` | 自动回复 (body: chatId, userMessage) |
-| POST | `/faq` | FAQ 快速回答 (body: question) |
+| GET | `/info` | 列出 3 个 provider 是否已配置 + 默认 provider |
+| POST | `/reply` | 自动回复 (body: chatId, userMessage, **provider?**, **model?**) |
+| POST | `/faq` | FAQ 快速回答 (body: question, **provider?**, **model?**) |
 | DELETE | `/conversation/:chatId` | 清除对话历史 |
+
+支持 `provider`：`openai` / `deepseek` / `gemini`（三家共用 OpenAI SDK，`baseURL` 切换）。
+默认 provider 由 `AI_PROVIDER` env 决定（fallback `openai`）。每次请求可用 body 里 `provider` / `model` 临时覆盖。
 
 ---
 
@@ -202,9 +206,28 @@ telehubx/
 ### POST `/ai/reply` / `/ai/faq`
 ```json
 // reply
-{ "chatId": "user-1", "userMessage": "你好", "systemPrompt": "可选" }
+{
+  "chatId": "user-1",
+  "userMessage": "你好",
+  "systemPrompt": "可选",
+  "provider": "deepseek",          // 可选：openai | deepseek | gemini
+  "model": "deepseek-chat"          // 可选：覆盖默认 model
+}
 // faq
-{ "question": "How much?", "context": "可选" }
+{ "question": "How much?", "context": "可选", "provider": "gemini" }
+```
+返回会附带实际使用的 provider/model：`{ reply, tokens, provider, model }`。
+
+### GET `/ai/info`
+```json
+{
+  "defaultProvider": "openai",
+  "providers": [
+    { "id": "openai",   "label": "OpenAI",        "configured": true,  "keyEnv": "OPENAI_API_KEY",   "defaultModel": "gpt-4o-mini" },
+    { "id": "deepseek", "label": "DeepSeek",      "configured": false, "keyEnv": "DEEPSEEK_API_KEY", "defaultModel": "deepseek-chat" },
+    { "id": "gemini",   "label": "Google Gemini", "configured": true,  "keyEnv": "GEMINI_API_KEY",   "defaultModel": "gemini-2.0-flash" }
+  ]
+}
 ```
 
 ### 错误码对照
@@ -241,7 +264,24 @@ OPENAI_MODEL=gpt-4o-mini
 LOG_LEVEL=info
 ```
 
-> 当前实际 `.env` **没有** `OPENAI_API_KEY`，但进程从 Windows 系统环境变量继承到了一个 invalid key（`sk-proj-...EsEA`）。AI 接口因此会返回 503 + 清晰错误信息。要恢复正常用 `setx OPENAI_API_KEY <valid-key>` 然后 `pm2 restart telehubx-server`。
+> 当前实际 `.env` **没有** AI keys，但进程从 Windows 系统环境继承到 `OPENAI_API_KEY`（invalid）和 `GEMINI_API_KEY`（quota exceeded）。AI 接口因此返回 503 + 清晰消息。要恢复正常：
+> ```powershell
+> setx AI_PROVIDER deepseek                  # 选默认 provider
+> setx DEEPSEEK_API_KEY sk-...                # 配 provider 对应的 key
+> pm2 restart telehubx-server
+> ```
+
+### AI 多 Provider env vars
+```
+AI_PROVIDER=openai            # openai | deepseek | gemini，默认 openai
+OPENAI_API_KEY=sk-...
+DEEPSEEK_API_KEY=sk-...
+GEMINI_API_KEY=...
+AI_API_KEY=                   # 备选通用 key（当 provider 专属 key 没设时回退到这个）
+AI_MODEL=                     # 全局覆盖 model（不设则用 provider 默认）
+AI_BASE_URL=                  # 全局覆盖 baseURL（不设则用 provider 标准）
+```
+三家都用 OpenAI Chat Completions wire 协议，所以单一 `openai` SDK 足够（DeepSeek 直接兼容；Gemini 走 Google 官方 OpenAI-compat shim）。
 
 ---
 
@@ -253,11 +293,12 @@ LOG_LEVEL=info
 3. ~~Dashboard 不编译~~ → **已修**：缺失的 `DashboardLayout` 组件已建，api.ts 已补齐 `warmupApi.pause` / `leadsApi.reply` / `statsApi.overview` 并修正 warmup URL
 
 ### ⚠️ 仍未做的
-1. ~~Backend 暂无 warmup pause / lead reply~~ → **已补**：`POST /accounts/:id/warmup/{pause,resume}` + `POST /leads/:id/reply` 全部上线
-2. ~~Dashboard 生产 build 没验证过~~ → **已验证**：`vite build` 5.6s 通过，3136 modules，0 错误（dist 单 chunk 1.2MB，仅 perf 提示）
-3. **AI 路径只有 OpenAI**：DeepSeek / Gemini / Claude 的 Provider 抽象未建
+1. ~~Backend 暂无 warmup pause / lead reply~~ → **已补**
+2. ~~Dashboard 生产 build 没验证过~~ → **已验证**
+3. ~~AI 路径只有 OpenAI~~ → **已补**：openai / deepseek / gemini 三家共用 OpenAI SDK，`AI_PROVIDER` env + 每请求 `provider` 字段切换；新增 `GET /ai/info` 列可用性
 4. **Lead reply 是数据层 audit**：写 `lead.replies[]` + 切 `in_progress`，**没有真发到 Telegram**。等 agent 拨号工人接入后才能形成完整闭环
-5. **Schema 变更需手动 SQL**：`pm2` 跑的是 `dist/main.js` 且 ecosystem 强制 `NODE_ENV=production`，TypeORM `synchronize` 关闭。新增列时必须手动 `ALTER TABLE`（或临时 `pnpm dev` 一次让 synchronize 跑）。生产应改用 typeorm migrations
+5. **Schema 变更需手动 SQL**：`pm2` 跑的是 `dist/main.js` 且 ecosystem 强制 `NODE_ENV=production`，TypeORM `synchronize` 关闭。新增列时必须手动 `ALTER TABLE`。生产应改用 typeorm migrations
+6. **Anthropic Claude 没列在 provider 里**：和 GPT/DeepSeek/Gemini 不同，Claude 的 wire 协议不兼容 OpenAI Chat Completions（messages shape 不同），不能共用一个 SDK。要支持得加 `@anthropic-ai/sdk` 依赖 + 第二份 client 实现
 
 ### 📦 部署
 1. **Inno Setup 打包**: 脚本 `installer.iss` 写好了，需安装 Inno Setup 6 后运行 `ISCC.exe installer.iss` 生成 .exe
@@ -324,3 +365,5 @@ pnpm --filter @telehubx/server build
 *CC sign-off: 2026-04-30 03:15 GMT+8 — Debug pass complete: 5 backend bugs (P0/P1) + 3 dashboard bugs fixed; 21/21 regression green; tsc --noEmit clean on server/agent/dashboard.*
 
 *CC follow-up: 2026-04-30 03:30 GMT+8 — Filled gaps surfaced during debug: dashboard prod build validated; new endpoints `POST /accounts/:id/warmup/{pause,resume}` and `POST /leads/:id/reply`; lead replies audit column added; dead `health/` subdir removed; `example.env` updated to match runtime config; 13/13 new-endpoint smoke + 3/3 regression green.*
+
+*CC follow-up #2: 2026-04-30 03:45 GMT+8 — AI multi-provider abstraction landed. Single `openai` SDK serves three providers (openai / deepseek / gemini) via baseURL switching; provider chosen by `AI_PROVIDER` env or per-request `provider` field in DTO; new `GET /ai/info` exposes configured-state matrix. Verified end-to-end: gemini routing literally reaches Google's API (logs show `provider=gemini status=429`). 9/10 smoke + 4/4 regression green; tsc + nest build clean. Claude not included — it doesn't speak OpenAI wire protocol natively.*

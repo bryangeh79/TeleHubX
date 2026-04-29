@@ -11,10 +11,24 @@ import OpenAI from 'openai';
 import { REDIS_CLIENT } from '../redis/redis.provider';
 import { AiReplyDto } from './dto/ai-reply.dto';
 import { AiFaqDto } from './dto/ai-faq.dto';
+import {
+  AI_PROVIDERS,
+  AiProviderConfig,
+  AiProviderId,
+  isAiProviderId,
+} from './ai-providers';
 
 interface ConversationMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+}
+
+interface ResolvedProvider {
+  id: AiProviderId;
+  config: AiProviderConfig;
+  apiKey: string;
+  baseUrl: string;
+  model: string;
 }
 
 const CONV_TTL_SECONDS = 86400;
@@ -30,60 +44,123 @@ Keep responses under 100 words. Be direct and factual.`;
 
 @Injectable()
 export class AiAgentService {
-  private readonly client: OpenAI | null;
-  private readonly model: string;
   private readonly logger = new Logger(AiAgentService.name);
-  private readonly configured: boolean;
+
+  /** Cached OpenAI clients keyed by `${providerId}:${apiKeyHash}`. Lazy. */
+  private readonly clients = new Map<string, OpenAI>();
+
+  /** Default provider id (from AI_PROVIDER env, fallback openai). */
+  private readonly defaultProviderId: AiProviderId;
 
   constructor(
     private readonly config: ConfigService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
-    const apiKey = this.config.get<string>('OPENAI_API_KEY', '');
-    this.configured = Boolean(apiKey);
-    this.model = this.config.get<string>('OPENAI_MODEL', 'gpt-4o-mini');
-    if (this.configured) {
-      this.client = new OpenAI({
-        apiKey,
-        baseURL: this.config.get<string>('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
-      });
-    } else {
-      this.client = null;
-      this.logger.warn('OPENAI_API_KEY not set — AI endpoints will return 503 until configured');
-    }
-  }
-
-  private ensureConfigured(): OpenAI {
-    if (!this.client) {
-      throw new ServiceUnavailableException(
-        'AI provider not configured. Set OPENAI_API_KEY in environment.',
+    const raw = this.config.get<string>('AI_PROVIDER', 'openai');
+    this.defaultProviderId = isAiProviderId(raw) ? raw : 'openai';
+    if (!isAiProviderId(raw)) {
+      this.logger.warn(
+        `Unknown AI_PROVIDER='${raw}', falling back to 'openai'. Valid: openai|deepseek|gemini`,
       );
     }
-    return this.client;
+    this.logger.log(`Default AI provider: ${this.defaultProviderId}`);
   }
 
-  private translateUpstreamError(err: unknown): never {
+  /**
+   * Resolve which provider to use for this call.
+   * Priority for provider id: dto.provider > AI_PROVIDER env > 'openai'.
+   * Priority for API key: provider-specific env (OPENAI_API_KEY etc) >
+   *                       generic AI_API_KEY.
+   * Priority for model: dto.model > AI_MODEL env > provider's defaultModel.
+   * Priority for baseUrl: AI_BASE_URL env > provider's baseUrl.
+   */
+  private resolve(providerOverride?: AiProviderId, modelOverride?: string): ResolvedProvider {
+    const id: AiProviderId = providerOverride ?? this.defaultProviderId;
+    const cfg = AI_PROVIDERS[id];
+
+    const apiKey =
+      this.config.get<string>(cfg.keyEnv) ||
+      this.config.get<string>('AI_API_KEY') ||
+      '';
+
+    if (!apiKey) {
+      throw new ServiceUnavailableException(
+        `AI provider '${id}' not configured. Set ${cfg.keyEnv} (or AI_API_KEY) in environment.`,
+      );
+    }
+
+    const baseUrl =
+      this.config.get<string>('AI_BASE_URL') || cfg.baseUrl;
+
+    const model =
+      modelOverride ||
+      this.config.get<string>('AI_MODEL') ||
+      cfg.defaultModel;
+
+    return { id, config: cfg, apiKey, baseUrl, model };
+  }
+
+  private getClient(p: ResolvedProvider): OpenAI {
+    // cache by provider id + first 8 of key (so rotating key doesn't reuse stale client)
+    const cacheKey = `${p.id}:${p.apiKey.slice(0, 8)}`;
+    let client = this.clients.get(cacheKey);
+    if (!client) {
+      client = new OpenAI({ apiKey: p.apiKey, baseURL: p.baseUrl });
+      this.clients.set(cacheKey, client);
+    }
+    return client;
+  }
+
+  private translateUpstreamError(err: unknown, providerId: AiProviderId): never {
     const e = err as { status?: number; code?: string; message?: string };
     const status = e?.status;
     const code = e?.code;
     const msg = e?.message ?? 'AI provider request failed';
-    this.logger.error(`AI upstream error status=${status} code=${code} message=${msg}`);
+    this.logger.error(`AI upstream error provider=${providerId} status=${status} code=${code} message=${msg}`);
 
     if (status === 401 || status === 403 || code === 'invalid_api_key') {
       throw new ServiceUnavailableException(
-        'AI provider authentication failed. Check OPENAI_API_KEY validity.',
+        `AI provider '${providerId}' authentication failed. Check ${AI_PROVIDERS[providerId].keyEnv} validity.`,
       );
     }
     if (status === 429 || code === 'insufficient_quota' || code === 'rate_limit_exceeded') {
       throw new ServiceUnavailableException(
-        'AI provider rate limit or quota exceeded.',
+        `AI provider '${providerId}' rate limit or quota exceeded.`,
       );
     }
-    throw new BadGatewayException('AI provider returned an error.');
+    throw new BadGatewayException(`AI provider '${providerId}' returned an error.`);
   }
 
-  async reply(dto: AiReplyDto): Promise<{ reply: string; tokens: number }> {
-    const client = this.ensureConfigured();
+  /** Public: list provider availability + which is active by default. */
+  info(): {
+    defaultProvider: AiProviderId;
+    providers: Array<{
+      id: AiProviderId;
+      label: string;
+      configured: boolean;
+      keyEnv: string;
+      defaultModel: string;
+    }>;
+  } {
+    return {
+      defaultProvider: this.defaultProviderId,
+      providers: Object.values(AI_PROVIDERS).map((cfg) => ({
+        id: cfg.id,
+        label: cfg.label,
+        configured:
+          Boolean(this.config.get<string>(cfg.keyEnv)) ||
+          Boolean(this.config.get<string>('AI_API_KEY')),
+        keyEnv: cfg.keyEnv,
+        defaultModel: cfg.defaultModel,
+      })),
+    };
+  }
+
+  async reply(
+    dto: AiReplyDto,
+  ): Promise<{ reply: string; tokens: number; provider: AiProviderId; model: string }> {
+    const provider = this.resolve(dto.provider, dto.model);
+    const client = this.getClient(provider);
     const key = `${CONV_KEY_PREFIX}${dto.chatId}`;
     const history = await this.loadHistory(key);
 
@@ -97,13 +174,13 @@ export class AiAgentService {
     let completion;
     try {
       completion = await client.chat.completions.create({
-        model: this.model,
+        model: provider.model,
         messages,
         max_tokens: 512,
         temperature: 0.7,
       });
     } catch (err) {
-      this.translateUpstreamError(err);
+      this.translateUpstreamError(err, provider.id);
     }
 
     const assistantReply = completion.choices[0]?.message?.content ?? '';
@@ -116,13 +193,18 @@ export class AiAgentService {
     ] as ConversationMessage[]).slice(-MAX_HISTORY);
 
     await this.saveHistory(key, updatedHistory);
-    this.logger.log(`reply chatId=${dto.chatId} tokens=${tokens}`);
+    this.logger.log(
+      `reply chatId=${dto.chatId} provider=${provider.id} model=${provider.model} tokens=${tokens}`,
+    );
 
-    return { reply: assistantReply, tokens };
+    return { reply: assistantReply, tokens, provider: provider.id, model: provider.model };
   }
 
-  async faq(dto: AiFaqDto): Promise<{ answer: string; tokens: number }> {
-    const client = this.ensureConfigured();
+  async faq(
+    dto: AiFaqDto,
+  ): Promise<{ answer: string; tokens: number; provider: AiProviderId; model: string }> {
+    const provider = this.resolve(dto.provider, dto.model);
+    const client = this.getClient(provider);
     const messages: ConversationMessage[] = [
       { role: 'system', content: DEFAULT_FAQ_SYSTEM },
     ];
@@ -136,19 +218,19 @@ export class AiAgentService {
     let completion;
     try {
       completion = await client.chat.completions.create({
-        model: this.model,
+        model: provider.model,
         messages,
         max_tokens: 200,
         temperature: 0.3,
       });
     } catch (err) {
-      this.translateUpstreamError(err);
+      this.translateUpstreamError(err, provider.id);
     }
 
     const answer = completion.choices[0]?.message?.content ?? '';
     const tokens = completion.usage?.total_tokens ?? 0;
 
-    return { answer, tokens };
+    return { answer, tokens, provider: provider.id, model: provider.model };
   }
 
   async clearHistory(chatId: string): Promise<{ ok: boolean }> {
