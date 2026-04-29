@@ -40,8 +40,13 @@ export class Account {
   @Column({ nullable: true, select: false })
   sessionString: string;
 
+  /** Inline proxy config — legacy/manual entry path. Prefer proxyId reference below. */
   @Column({ type: 'jsonb', nullable: true })
   proxyConfig: ProxyConfig;
+
+  /** FK to proxies.id when tenant picked a pre-configured proxy from the catalog. */
+  @Column({ type: 'uuid', nullable: true })
+  proxyId: string | null;
 
   @Column({ type: 'enum', enum: AccountRole, default: AccountRole.CS })
   role: AccountRole;

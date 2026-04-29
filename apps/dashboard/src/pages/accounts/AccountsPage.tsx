@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Table,
@@ -9,91 +9,142 @@ import {
   Select,
   Space,
   Typography,
+  Tooltip,
+  message as antdMessage,
 } from 'antd';
-import { PlusOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
+import {
+  PlusOutlined,
+  SearchOutlined,
+  UploadOutlined,
+  ReloadOutlined,
+  LockOutlined,
+  UnlockOutlined,
+} from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import { accountsApi } from '../../services/api';
 
-interface Account {
+type Role = 'cs' | 'ad' | 'hybrid';
+type Status = 'online' | 'offline' | 'connecting' | 'error' | 'banned';
+
+interface ApiAccount {
   id: string;
-  phone: string;
-  role: 'cs' | 'ad' | 'hybrid';
-  status: 'online' | 'offline' | 'banned' | 'warmup';
-  warmupPhase: string;
-  lastActive: string | null;
+  phoneNumber: string;
+  role: Role;
+  status: Status;
+  warmupPhase: number;
+  healthScore: number;
+  lastActiveAt: string | null;
+  boundIp: string | null;
+  sessionEncrypted: boolean;
+  createdAt: string;
 }
 
-const ROLE_COLOR: Record<Account['role'], string> = {
+const ROLE_COLOR: Record<Role, string> = {
   cs: 'blue',
   ad: 'green',
   hybrid: 'orange',
 };
 
-const STATUS_BADGE: Record<Account['status'], 'success' | 'default' | 'error' | 'processing'> = {
-  online: 'success',
-  offline: 'default',
-  banned: 'error',
-  warmup: 'processing',
+const STATUS_BADGE: Record<Status, 'success' | 'default' | 'error' | 'processing' | 'warning'> = {
+  online:     'success',
+  offline:    'default',
+  connecting: 'processing',
+  error:      'warning',
+  banned:     'error',
 };
-
-// Mock data — replace with useQuery(accountsApi.list) when P1-2 server is ready
-const MOCK: Account[] = [
-  { id: '1', phone: '+60123456789', role: 'cs',     status: 'online',  warmupPhase: 'P4', lastActive: new Date().toISOString() },
-  { id: '2', phone: '+60198765432', role: 'ad',     status: 'warmup',  warmupPhase: 'P2', lastActive: new Date().toISOString() },
-  { id: '3', phone: '+60111234567', role: 'hybrid', status: 'offline', warmupPhase: 'P4', lastActive: null },
-  { id: '4', phone: '+60177654321', role: 'ad',     status: 'online',  warmupPhase: 'P4', lastActive: new Date().toISOString() },
-  { id: '5', phone: '+60133219876', role: 'cs',     status: 'banned',  warmupPhase: 'P4', lastActive: null },
-];
 
 export default function AccountsPage() {
   const navigate = useNavigate();
   const [phoneFilter, setPhoneFilter] = useState('');
-  const [roleFilter, setRoleFilter] = useState<Account['role'] | undefined>();
-  const [statusFilter, setStatusFilter] = useState<Account['status'] | undefined>();
+  const [roleFilter, setRoleFilter] = useState<Role | undefined>();
+  const [statusFilter, setStatusFilter] = useState<Status | undefined>();
+  const [accounts, setAccounts] = useState<ApiAccount[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const data = MOCK.filter(a => {
-    if (phoneFilter && !a.phone.includes(phoneFilter)) return false;
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await accountsApi.list();
+      setAccounts(Array.isArray(res.data) ? res.data : []);
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? 'Failed to load accounts');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const data = accounts.filter((a) => {
+    if (phoneFilter && !a.phoneNumber.includes(phoneFilter)) return false;
     if (roleFilter && a.role !== roleFilter) return false;
     if (statusFilter && a.status !== statusFilter) return false;
     return true;
   });
 
-  const columns: ColumnsType<Account> = [
+  const columns: ColumnsType<ApiAccount> = [
     {
       title: 'Phone',
-      dataIndex: 'phone',
-      key: 'phone',
+      dataIndex: 'phoneNumber',
+      key: 'phoneNumber',
       width: 180,
+      render: (v: string) => <Typography.Text code>{v}</Typography.Text>,
     },
     {
       title: 'Role',
       dataIndex: 'role',
       key: 'role',
-      width: 100,
-      render: (role: Account['role']) => (
-        <Tag color={ROLE_COLOR[role]}>{role.toUpperCase()}</Tag>
-      ),
+      width: 90,
+      render: (role: Role) => <Tag color={ROLE_COLOR[role]}>{role.toUpperCase()}</Tag>,
     },
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
       width: 120,
-      render: (status: Account['status']) => (
-        <Badge status={STATUS_BADGE[status]} text={status} />
-      ),
+      render: (status: Status) => <Badge status={STATUS_BADGE[status]} text={status} />,
     },
     {
-      title: 'Warmup Phase',
+      title: 'Warmup',
       dataIndex: 'warmupPhase',
       key: 'warmupPhase',
-      width: 130,
+      width: 90,
+      render: (n: number) => <Tag>P{n}</Tag>,
+    },
+    {
+      title: 'Health',
+      dataIndex: 'healthScore',
+      key: 'healthScore',
+      width: 80,
+      render: (n: number) => {
+        const color = n >= 80 ? '#52c41a' : n >= 60 ? '#faad14' : n >= 30 ? '#fa8c16' : '#f5222d';
+        return <Typography.Text style={{ color, fontWeight: 600 }}>{n}</Typography.Text>;
+      },
+    },
+    {
+      title: 'Session',
+      dataIndex: 'sessionEncrypted',
+      key: 'sessionEncrypted',
+      width: 100,
+      render: (encrypted: boolean) =>
+        encrypted ? (
+          <Tooltip title="Encrypted at rest (AES-256-GCM)">
+            <Tag icon={<LockOutlined />} color="green">encrypted</Tag>
+          </Tooltip>
+        ) : (
+          <Tooltip title="Stored as plaintext — set SESSION_ENCRYPTION_KEY in .env to fix">
+            <Tag icon={<UnlockOutlined />} color="orange">plain</Tag>
+          </Tooltip>
+        ),
     },
     {
       title: 'Last Active',
-      dataIndex: 'lastActive',
-      key: 'lastActive',
-      render: (v: string | null) => v ? dayjs(v).format('YYYY-MM-DD HH:mm') : '—',
+      dataIndex: 'lastActiveAt',
+      key: 'lastActiveAt',
+      render: (v: string | null) => (v ? dayjs(v).format('YYYY-MM-DD HH:mm') : <Typography.Text type="secondary">—</Typography.Text>),
     },
     {
       title: 'Actions',
@@ -110,19 +161,17 @@ export default function AccountsPage() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Typography.Title level={4} style={{ margin: 0 }}>Accounts</Typography.Title>
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          Accounts <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>({data.length})</Typography.Text>
+        </Typography.Title>
         <Space>
-          <Button
-            icon={<UploadOutlined />}
-            onClick={() => navigate('/accounts/import')}
-          >
+          <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>
+            Refresh
+          </Button>
+          <Button icon={<UploadOutlined />} onClick={() => navigate('/accounts/import')}>
             Import CSV
           </Button>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => navigate('/accounts/bind')}
-          >
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/accounts/bind')}>
             New Account
           </Button>
         </Space>
@@ -133,7 +182,7 @@ export default function AccountsPage() {
           placeholder="Search phone..."
           prefix={<SearchOutlined />}
           value={phoneFilter}
-          onChange={e => setPhoneFilter(e.target.value)}
+          onChange={(e) => setPhoneFilter(e.target.value)}
           style={{ width: 200 }}
           allowClear
         />
@@ -142,7 +191,7 @@ export default function AccountsPage() {
           allowClear
           style={{ width: 120 }}
           value={roleFilter}
-          onChange={v => setRoleFilter(v)}
+          onChange={(v) => setRoleFilter(v)}
           options={[
             { value: 'cs',     label: 'CS' },
             { value: 'ad',     label: 'AD' },
@@ -152,14 +201,15 @@ export default function AccountsPage() {
         <Select
           placeholder="Status"
           allowClear
-          style={{ width: 130 }}
+          style={{ width: 140 }}
           value={statusFilter}
-          onChange={v => setStatusFilter(v)}
+          onChange={(v) => setStatusFilter(v)}
           options={[
-            { value: 'online',  label: 'Online' },
-            { value: 'offline', label: 'Offline' },
-            { value: 'banned',  label: 'Banned' },
-            { value: 'warmup',  label: 'Warmup' },
+            { value: 'online',     label: 'Online' },
+            { value: 'offline',    label: 'Offline' },
+            { value: 'connecting', label: 'Connecting' },
+            { value: 'error',      label: 'Error' },
+            { value: 'banned',     label: 'Banned' },
           ]}
         />
       </Space>
@@ -168,6 +218,7 @@ export default function AccountsPage() {
         columns={columns}
         dataSource={data}
         rowKey="id"
+        loading={loading}
         pagination={{ pageSize: 20, hideOnSinglePage: true }}
         size="middle"
       />

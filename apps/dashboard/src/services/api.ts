@@ -61,6 +61,14 @@ export const aiApi = {
   faq: (data: any) => api.post('/ai/faq', data),
 };
 
+export const proxiesApi = {
+  list: (params?: { status?: string }) => api.get('/proxies', { params }),
+  get: (id: string) => api.get(`/proxies/${id}`),
+  create: (data: any) => api.post('/proxies', data),
+  update: (id: string, data: any) => api.patch(`/proxies/${id}`, data),
+  delete: (id: string) => api.delete(`/proxies/${id}`),
+};
+
 interface DashboardOverview {
   totalAccounts: number;
   onlineAccounts: number;

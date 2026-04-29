@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Steps,
@@ -10,11 +10,14 @@ import {
   Typography,
   Descriptions,
   Radio,
+  Select,
+  Tag,
   message,
   Alert,
   Result,
 } from 'antd';
-import { accountsApi } from '../../services/api';
+import { GlobalOutlined } from '@ant-design/icons';
+import { accountsApi, proxiesApi } from '../../services/api';
 
 const { Title, Text } = Typography;
 
@@ -29,10 +32,18 @@ const ROLE_META: Record<Role, { label: string; desc: string }> = {
 interface SetupValues {
   phone: string;
   role: Role;
-  proxyHost?: string;
-  proxyPort?: string;
-  proxyUser?: string;
-  proxyPass?: string;
+  proxyId?: string;
+}
+
+interface ProxyOption {
+  id: string;
+  name: string;
+  type: string;
+  host: string;
+  port: number;
+  country?: string;
+  isp?: string;
+  status: 'active' | 'disabled' | 'dead';
 }
 
 interface VerifyValues {
@@ -65,6 +76,24 @@ export default function BindWizard() {
   const [sendingCode, setSendingCode] = useState(false);
   const [verifying, setVerifying] = useState(false);
 
+  // Proxy catalog (loaded on mount)
+  const [proxies, setProxies] = useState<ProxyOption[]>([]);
+  const [proxiesLoading, setProxiesLoading] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      setProxiesLoading(true);
+      try {
+        const res = await proxiesApi.list();
+        setProxies(Array.isArray(res.data) ? res.data : []);
+      } catch {
+        setProxies([]);
+      } finally {
+        setProxiesLoading(false);
+      }
+    })();
+  }, []);
+
   const extractMessage = (err: any, fallback: string): string => {
     const apiMsg = err?.response?.data?.message;
     if (Array.isArray(apiMsg)) return apiMsg.join('; ');
@@ -83,19 +112,11 @@ export default function BindWizard() {
     setSendingCode(true);
     let createdId: string | null = null;
     try {
-      // Create the account record (carries phone/role/proxy)
+      // Create the account record (carries phone/role/proxy ref)
       const createRes = await accountsApi.create({
         phoneNumber: values.phone,
         role: values.role,
-        proxyConfig:
-          values.proxyHost && values.proxyPort
-            ? {
-                host: values.proxyHost,
-                port: Number(values.proxyPort),
-                username: values.proxyUser || undefined,
-                password: values.proxyPass || undefined,
-              }
-            : undefined,
+        proxyId: values.proxyId || undefined,
       });
       createdId = createRes.data.id as string;
 
@@ -247,26 +268,61 @@ export default function BindWizard() {
               </Radio.Group>
             </Form.Item>
 
-            <Form.Item label="SOCKS5 Proxy" extra="Optional. One account → one fixed IP, never rotate.">
-              <Space.Compact style={{ width: '100%' }}>
-                <Form.Item name="proxyHost" noStyle>
-                  <Input placeholder="host (e.g. 1.2.3.4)" style={{ flex: 1 }} />
-                </Form.Item>
-                <Form.Item
-                  name="proxyPort"
-                  noStyle
-                  rules={[{ pattern: /^\d{2,5}$/, message: 'Invalid' }]}
-                >
-                  <Input placeholder="1080" style={{ width: 90 }} />
-                </Form.Item>
-              </Space.Compact>
-            </Form.Item>
-
-            <Form.Item name="proxyUser" label="Proxy Username">
-              <Input placeholder="optional" autoComplete="off" />
-            </Form.Item>
-            <Form.Item name="proxyPass" label="Proxy Password">
-              <Input.Password placeholder="optional" autoComplete="new-password" />
+            <Form.Item
+              name="proxyId"
+              label={
+                <Space>
+                  <GlobalOutlined />
+                  <span>Proxy</span>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    (pick from catalog)
+                  </Typography.Text>
+                </Space>
+              }
+              extra={
+                proxies.length === 0 && !proxiesLoading
+                  ? '⚠ No proxies configured yet. Go to "Proxies" in the sidebar to add some.'
+                  : 'One account → one fixed IP, never rotate.'
+              }
+            >
+              <Select
+                placeholder={
+                  proxiesLoading
+                    ? 'Loading...'
+                    : proxies.length === 0
+                    ? 'No proxies — leave blank to bind without proxy'
+                    : 'Select a proxy or leave blank for direct connection'
+                }
+                allowClear
+                loading={proxiesLoading}
+                disabled={proxiesLoading}
+                options={proxies
+                  .filter(p => p.status === 'active')
+                  .map(p => ({
+                    value: p.id,
+                    label: p.name,
+                  }))}
+                optionRender={(option) => {
+                  const p = proxies.find(x => x.id === option.value);
+                  if (!p) return option.label;
+                  return (
+                    <div style={{ padding: '4px 0' }}>
+                      <Space size={6}>
+                        <Typography.Text strong>{p.name}</Typography.Text>
+                        <Tag color="green" style={{ fontSize: 10, padding: '0 4px' }}>
+                          {p.type.toUpperCase()}
+                        </Tag>
+                        {p.country && (
+                          <Tag style={{ fontSize: 10, padding: '0 4px' }}>{p.country}</Tag>
+                        )}
+                      </Space>
+                      <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 2 }}>
+                        {p.host}:{p.port}{p.isp ? ` · ${p.isp}` : ''}
+                      </div>
+                    </div>
+                  );
+                }}
+              />
             </Form.Item>
           </Form>
 
