@@ -12,6 +12,7 @@ import CampaignForm from './pages/campaigns/CampaignForm';
 import LeadsInbox from './pages/leads/LeadsInbox';
 import AiSettingsPage from './pages/ai/AiSettingsPage';
 import ProxiesPage from './pages/proxies/ProxiesPage';
+import KnowledgePage from './pages/knowledge/KnowledgePage';
 
 // BrowserRouter and ConfigProvider live in main.tsx (single source).
 // Wrapping again here threw "You cannot render a <Router> inside another <Router>".
@@ -29,6 +30,7 @@ const App: React.FC = () => (
       <Route path="campaigns/:id/edit" element={<CampaignForm />} />
       <Route path="proxies" element={<ProxiesPage />} />
       <Route path="leads" element={<LeadsInbox />} />
+      <Route path="knowledge" element={<KnowledgePage />} />
       <Route path="ai" element={<AiSettingsPage />} />
     </Route>
   </Routes>

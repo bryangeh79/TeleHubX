@@ -10,7 +10,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { LeadIntent, LeadStatus } from './lead.entity';
+import { LeadIntent, LeadStatus, LeadTakeover } from './lead.entity';
 import { LeadsService } from './leads.service';
 import { AssignLeadDto } from './dto/assign-lead.dto';
 import { CreateLeadDto } from './dto/create-lead.dto';
@@ -59,6 +59,30 @@ export class LeadsController {
   @HttpCode(HttpStatus.OK)
   reply(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ReplyLeadDto) {
     return this.service.reply(id, dto.text);
+  }
+
+  @Post(':id/take')
+  @HttpCode(HttpStatus.OK)
+  takeOver(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('operator') operator?: string,
+  ) {
+    return this.service.takeOver(id, operator);
+  }
+
+  @Post(':id/release')
+  @HttpCode(HttpStatus.OK)
+  release(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.release(id);
+  }
+
+  @Post(':id/state')
+  @HttpCode(HttpStatus.OK)
+  setState(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('state') state: LeadTakeover,
+  ) {
+    return this.service.setTakeoverState(id, state);
   }
 
   @Delete(':id')

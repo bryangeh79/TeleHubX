@@ -8,6 +8,7 @@ import {
   InboxOutlined,
   RobotOutlined,
   GlobalOutlined,
+  BookOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
@@ -21,6 +22,7 @@ const MENU_ITEMS = [
   { key: '/warmup',     icon: <RocketOutlined />,    label: 'Warmup' },
   { key: '/campaigns',  icon: <SendOutlined />,      label: 'Campaigns' },
   { key: '/leads',      icon: <InboxOutlined />,     label: 'Leads' },
+  { key: '/knowledge',  icon: <BookOutlined />,      label: 'Knowledge' },
   { key: '/ai',         icon: <RobotOutlined />,     label: 'AI Settings' },
 ];
 

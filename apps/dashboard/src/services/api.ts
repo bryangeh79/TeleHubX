@@ -57,6 +57,31 @@ export const leadsApi = {
     api.post(`/leads/${id}/note`, { note }),
   reply: (id: string, text: string) =>
     api.post(`/leads/${id}/reply`, { text }),
+  takeOver: (id: string, operator?: string) =>
+    api.post(`/leads/${id}/take`, operator ? { operator } : {}),
+  release: (id: string) => api.post(`/leads/${id}/release`),
+  setState: (id: string, state: 'ai' | 'human' | 'closed' | 'dnr') =>
+    api.post(`/leads/${id}/state`, { state }),
+};
+
+export const knowledgeApi = {
+  listKbs: (params?: { type?: string; enabled?: boolean }) =>
+    api.get('/knowledge/kbs', { params }),
+  getKb: (id: string) => api.get(`/knowledge/kbs/${id}`),
+  createKb: (data: any) => api.post('/knowledge/kbs', data),
+  updateKb: (id: string, data: any) => api.patch(`/knowledge/kbs/${id}`, data),
+  deleteKb: (id: string) => api.delete(`/knowledge/kbs/${id}`),
+
+  listFaqs: (params?: { kbId?: string; enabled?: boolean }) =>
+    api.get('/knowledge/faqs', { params }),
+  getFaq: (id: string) => api.get(`/knowledge/faqs/${id}`),
+  createFaq: (data: any) => api.post('/knowledge/faqs', data),
+  updateFaq: (id: string, data: any) => api.patch(`/knowledge/faqs/${id}`, data),
+  deleteFaq: (id: string) => api.delete(`/knowledge/faqs/${id}`),
+  bulkImport: (kbId: string, items: Array<{ question: string; answer: string; tags?: string[] }>) =>
+    api.post('/knowledge/faqs/bulk-import', { kbId, items }),
+  search: (query: string, kbId?: string) =>
+    api.post('/knowledge/faqs/search', { query, kbId }),
 };
 
 export const aiApi = {

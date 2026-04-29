@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, Repository } from 'typeorm';
-import { Lead, LeadIntent, LeadReply, LeadStatus } from './lead.entity';
+import { Lead, LeadIntent, LeadReply, LeadStatus, LeadTakeover } from './lead.entity';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { AssignLeadDto } from './dto/assign-lead.dto';
 
@@ -60,6 +60,33 @@ export class LeadsService {
     lead.replies = [...(lead.replies || []), entry];
     if (lead.status !== LeadStatus.CONVERTED && lead.status !== LeadStatus.CLOSED) {
       lead.status = LeadStatus.IN_PROGRESS;
+    }
+    return this.repo.save(lead);
+  }
+
+  async takeOver(id: string, operator?: string): Promise<Lead> {
+    const lead = await this.findOne(id);
+    lead.takeoverState = LeadTakeover.HUMAN;
+    lead.takenOverBy = operator ?? 'operator';
+    lead.takenOverAt = new Date();
+    if (lead.status === LeadStatus.NEW) lead.status = LeadStatus.IN_PROGRESS;
+    return this.repo.save(lead);
+  }
+
+  async release(id: string): Promise<Lead> {
+    const lead = await this.findOne(id);
+    lead.takeoverState = LeadTakeover.AI;
+    lead.takenOverBy = '';
+    lead.takenOverAt = null;
+    return this.repo.save(lead);
+  }
+
+  async setTakeoverState(id: string, state: LeadTakeover): Promise<Lead> {
+    const lead = await this.findOne(id);
+    lead.takeoverState = state;
+    if (state === LeadTakeover.AI) {
+      lead.takenOverBy = '';
+      lead.takenOverAt = null;
     }
     return this.repo.save(lead);
   }

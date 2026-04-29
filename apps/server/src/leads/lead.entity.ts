@@ -20,6 +20,17 @@ export enum LeadStatus {
   CLOSED = 'closed',
 }
 
+export enum LeadTakeover {
+  /** AI handles inbound DMs. Default. */
+  AI = 'ai',
+  /** Human operator has taken over — AI must NOT reply. */
+  HUMAN = 'human',
+  /** Conversation closed (resolved). AI ignores. */
+  CLOSED = 'closed',
+  /** Do Not Reply — permanent block. */
+  DNR = 'dnr',
+}
+
 export interface LeadReply {
   text: string;
   sentBy: 'system' | 'human';
@@ -63,6 +74,15 @@ export class Lead {
 
   @Column({ type: 'jsonb', nullable: true })
   replies: LeadReply[];
+
+  @Column({ type: 'enum', enum: LeadTakeover, default: LeadTakeover.AI })
+  takeoverState: LeadTakeover;
+
+  @Column({ nullable: true })
+  takenOverBy: string;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  takenOverAt: Date | null;
 
   @CreateDateColumn()
   createdAt: Date;

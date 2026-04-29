@@ -36,6 +36,7 @@ const { TextArea } = Input;
 
 type Intent = 'cold' | 'warm' | 'hot';
 type LeadStatus = 'new' | 'assigned' | 'in_progress' | 'converted' | 'closed';
+type TakeoverState = 'ai' | 'human' | 'closed' | 'dnr';
 
 interface ApiLead {
   id: string;
@@ -50,6 +51,9 @@ interface ApiLead {
   needsHuman: boolean;
   notes: string[] | null;
   replies: Array<{ text: string; sentBy: 'system' | 'human'; ts: string }> | null;
+  takeoverState: TakeoverState;
+  takenOverBy: string | null;
+  takenOverAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -197,6 +201,26 @@ export default function LeadsInbox() {
     }
   };
 
+  const handleTakeOver = async (lead: ApiLead) => {
+    try {
+      await leadsApi.takeOver(lead.id);
+      antdMessage.success(`Took over — AI will not auto-reply to this lead`);
+      await reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? 'Take over failed');
+    }
+  };
+
+  const handleRelease = async (lead: ApiLead) => {
+    try {
+      await leadsApi.release(lead.id);
+      antdMessage.success(`Released — AI resumes auto-reply`);
+      await reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? 'Release failed');
+    }
+  };
+
   const handleCreate = async () => {
     try {
       const values = await createForm.validateFields();
@@ -330,9 +354,25 @@ export default function LeadsInbox() {
                     <Text strong>{selected.tgUsername ? `@${selected.tgUsername}` : selected.tgUserId}</Text>
                     <Tag color={INTENT_COLOR[selected.intent]}>{selected.intent}</Tag>
                     <Badge status={STATUS_BADGE[selected.status]} text={selected.status} />
-                    {selected.needsHuman && <Tag color="red">needs human</Tag>}
+                    {selected.takeoverState === 'human' && <Tag color="red">🙋 Human handling</Tag>}
+                    {selected.takeoverState === 'closed' && <Tag>closed</Tag>}
+                    {selected.takeoverState === 'dnr' && <Tag color="default">DNR</Tag>}
+                    {selected.needsHuman && <Tag color="orange">needs human</Tag>}
                   </Space>
                   <Space>
+                    {selected.takeoverState === 'ai' ? (
+                      <Tooltip title="Stop AI auto-reply for this lead — operator handles">
+                        <Button size="small" type="primary" onClick={() => handleTakeOver(selected)}>
+                          Take Over
+                        </Button>
+                      </Tooltip>
+                    ) : selected.takeoverState === 'human' ? (
+                      <Tooltip title="Hand back to AI">
+                        <Button size="small" onClick={() => handleRelease(selected)}>
+                          Release
+                        </Button>
+                      </Tooltip>
+                    ) : null}
                     <Tooltip title="Assign to a CS account">
                       <Select
                         size="small"

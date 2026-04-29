@@ -7,6 +7,7 @@ import { AccountsModule } from './accounts/accounts.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { LeadsModule } from './leads/leads.module';
 import { AiAgentModule } from './ai-agent/ai-agent.module';
+import { KnowledgeModule } from './knowledge/knowledge.module';
 import { ProxiesModule } from './proxies/proxies.module';
 import { SlotsModule } from './slots/slots.module';
 import { RedisModule } from './redis/redis.module';
@@ -43,6 +44,7 @@ import { LoggerModule } from './logger/logger.module';
     AiAgentModule,
     ProxiesModule,
     SlotsModule,
+    KnowledgeModule,
   ],
   controllers: [HealthController],
 })
