@@ -103,12 +103,24 @@ export class AccountsService {
     return { ok: true, lastActiveAt: now };
   }
 
-  async importFromCsv(buffer: Buffer): Promise<ImportResult> {
-    const rows: CsvAccountRow[] = parse(buffer, {
-      columns: true,
-      skip_empty_lines: true,
-      trim: true,
-    });
+  async importFromCsv(input: Buffer | any[]): Promise<ImportResult> {
+    let rows: CsvAccountRow[];
+    if (Array.isArray(input)) {
+      rows = input.map((a: any, i: number) => ({
+        phoneNumber: a.phoneNumber || a.phone,
+        role: a.role,
+        proxyHost: a.proxyHost || a.proxy?.host,
+        proxyPort: String(a.proxyPort || a.proxy?.port || ''),
+        proxyUsername: a.proxyUsername || a.proxy?.username,
+        proxyPassword: a.proxyPassword || a.proxy?.password,
+      }));
+    } else {
+      rows = parse(input, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+      });
+    }
 
     const result: ImportResult = { total: rows.length, created: 0, skipped: 0, errors: [] };
 
@@ -185,3 +197,4 @@ export class AccountsService {
     return current;
   }
 }
+

@@ -8,5 +8,9 @@ export class ReportHealthDto {
 
   @IsString()
   @IsOptional()
+  remark?: string;
+
+  @IsString()
+  @IsOptional()
   note?: string;
 }

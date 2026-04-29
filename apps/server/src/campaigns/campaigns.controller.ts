@@ -6,7 +6,6 @@ import {
   HttpCode,
   HttpStatus,
   Param,
-  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -31,24 +30,24 @@ export class CampaignsController {
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
+  findOne(@Param('id') id: string) {
     return this.service.findOne(id);
   }
 
   @Patch(':id')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateCampaignDto) {
+  update(@Param('id') id: string, @Body() dto: UpdateCampaignDto) {
     return this.service.update(id, dto);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
+  remove(@Param('id') id: string) {
     return this.service.remove(id);
   }
 
   @Post(':id/send')
   @HttpCode(HttpStatus.OK)
-  send(@Param('id', ParseUUIDPipe) id: string) {
+  send(@Param('id') id: string) {
     return this.service.send(id);
   }
 }

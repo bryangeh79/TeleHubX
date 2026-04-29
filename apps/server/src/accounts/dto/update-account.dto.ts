@@ -17,4 +17,7 @@ export class UpdateAccountDto {
   @IsObject()
   @IsOptional()
   proxyConfig?: ProxyConfig;
+
+  @IsOptional()
+  healthScore?: number;
 }
