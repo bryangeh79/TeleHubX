@@ -8,13 +8,15 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
-    "telegram": "^2.26.0",
     "dotenv": "^16.4.0",
-    "ioredis": "^5.4.0"
+    "ioredis": "^5.4.0",
+    "openai": "^4.104.0",
+    "telegram": "^2.26.0",
+    "winston": "^3.19.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "typescript": "^5.7.0",
-    "ts-node": "^10.9.0"
+    "ts-node": "^10.9.0",
+    "typescript": "^5.7.0"
   }
 }

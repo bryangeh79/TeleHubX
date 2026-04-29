@@ -4,6 +4,11 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { HealthController } from './health.controller';
 import { DatabaseModule } from './database/database.module';
 import { AccountsModule } from './accounts/accounts.module';
+import { CampaignsModule } from './campaigns/campaigns.module';
+import { LeadsModule } from './leads/leads.module';
+import { AiAgentModule } from './ai-agent/ai-agent.module';
+import { RedisModule } from './redis/redis.module';
+import { LoggerModule } from './logger/logger.module';
 
 @Module({
   imports: [
@@ -16,18 +21,23 @@ import { AccountsModule } from './accounts/accounts.module';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
-        host: config.get('PG_HOST', 'localhost'),
-        port: config.get('PG_PORT', 5432),
-        username: config.get('PG_USER', 'telehubx'),
-        password: config.get('PG_PASSWORD', 'telehubx_pass'),
-        database: config.get('PG_DATABASE', 'telehubx'),
+        host: config.get('DB_HOST', 'localhost'),
+        port: config.get<number>('DB_PORT', 5433),
+        username: config.get('DB_USER', 'telehubx'),
+        password: config.get('DB_PASSWORD', 'telehubx'),
+        database: config.get('DB_NAME', 'telehubx'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
         synchronize: config.get('NODE_ENV') !== 'production',
         logging: config.get('NODE_ENV') === 'development',
       }),
     }),
+    LoggerModule,
+    RedisModule,
     DatabaseModule,
     AccountsModule,
+    CampaignsModule,
+    LeadsModule,
+    AiAgentModule,
   ],
   controllers: [HealthController],
 })

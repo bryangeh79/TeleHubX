@@ -56,6 +56,12 @@ export class Account {
   @Column({ nullable: true })
   lastActiveAt: Date;
 
+  @Column({ nullable: true })
+  boundIp: string;
+
+  @Column({ default: false })
+  sessionEncrypted: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 

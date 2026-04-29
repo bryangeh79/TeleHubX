@@ -1,38 +1,59 @@
 import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1';
+const BASE = '/api/v1';
 
 const api = axios.create({
-  baseURL: API_BASE,
-  timeout: 15000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  baseURL: BASE,
+  timeout: 10000,
+  headers: { 'Content-Type': 'application/json' },
 });
 
-// Response interceptor
-api.interceptors.response.use(
-  (response) => response.data,
-  (error) => {
-    const message = error.response?.data?.error || error.message || 'Unknown error';
-    console.error('[API Error]', message);
-    return Promise.reject(error);
-  },
-);
-
-export default api;
-
-// Account API
 export const accountsApi = {
   list: (params?: any) => api.get('/accounts', { params }),
-  getById: (id: string) => api.get(`/accounts/${id}`),
+  get: (id: string) => api.get(`/accounts/${id}`),
   create: (data: any) => api.post('/accounts', data),
   update: (id: string, data: any) => api.patch(`/accounts/${id}`, data),
   delete: (id: string) => api.delete(`/accounts/${id}`),
-  bind: (id: string, session: string) => api.post(`/accounts/${id}/session`, { session }),
+  updateSession: (id: string, sessionString: string) =>
+    api.post(`/accounts/${id}/session`, { sessionString }),
+  reportHealth: (id: string, healthScore: number, remark?: string) =>
+    api.post(`/accounts/${id}/health`, { healthScore, remark }),
+  heartbeat: (id: string) => api.post(`/accounts/${id}/heartbeat`),
+  import: (accounts: any[]) => api.post('/accounts/import', { accounts }),
+  healthStats: () => api.get('/accounts/health-stats'),
 };
 
-// Health API
-export const healthApi = {
-  check: () => api.get('/health'),
+export const warmupApi = {
+  start: (id: string) => api.post(`/accounts/warmup/start`, { accountId: id }),
+  status: (id: string) => api.get(`/accounts/warmup/${id}`),
 };
+
+export const campaignsApi = {
+  list: (params?: any) => api.get('/campaigns', { params }),
+  get: (id: string) => api.get(`/campaigns/${id}`),
+  create: (data: any) => api.post('/campaigns', data),
+  update: (id: string, data: any) => api.patch(`/campaigns/${id}`, data),
+  delete: (id: string) => api.delete(`/campaigns/${id}`),
+  send: (id: string) => api.post(`/campaigns/${id}/send`),
+};
+
+export const leadsApi = {
+  list: (params?: any) => api.get('/leads', { params }),
+  assign: (id: string, csAccountId: string) =>
+    api.post(`/leads/${id}/assign`, { csAccountId }),
+  addNote: (id: string, note: string) =>
+    api.post(`/leads/${id}/note`, { note }),
+};
+
+export const aiApi = {
+  reply: (data: any) => api.post('/ai/reply', data),
+  faq: (data: any) => api.post('/ai/faq', data),
+};
+
+export const statsApi = {
+  get: () => api.get('/accounts/health-stats').catch(() => ({
+    data: { total: 0, online: 0, avgHealth: 0, activeCampaigns: 0 },
+  })),
+};
+
+export default api;

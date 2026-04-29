@@ -10,17 +10,25 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
+  UseInterceptors,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AccountRole, AccountStatus } from './account.entity';
 import { AccountsService } from './accounts.service';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { ReportHealthDto } from './dto/report-health.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
+import { WarmupService } from './warmup/warmup.service';
 
 @Controller('accounts')
 export class AccountsController {
-  constructor(private readonly service: AccountsService) {}
+  constructor(
+    private readonly service: AccountsService,
+    private readonly warmupService: WarmupService,
+  ) {}
 
   @Post()
   create(@Body() dto: CreateAccountDto) {
@@ -33,6 +41,11 @@ export class AccountsController {
     @Query('status') status?: AccountStatus,
   ) {
     return this.service.findAll({ role, status });
+  }
+
+  @Get('health-stats')
+  getHealthStats() {
+    return this.service.getHealthStats();
   }
 
   @Get(':id')
@@ -74,5 +87,39 @@ export class AccountsController {
   @HttpCode(HttpStatus.OK)
   heartbeat(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.heartbeat(id);
+  }
+
+  @Post('import')
+  @UseInterceptors(FileInterceptor('file'))
+  importCsv(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('CSV file required (field: file)');
+    return this.service.importFromCsv(file.buffer);
+  }
+
+  @Post(':id/warmup/start')
+  warmupStart(@Param('id', ParseUUIDPipe) id: string) {
+    return this.warmupService.start(id);
+  }
+
+  @Post(':id/warmup/advance')
+  @HttpCode(HttpStatus.OK)
+  warmupAdvance(@Param('id', ParseUUIDPipe) id: string) {
+    return this.warmupService.advance(id);
+  }
+
+  @Get(':id/warmup')
+  warmupStatus(@Param('id', ParseUUIDPipe) id: string) {
+    return this.warmupService.getStatus(id);
+  }
+
+  @Post(':id/bind-ip')
+  @HttpCode(HttpStatus.OK)
+  bindIp(@Param('id', ParseUUIDPipe) id: string, @Body('ip') ip: string) {
+    return this.service.bindIp(id, ip);
+  }
+
+  @Get(':id/session/raw')
+  getDecryptedSession(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.getDecryptedSession(id).then((session) => ({ session }));
   }
 }
