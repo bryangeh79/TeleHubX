@@ -27,7 +27,7 @@
 | 服务 | 端口 | 进程管理 | 状态 |
 |------|------|----------|------|
 | Backend (NestJS) | 9600 | pm2 (telehubx-server) | ✅ online |
-| Dashboard (Vite) | 3000 | pm2 (telehubx-dashboard) | ✅ online |
+| Dashboard (Vite) | 9601 | pm2 (telehubx-dashboard) | ✅ online |
 | PostgreSQL | 5433 | 本地服务 | ✅ connected |
 | Redis | 6380 | 本地服务 | ✅ connected |
 
@@ -352,7 +352,7 @@ AI_BASE_URL=                  # 全局覆盖 baseURL（不设则用 provider 标
 ## 6. 交接给 CC 的测试建议
 
 ### 优先级 1 — 前端验证
-- `http://localhost:3000` 打开 Dashboard
+- `http://localhost:9601` 打开 Dashboard
 - 确认所有页面路由正常（accounts/ warmup/ campaigns/ leads/ ai）
 - 点击 "New Account" → BindWizard 3 步骤是否流畅
 - CSV 导入页面拖拽文件是否可用
