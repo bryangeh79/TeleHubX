@@ -38,11 +38,14 @@ export class FileParserService {
 
   private async parsePdf(buffer: Buffer): Promise<string> {
     try {
-      // @ts-expect-error optional dep loaded at runtime
-      const mod = await import('pdf-parse');
-      const pdfParse = mod.default ?? mod;
-      const result = await pdfParse(buffer);
-      return result.text ?? '';
+      const { PDFParse } = await import('pdf-parse');
+      const parser = new PDFParse({ data: new Uint8Array(buffer) });
+      try {
+        const result = await parser.getText();
+        return result.text ?? '';
+      } finally {
+        await parser.destroy();
+      }
     } catch (err) {
       const e = err as Error;
       if (e.message?.includes('Cannot find module')) {
@@ -55,9 +58,7 @@ export class FileParserService {
 
   private async parseDocx(buffer: Buffer): Promise<string> {
     try {
-      // @ts-expect-error optional dep loaded at runtime
-      const mod = await import('mammoth');
-      const mammoth = mod.default ?? mod;
+      const mammoth = await import('mammoth');
       const result = await mammoth.extractRawText({ buffer });
       return result.value ?? '';
     } catch (err) {
