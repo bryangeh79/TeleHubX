@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
@@ -33,7 +34,8 @@ export enum LeadTakeover {
 
 export interface LeadReply {
   text: string;
-  sentBy: 'system' | 'human';
+  /** 'user' = customer inbound, 'system' = bot/AI auto-reply, 'human' = operator manual reply */
+  sentBy: 'system' | 'human' | 'user';
   ts: string;
 }
 
@@ -45,8 +47,12 @@ export class Lead {
   @Column({ nullable: true })
   tgUsername: string;
 
+  @Index()
   @Column()
   tgUserId: string;
+
+  @Column({ type: 'uuid', nullable: true })
+  tenantId: string | null;
 
   @Column({ nullable: true })
   campaignId: string;

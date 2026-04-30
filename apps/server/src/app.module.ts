@@ -16,6 +16,7 @@ import { LicensesModule } from './licenses/licenses.module';
 import { AuthModule } from './auth/auth.module';
 import { RedisModule } from './redis/redis.module';
 import { LoggerModule } from './logger/logger.module';
+import { BotGatewayModule } from './bot-gateway/bot-gateway.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { LoggerModule } from './logger/logger.module';
     TenantsModule,
     LicensesModule,
     AuthModule,
+    BotGatewayModule,
   ],
   controllers: [HealthController],
 })

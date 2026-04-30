@@ -95,4 +95,27 @@ export class LeadsService {
     const lead = await this.findOne(id);
     await this.repo.remove(lead);
   }
+
+  async findOrCreateByTgChatId(
+    tgUserId: string,
+    tenantId: string,
+    tgUsername?: string,
+  ): Promise<Lead> {
+    let lead = await this.repo.findOneBy({ tgUserId, tenantId });
+    if (!lead) {
+      lead = this.repo.create({ tgUserId, tenantId, tgUsername });
+      lead = await this.repo.save(lead);
+    } else if (tgUsername && lead.tgUsername !== tgUsername) {
+      lead.tgUsername = tgUsername;
+      lead = await this.repo.save(lead);
+    }
+    return lead;
+  }
+
+  async addReply(id: string, entry: { sender: 'user' | 'system'; text: string }): Promise<Lead> {
+    const lead = await this.findOne(id);
+    const item: LeadReply = { text: entry.text, sentBy: entry.sender, ts: new Date().toISOString() };
+    lead.replies = [...(lead.replies || []), item];
+    return this.repo.save(lead);
+  }
 }
