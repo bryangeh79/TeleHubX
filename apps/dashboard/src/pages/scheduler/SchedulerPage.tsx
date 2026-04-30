@@ -37,12 +37,22 @@ const { Title, Text } = Typography;
 
 type TaskStatus = 'pending' | 'running' | 'done' | 'failed' | 'paused';
 type TaskType =
-  | 'campaign_broadcast' | 'campaign_single'
-  | 'warmup_browse'      | 'warmup_post'
-  | 'chat_script'
-  | 'join_groups'        | 'join_channels'
-  | 'reaction_boost'
-  | 'idle_keepalive';
+  // 组合配套
+  | 'preset_full_14d' | 'preset_warmup_7d' | 'preset_rampup_7d' | 'preset_mature_ops'
+  // 群组发现+加入
+  | 'join_groups' | 'join_groups_by_keyword' | 'join_channels' | 'accept_invites'
+  // 自建群
+  | 'group_create' | 'group_invite_members'
+  // 群组活动
+  | 'group_bubble' | 'chat_script_ab' | 'chat_script_4p'
+  // 拉新
+  | 'keyword_lead_hunt' | 'group_scrape'
+  // 触达
+  | 'contact_add' | 'campaign_single'
+  // 内容
+  | 'post_channel' | 'media_voice' | 'media_photo' | 'media_video'
+  // 互动/保活
+  | 'reaction_boost' | 'browse_channel' | 'profile_update' | 'idle_keepalive';
 
 interface Task {
   id: string;
@@ -69,17 +79,64 @@ interface Stats {
   done: number;
 }
 
-const TASK_TYPE_LABELS: Record<TaskType, { label: string; color: string }> = {
-  campaign_broadcast: { label: '广告群发',     color: 'blue' },
-  campaign_single:    { label: '单条消息',     color: 'cyan' },
-  warmup_browse:      { label: '养号·浏览',     color: 'orange' },
-  warmup_post:        { label: '养号·发帖',     color: 'orange' },
-  chat_script:        { label: '群剧本',       color: 'purple' },
-  join_groups:        { label: '加群',         color: 'green' },
-  join_channels:      { label: '加频道',       color: 'green' },
-  reaction_boost:     { label: '加 Reaction',  color: 'magenta' },
-  idle_keepalive:     { label: 'keepalive',   color: 'default' },
+interface TaskTypeMeta { label: string; color: string; group: string; icon: string }
+
+const TASK_TYPE_LABELS: Record<TaskType, TaskTypeMeta> = {
+  // 组合配套（一键启动）
+  preset_full_14d:        { icon: '🎯', label: '一键托管 14 天',          color: 'gold',     group: '组合配套' },
+  preset_warmup_7d:       { icon: '🌱', label: '自动养号 7 天',           color: 'lime',     group: '组合配套' },
+  preset_rampup_7d:       { icon: '🔥', label: '运营热身 7 天',           color: 'orange',   group: '组合配套' },
+  preset_mature_ops:      { icon: '🚀', label: '成熟运营 Day 15+',        color: 'volcano',  group: '组合配套' },
+
+  // 群组发现+加入
+  join_groups:            { icon: '🌐', label: '自动加群（邀请链接）',     color: 'green',    group: '群组' },
+  join_groups_by_keyword: { icon: '🔍', label: '关键词搜群+加',            color: 'green',    group: '群组' },
+  join_channels:          { icon: '⭐', label: 'Follow 频道',              color: 'cyan',     group: '群组' },
+  accept_invites:         { icon: '👥', label: '接受群组邀请',             color: 'green',    group: '群组' },
+
+  // 自建群
+  group_create:           { icon: '🏗️', label: '自建测试群',               color: 'purple',   group: '自建群' },
+  group_invite_members:   { icon: '📨', label: '邀请账号入群',             color: 'purple',   group: '自建群' },
+
+  // 群组活动
+  group_bubble:           { icon: '💡', label: '群内冒泡',                 color: 'gold',     group: '群组活动' },
+  chat_script_ab:         { icon: '💬', label: 'A+B 双角色剧本',           color: 'purple',   group: '群组活动' },
+  chat_script_4p:         { icon: '💬', label: '4 人剧本',                 color: 'purple',   group: '群组活动' },
+
+  // 拉新引流
+  keyword_lead_hunt:      { icon: '🎯', label: '关键词智能引流',           color: 'magenta',  group: '拉新引流' },
+  group_scrape:           { icon: '🎯', label: '群成员爬取',               color: 'magenta',  group: '拉新引流' },
+
+  // 触达
+  contact_add:            { icon: '➕', label: '加 contact',               color: 'blue',     group: '触达' },
+  campaign_single:        { icon: '📝', label: '单条消息',                 color: 'cyan',     group: '触达' },
+
+  // 内容输出
+  post_channel:           { icon: '📢', label: '发频道 / Story',           color: 'blue',     group: '内容输出' },
+  media_voice:            { icon: '🎤', label: '发语音 (素材池随机)',       color: 'blue',     group: '内容输出' },
+  media_photo:            { icon: '🖼️', label: '发图片 (素材池随机)',       color: 'blue',     group: '内容输出' },
+  media_video:            { icon: '🎬', label: '发视频 (素材池随机)',       color: 'blue',     group: '内容输出' },
+
+  // 互动 / 保活
+  reaction_boost:         { icon: '👍', label: '给消息加 Reaction',         color: 'magenta',  group: '互动 / 保活' },
+  browse_channel:         { icon: '🌐', label: '浏览频道',                 color: 'default',  group: '互动 / 保活' },
+  profile_update:         { icon: '📋', label: '更新资料 (签名/头像)',      color: 'default',  group: '互动 / 保活' },
+  idle_keepalive:         { icon: '🔌', label: '挂机保活',                 color: 'default',  group: '互动 / 保活' },
 };
+
+/** 把 22 个任务按 group 分组成 antd Select 的 options（带 emoji）。 */
+function buildGroupedTaskOptions() {
+  const grouped: Record<string, Array<{ value: string; label: string }>> = {};
+  for (const [k, m] of Object.entries(TASK_TYPE_LABELS)) {
+    if (!grouped[m.group]) grouped[m.group] = [];
+    grouped[m.group].push({ value: k, label: `${m.icon}  ${m.label}` });
+  }
+  // 保持 group 顺序：按首次出现顺序（Object.entries 在 Node 14+ 稳定按插入顺序）
+  return Object.entries(grouped).map(([groupName, items]) => ({
+    label: groupName,
+    options: items,
+  }));
+}
 
 const STATUS_META: Record<TaskStatus, { label: string; color: string }> = {
   pending:  { label: '待运行', color: 'default' },
@@ -183,7 +240,7 @@ export default function SchedulerPage() {
           <Text strong>{name}</Text>
           <br />
           <Tag color={TASK_TYPE_LABELS[row.type]?.color ?? 'default'} style={{ fontSize: 11, marginTop: 2 }}>
-            {TASK_TYPE_LABELS[row.type]?.label ?? row.type}
+            {TASK_TYPE_LABELS[row.type]?.icon ?? ''} {TASK_TYPE_LABELS[row.type]?.label ?? row.type}
           </Tag>
         </div>
       ),
@@ -270,8 +327,10 @@ export default function SchedulerPage() {
             onChange={(v) => setFilterType(v)}
             allowClear
             placeholder="全部类型"
-            style={{ width: 160 }}
-            options={Object.entries(TASK_TYPE_LABELS).map(([k, m]) => ({ value: k, label: m.label }))}
+            style={{ width: 200 }}
+            showSearch
+            optionFilterProp="label"
+            options={buildGroupedTaskOptions()}
           />
           <Button icon={<ReloadOutlined />} onClick={() => void reload()}>刷新</Button>
         </Space>
@@ -303,7 +362,9 @@ export default function SchedulerPage() {
           <Form.Item name="type" label="任务类型" rules={[{ required: true }]}>
             <Select
               placeholder="选择类型"
-              options={Object.entries(TASK_TYPE_LABELS).map(([k, m]) => ({ value: k, label: m.label }))}
+              showSearch
+              optionFilterProp="label"
+              options={buildGroupedTaskOptions()}
             />
           </Form.Item>
           <Form.Item name="accountLabel" label="账号标签（可选）">

@@ -81,6 +81,17 @@ export class Account {
   @Column({ type: 'jsonb', nullable: true })
   deviceFingerprint: Record<string, string> | null;
 
+  /**
+   * 隔离截至时间 — FloodWait / 风控触发时设置，到期前所有 task 跳过此号。
+   * null 或过去时间 = 不在隔离期，可正常派单。
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  quarantineUntil: Date | null;
+
+  /** 隔离原因（用于诊断） */
+  @Column({ type: 'varchar', length: 256, nullable: true })
+  quarantineReason: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

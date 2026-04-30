@@ -7,17 +7,77 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-/** Task type covering all Wave 4+ scheduled actions. Front-end SchedulerPage drives this enum. */
+/**
+ * Task type — 22 类，对齐 WAhubX 命名习惯。
+ * 每条注释包含：用途 + 主要 payload 字段 + 时长模式。
+ */
 export enum TaskType {
-  CAMPAIGN_BROADCAST = 'campaign_broadcast', // 广告群发
-  CAMPAIGN_SINGLE    = 'campaign_single',    // 单条消息
-  WARMUP_BROWSE      = 'warmup_browse',      // 养号·浏览
-  WARMUP_POST        = 'warmup_post',        // 养号·发帖
-  CHAT_SCRIPT        = 'chat_script',        // 群剧本
-  JOIN_GROUPS        = 'join_groups',        // 加群
-  JOIN_CHANNELS      = 'join_channels',      // 加频道
-  REACTION_BOOST     = 'reaction_boost',     // 加 Reaction
-  IDLE_KEEPALIVE     = 'idle_keepalive',     // keepalive
+  // ── 组合配套（一键启动多日剧本）──
+  /** 🎯 一键托管 14 天 = 自动养号 7 天 + 运营热身 7 天。一次启动跑 14 天后自动停。 */
+  PRESET_FULL_14D    = 'preset_full_14d',
+  /** 🌱 自动养号 7 天 (Day 1-7) — P0→P4 渐进。payload: { accountId } */
+  PRESET_WARMUP_7D   = 'preset_warmup_7d',
+  /** 🔥 运营热身 7 天 (Day 8-14) — 活跃度爬坡。payload: { accountId, intensity: 'mild'|'aggressive' } */
+  PRESET_RAMPUP_7D   = 'preset_rampup_7d',
+  /** 🚀 成熟运营 Day 15+ — 持续运行不限期。payload: { accountId } */
+  PRESET_MATURE_OPS  = 'preset_mature_ops',
+
+  // ── 群组发现 & 加入 ──
+  /** 🌐 自动加群（邀请链接 / 群 chat_id）。payload: { inviteLinks?: [], chatIds?: [], inviteIntervalSec: [60,180] } */
+  JOIN_GROUPS              = 'join_groups',
+  /** 🔍 关键词搜群+加（仅加，不爬）。payload: { keywords:[], minMembers:100, maxPerDay:3 } */
+  JOIN_GROUPS_BY_KEYWORD   = 'join_groups_by_keyword',
+  /** ⭐ Follow 频道。payload: { channels: [@username 或 invite link 列表] } */
+  JOIN_CHANNELS            = 'join_channels',
+  /** 👥 接受所有 pending 群组邀请。payload: { autoAcceptAll: true } */
+  ACCEPT_INVITES           = 'accept_invites',
+
+  // ── 自建群（内部沙盒） ──
+  /** 🏗️ 自建测试群。payload: { title, type: 'small'|'mega', initialMemberAccountIds: [] } */
+  GROUP_CREATE             = 'group_create',
+  /** 📨 邀请同执行组账号入群（自建/自有/外部都可）。payload: { tgChatId|inviteLink|@username, inviterAccountId, targetAccountIds:[] } */
+  GROUP_INVITE_MEMBERS     = 'group_invite_members',
+
+  // ── 群组活动 ──
+  /** 💡 群内冒泡（短句/emoji 维持活跃感）。payload: { tgChatId, count: [3,6], textPool: [] } */
+  GROUP_BUBBLE             = 'group_bubble',
+  /** 💬 A+B 双角色剧本。payload: { tgChatId, scriptId, accountAId, accountBId } */
+  CHAT_SCRIPT_AB           = 'chat_script_ab',
+  /** 💬 4 人剧本。payload: { tgChatId, scriptId, accountIds: [4 个] } */
+  CHAT_SCRIPT_4P           = 'chat_script_4p',
+
+  // ── 拉新引流（pipeline） ──
+  /** 🎯 关键词智能引流（4 阶段：搜→加→等→爬→可选触达）。默认 30 天。
+   *  payload: { keywords:[], maxGroupsPerDay, scrapeDelayHours, maxOutreachPerDay, durationDays:30 } */
+  KEYWORD_LEAD_HUNT        = 'keyword_lead_hunt',
+  /** 🎯 群成员爬取（独立运行，不带搜群）。payload: { tgChatIds:[], maxScrapePerGroup:50 } */
+  GROUP_SCRAPE             = 'group_scrape',
+
+  // ── 触达 ──
+  /** ➕ 加 contact。payload: { mode:'username'|'phone', targets:[], maxPerDay } */
+  CONTACT_ADD              = 'contact_add',
+  /** 📝 单条消息（campaign）。payload: { targets:[], variants:[], intervalSec:[60,300] } */
+  CAMPAIGN_SINGLE          = 'campaign_single',
+
+  // ── 内容输出 ──
+  /** 📢 发频道 / Story。payload: { channelId, content, mediaAssetId? } */
+  POST_CHANNEL             = 'post_channel',
+  /** 🎤 发语音(从素材池随机抽)。payload: { targetType:'group'|'channel', targetId, assetCategory:'voice' } */
+  MEDIA_VOICE              = 'media_voice',
+  /** 🖼️ 发图片(从素材池随机抽)。payload: 同上 + assetCategory:'photo' */
+  MEDIA_PHOTO              = 'media_photo',
+  /** 🎬 发视频(从素材池随机抽)。payload: 同上 + assetCategory:'video' */
+  MEDIA_VIDEO              = 'media_video',
+
+  // ── 互动信号 / 保活 ──
+  /** 👍 给消息加 Reaction。payload: { tgChatId, count: [10,20], emojiPool:['👍','❤️','🔥'] } */
+  REACTION_BOOST           = 'reaction_boost',
+  /** 🌐 浏览频道（模拟阅读）。payload: { channels:[], readDurationSec:[20,90] } */
+  BROWSE_CHANNEL           = 'browse_channel',
+  /** 📋 更新资料（bio/first_name/avatar）。payload: { firstName?, lastName?, bio?, photoAssetId? } */
+  PROFILE_UPDATE           = 'profile_update',
+  /** 🔌 挂机保活（单次）。无 payload，跑一次 account.UpdateStatus(offline:false) */
+  IDLE_KEEPALIVE           = 'idle_keepalive',
 }
 
 export enum TaskStatus {
