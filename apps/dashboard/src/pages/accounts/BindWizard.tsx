@@ -210,7 +210,7 @@ export default function BindWizard() {
 
   return (
     <div style={{ maxWidth: 640, margin: '0 auto' }}>
-      <Title level={4} style={{ marginBottom: 24 }}>Bind Telegram Account</Title>
+      <Title level={4} style={{ marginBottom: 24 }}>绑定 Telegram 账号</Title>
 
       <Steps
         current={current}

@@ -218,15 +218,15 @@ export default function AccountDetailPage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Space>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/accounts')}>Back</Button>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/accounts')}>返回</Button>
           <Title level={4} style={{ margin: 0 }}>
             {slot ? `No.${String(slot.no).padStart(2, '0')} · ` : ''}{account.phoneNumber}
           </Title>
         </Space>
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>Refresh</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>刷新</Button>
           <Button icon={<EditOutlined />} onClick={() => { editForm.setFieldsValue({ role: account.role }); setEditOpen(true); }}>
-            Edit Role
+            编辑角色
           </Button>
           <Button icon={<HeartOutlined />} onClick={() => { healthForm.setFieldsValue({ healthScore: account.healthScore }); setHealthOpen(true); }}>
             Report Health

@@ -293,27 +293,27 @@ export default function AccountsPage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Typography.Title level={4} style={{ margin: 0 }}>
-          Accounts{' '}
+          账号{' '}
           <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>
-            ({occupiedCount} occupied{releasedCount > 0 ? `, ${releasedCount} released` : ''})
+            （已占用 {occupiedCount}{releasedCount > 0 ? `，已释放 ${releasedCount}` : ''}）
           </Typography.Text>
         </Typography.Title>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>
-            Refresh
+            刷新
           </Button>
           <Button icon={<UploadOutlined />} onClick={() => navigate('/accounts/import')}>
-            Import CSV
+            批量导入
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/accounts/bind')}>
-            New Account
+            新建账号
           </Button>
         </Space>
       </div>
 
       <Space style={{ marginBottom: 16 }}>
         <Input
-          placeholder="Search phone..."
+          placeholder="搜索手机号..."
           prefix={<SearchOutlined />}
           value={phoneFilter}
           onChange={(e) => setPhoneFilter(e.target.value)}
@@ -321,29 +321,29 @@ export default function AccountsPage() {
           allowClear
         />
         <Select
-          placeholder="Role"
+          placeholder="角色"
           allowClear
           style={{ width: 120 }}
           value={roleFilter}
           onChange={(v) => setRoleFilter(v)}
           options={[
-            { value: 'cs',     label: 'CS' },
-            { value: 'ad',     label: 'AD' },
-            { value: 'hybrid', label: 'Hybrid' },
+            { value: 'cs',     label: '客服 CS' },
+            { value: 'ad',     label: '广告 AD' },
+            { value: 'hybrid', label: '混合 Hybrid' },
           ]}
         />
         <Select
-          placeholder="Status"
+          placeholder="状态"
           allowClear
           style={{ width: 140 }}
           value={statusFilter}
           onChange={(v) => setStatusFilter(v)}
           options={[
-            { value: 'online',     label: 'Online' },
-            { value: 'offline',    label: 'Offline' },
-            { value: 'connecting', label: 'Connecting' },
-            { value: 'error',      label: 'Error' },
-            { value: 'banned',     label: 'Banned' },
+            { value: 'online',     label: '在线' },
+            { value: 'offline',    label: '离线' },
+            { value: 'connecting', label: '连接中' },
+            { value: 'error',      label: '异常' },
+            { value: 'banned',     label: '已封禁' },
           ]}
         />
       </Space>

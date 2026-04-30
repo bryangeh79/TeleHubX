@@ -27,11 +27,11 @@ const { Title, Text } = Typography;
 type WarmupPhase = 0 | 1 | 2 | 3 | 4;
 
 const PHASE_META: Record<WarmupPhase, { label: string; percent: number; color: string }> = {
-  0: { label: 'P0 Init',           percent: 0,   color: '#bfbfbf' },
-  1: { label: 'P1 Silent Observe', percent: 25,  color: '#69b1ff' },
-  2: { label: 'P2 Lite Activity',  percent: 50,  color: '#4096ff' },
-  3: { label: 'P3 Social Build',   percent: 75,  color: '#1677ff' },
-  4: { label: 'P4 Normal Ops',     percent: 100, color: '#52c41a' },
+  0: { label: 'P0 初始化',         percent: 0,   color: '#bfbfbf' },
+  1: { label: 'P1 沉默观察',       percent: 25,  color: '#69b1ff' },
+  2: { label: 'P2 轻微活动',       percent: 50,  color: '#4096ff' },
+  3: { label: 'P3 社交建立',       percent: 75,  color: '#1677ff' },
+  4: { label: 'P4 常规运营',       percent: 100, color: '#52c41a' },
 };
 
 interface ApiAccount {
@@ -111,7 +111,7 @@ export default function WarmupPage() {
       );
       setRows(plans);
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? 'Failed to load warmup status');
+      antdMessage.error(err?.response?.data?.message ?? '加载养号状态失败');
     } finally {
       setLoading(false);
     }
@@ -126,11 +126,11 @@ export default function WarmupPage() {
     setBusy(row.slot.account.id, true);
     try {
       await warmupApi.start(row.slot.account.id);
-      antdMessage.success(`Warmup started for No.${row.slot.no}`);
+      antdMessage.success(`No.${row.slot.no} 已启动养号`);
       await reload();
     } catch (err: any) {
       const msg = err?.response?.data?.message;
-      antdMessage.error(typeof msg === 'string' ? msg : 'Start failed');
+      antdMessage.error(typeof msg === 'string' ? msg : '启动失败');
     } finally {
       setBusy(row.slot.account.id, false);
     }
@@ -141,11 +141,11 @@ export default function WarmupPage() {
     setBusy(row.slot.account.id, true);
     try {
       await warmupApi.advance(row.slot.account.id);
-      antdMessage.success(`Advanced to next phase`);
+      antdMessage.success(`已推进到下一阶段`);
       await reload();
     } catch (err: any) {
       const msg = err?.response?.data?.message;
-      antdMessage.error(typeof msg === 'string' ? msg : 'Advance failed');
+      antdMessage.error(typeof msg === 'string' ? msg : '推进失败');
     } finally {
       setBusy(row.slot.account.id, false);
     }
@@ -156,11 +156,11 @@ export default function WarmupPage() {
     setBusy(row.slot.account.id, true);
     try {
       await warmupApi.pause(row.slot.account.id);
-      antdMessage.warning(`Warmup paused for No.${row.slot.no}`);
+      antdMessage.warning(`No.${row.slot.no} 已暂停养号`);
       await reload();
     } catch (err: any) {
       const msg = err?.response?.data?.message;
-      antdMessage.error(typeof msg === 'string' ? msg : 'Pause failed');
+      antdMessage.error(typeof msg === 'string' ? msg : '暂停失败');
     } finally {
       setBusy(row.slot.account.id, false);
     }
@@ -171,11 +171,11 @@ export default function WarmupPage() {
     setBusy(row.slot.account.id, true);
     try {
       await warmupApi.resume(row.slot.account.id);
-      antdMessage.success(`Warmup resumed for No.${row.slot.no}`);
+      antdMessage.success(`No.${row.slot.no} 已恢复养号`);
       await reload();
     } catch (err: any) {
       const msg = err?.response?.data?.message;
-      antdMessage.error(typeof msg === 'string' ? msg : 'Resume failed');
+      antdMessage.error(typeof msg === 'string' ? msg : '恢复失败');
     } finally {
       setBusy(row.slot.account.id, false);
     }
@@ -183,7 +183,7 @@ export default function WarmupPage() {
 
   const columns: ColumnsType<Row> = [
     {
-      title: 'No.',
+      title: '编号',
       key: 'no',
       width: 60,
       align: 'center',
@@ -194,7 +194,7 @@ export default function WarmupPage() {
       ),
     },
     {
-      title: 'Phone',
+      title: '手机号',
       key: 'phone',
       width: 160,
       render: (_, r) => (
@@ -202,7 +202,7 @@ export default function WarmupPage() {
       ),
     },
     {
-      title: 'Role',
+      title: '角色',
       key: 'role',
       width: 80,
       render: (_, r) => {
@@ -216,7 +216,7 @@ export default function WarmupPage() {
       },
     },
     {
-      title: 'Account State',
+      title: '账号状态',
       key: 'state',
       width: 120,
       render: (_, r) => {
@@ -227,11 +227,11 @@ export default function WarmupPage() {
       },
     },
     {
-      title: 'Phase & Progress',
+      title: '阶段 & 进度',
       key: 'phase',
       render: (_, r) => {
         if (!r.plan) {
-          return <Text type="secondary">no warmup plan yet</Text>;
+          return <Text type="secondary">尚未启动养号</Text>;
         }
         const phase = (r.plan.currentPhase as WarmupPhase) ?? 0;
         const meta = PHASE_META[phase] ?? PHASE_META[0];
@@ -240,7 +240,7 @@ export default function WarmupPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
               <Text style={{ fontSize: 12 }}>{meta.label}</Text>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                {meta.percent}%{r.plan.completed ? ' · done' : r.plan.paused ? ' · paused' : ''}
+                {meta.percent}%{r.plan.completed ? ' · 完成' : r.plan.paused ? ' · 暂停' : ''}
               </Text>
             </div>
             <Progress percent={meta.percent} strokeColor={meta.color} showInfo={false} size="small" />
@@ -249,7 +249,7 @@ export default function WarmupPage() {
       },
     },
     {
-      title: 'Health',
+      title: '健康分',
       key: 'health',
       width: 80,
       align: 'center',
@@ -259,7 +259,7 @@ export default function WarmupPage() {
       },
     },
     {
-      title: 'Started',
+      title: '开始时间',
       key: 'started',
       width: 130,
       render: (_, r) => {
@@ -268,7 +268,7 @@ export default function WarmupPage() {
       },
     },
     {
-      title: 'Actions',
+      title: '操作',
       key: 'actions',
       width: 240,
       render: (_, row) => {
@@ -285,26 +285,26 @@ export default function WarmupPage() {
               loading={busy}
               onClick={() => handleStart(row)}
             >
-              Start Warmup
+              启动养号
             </Button>
           );
         }
         if (row.plan.completed) {
-          return <Tag color="success">Completed</Tag>;
+          return <Tag color="success">已完成</Tag>;
         }
         const phase = row.plan.currentPhase;
         const isPaused = !!row.plan.paused;
         return (
           <Space size={4}>
             {!isPaused && phase < 4 && (
-              <Tooltip title={`Advance to P${phase + 1}`}>
+              <Tooltip title={`推进到 P${phase + 1}`}>
                 <Button
                   size="small"
                   icon={<StepForwardOutlined />}
                   loading={busy}
                   onClick={() => handleAdvance(row)}
                 >
-                  Advance
+                  推进
                 </Button>
               </Tooltip>
             )}
@@ -316,7 +316,7 @@ export default function WarmupPage() {
                 loading={busy}
                 onClick={() => handleResume(row)}
               >
-                Resume
+                恢复
               </Button>
             ) : (
               <Button
@@ -325,7 +325,7 @@ export default function WarmupPage() {
                 loading={busy}
                 onClick={() => handlePause(row)}
               >
-                Pause
+                暂停
               </Button>
             )}
           </Space>
@@ -338,18 +338,18 @@ export default function WarmupPage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div>
-          <Title level={4} style={{ margin: 0 }}>Warmup Dashboard</Title>
+          <Title level={4} style={{ margin: 0 }}>养号看板</Title>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            7-day progressive warmup: P0 Init → P1 Silent → P2 Lite → P3 Social → P4 Normal Ops
+            7 天渐进养号：P0 初始化 → P1 沉默 → P2 轻活 → P3 社交 → P4 常规
           </Text>
         </div>
         <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>
-          Refresh
+          刷新
         </Button>
       </div>
 
       {rows.length === 0 && !loading ? (
-        <Empty description="No occupied slots yet — bind an account first" />
+        <Empty description="尚无占用的槽位 — 请先绑定账号" />
       ) : (
         <Table
           columns={columns}

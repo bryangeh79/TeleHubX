@@ -134,9 +134,9 @@ export default function ImportAccounts() {
 
   return (
     <div style={{ maxWidth: 860, margin: '0 auto' }}>
-      <Title level={4} style={{ marginBottom: 8 }}>Batch Import Accounts</Title>
+      <Title level={4} style={{ marginBottom: 8 }}>批量导入账号</Title>
       <Text type="secondary" style={{ display: 'block', marginBottom: 24 }}>
-        CSV format: <code>{CSV_HEADER}</code>
+        CSV 格式：<code>{CSV_HEADER}</code>
       </Text>
 
       <Dragger

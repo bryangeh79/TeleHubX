@@ -45,7 +45,7 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <Title level={4} style={{ marginBottom: 24 }}>Dashboard</Title>
+      <Title level={4} style={{ marginBottom: 24 }}>仪表盘</Title>
 
       {loading ? (
         <Spin />
@@ -54,7 +54,7 @@ export default function DashboardPage() {
           <Col xs={24} sm={12} lg={6}>
             <Card>
               <Statistic
-                title="Total Accounts"
+                title="账号总数"
                 value={overview.totalAccounts}
                 prefix={<UserOutlined />}
               />
@@ -64,7 +64,7 @@ export default function DashboardPage() {
           <Col xs={24} sm={12} lg={6}>
             <Card>
               <Statistic
-                title="Online Now"
+                title="当前在线"
                 value={overview.onlineAccounts}
                 prefix={<WifiOutlined style={{ color: '#52c41a' }} />}
                 valueStyle={{ color: '#52c41a' }}
@@ -76,7 +76,7 @@ export default function DashboardPage() {
           <Col xs={24} sm={12} lg={6}>
             <Card>
               <Statistic
-                title="Avg Health Score"
+                title="平均健康分"
                 value={overview.avgHealthScore}
                 prefix={<HeartOutlined style={{ color: healthColor }} />}
                 valueStyle={{ color: healthColor }}
@@ -95,7 +95,7 @@ export default function DashboardPage() {
           <Col xs={24} sm={12} lg={6}>
             <Card>
               <Statistic
-                title="Active Campaigns"
+                title="活跃广告"
                 value={overview.activeCampaigns}
                 prefix={<SendOutlined />}
               />
@@ -106,13 +106,13 @@ export default function DashboardPage() {
 
       <Row gutter={[16, 16]} style={{ marginTop: 24 }}>
         <Col span={24}>
-          <Card title="Health Score Legend" size="small">
+          <Card title="健康分级说明" size="small">
             <Row gutter={16}>
               {[
-                { label: '80-100', desc: 'Healthy', color: '#52c41a' },
-                { label: '60-80',  desc: 'Warning — reduce frequency', color: '#faad14' },
-                { label: '30-60',  desc: 'Alert — pause some operations', color: '#fa8c16' },
-                { label: '< 30',   desc: 'Critical — account suspended', color: '#f5222d' },
+                { label: '80-100', desc: '健康', color: '#52c41a' },
+                { label: '60-80',  desc: '警告 — 降低频率', color: '#faad14' },
+                { label: '30-60',  desc: '警报 — 暂停部分操作', color: '#fa8c16' },
+                { label: '< 30',   desc: '危急 — 账号已暂停', color: '#f5222d' },
               ].map(item => (
                 <Col key={item.label} xs={12} sm={6}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -212,19 +212,19 @@ export default function CampaignsPage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>
-          Campaigns{' '}
+          广告投放{' '}
           <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>({campaigns.length})</Text>
         </Title>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>
-            Refresh
+            刷新
           </Button>
           <Button
             type="primary"
             icon={<PlusOutlined />}
             onClick={() => navigate('/campaigns/new')}
           >
-            New Campaign
+            新建广告
           </Button>
         </Space>
       </div>

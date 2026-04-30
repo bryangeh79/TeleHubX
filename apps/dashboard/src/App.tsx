@@ -14,6 +14,9 @@ import AiSettingsPage from './pages/ai/AiSettingsPage';
 import ProxiesPage from './pages/proxies/ProxiesPage';
 import KnowledgePage from './pages/knowledge/KnowledgePage';
 import CsPage from './pages/cs/CsPage';
+import SettingsHubPage from './pages/settings/SettingsHubPage';
+import SchedulerPage from './pages/scheduler/SchedulerPage';
+import AdminPage from './pages/admin/AdminPage';
 import LoginPage from './pages/auth/LoginPage';
 import ActivatePage from './pages/auth/ActivatePage';
 
@@ -38,6 +41,9 @@ const App: React.FC = () => (
       <Route path="knowledge" element={<KnowledgePage />} />
       <Route path="cs" element={<CsPage />} />
       <Route path="ai" element={<AiSettingsPage />} />
+      <Route path="settings" element={<SettingsHubPage />} />
+      <Route path="scheduler" element={<SchedulerPage />} />
+      <Route path="admin" element={<AdminPage />} />
     </Route>
   </Routes>
 );

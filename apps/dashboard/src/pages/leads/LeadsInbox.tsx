@@ -245,52 +245,52 @@ export default function LeadsInbox() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>
-          Leads Inbox{' '}
+          人工接管{' '}
           <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>({leads.length})</Text>
         </Title>
         <Space>
           <Select
-            placeholder="Intent"
+            placeholder="意向"
             allowClear
             style={{ width: 110 }}
             value={intentFilter}
             onChange={v => setIntentFilter(v)}
             options={[
-              { value: 'cold', label: 'Cold' },
-              { value: 'warm', label: 'Warm' },
-              { value: 'hot',  label: 'Hot' },
+              { value: 'cold', label: '冷' },
+              { value: 'warm', label: '温' },
+              { value: 'hot',  label: '热' },
             ]}
           />
           <Select
-            placeholder="Status"
+            placeholder="状态"
             allowClear
             style={{ width: 130 }}
             value={statusFilter}
             onChange={v => setStatusFilter(v)}
             options={[
-              { value: 'new',         label: 'New' },
-              { value: 'assigned',    label: 'Assigned' },
-              { value: 'in_progress', label: 'In progress' },
-              { value: 'converted',   label: 'Converted' },
-              { value: 'closed',      label: 'Closed' },
+              { value: 'new',         label: '新建' },
+              { value: 'assigned',    label: '已分配' },
+              { value: 'in_progress', label: '处理中' },
+              { value: 'converted',   label: '已转化' },
+              { value: 'closed',      label: '已关闭' },
             ]}
           />
           <Select
-            placeholder="Needs human"
+            placeholder="需人工"
             allowClear
             style={{ width: 130 }}
             value={needsHumanFilter}
             onChange={v => setNeedsHumanFilter(v)}
             options={[
-              { value: true,  label: 'Yes' },
-              { value: false, label: 'No' },
+              { value: true,  label: '是' },
+              { value: false, label: '否' },
             ]}
           />
           <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>
-            Refresh
+            刷新
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setNewOpen(true)}>
-            New Lead
+            新建线索
           </Button>
         </Space>
       </div>

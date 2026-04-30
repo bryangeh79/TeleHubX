@@ -236,9 +236,9 @@ export default function AiSettingsPage() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>AI Settings</Title>
+        <Title level={4} style={{ margin: 0 }}>AI 配置</Title>
         <Button icon={<ReloadOutlined />} onClick={() => void loadInfo()} loading={loading}>
-          Refresh
+          刷新
         </Button>
       </div>
 

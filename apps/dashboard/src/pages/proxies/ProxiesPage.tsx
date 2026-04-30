@@ -263,14 +263,14 @@ export default function ProxiesPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Typography.Title level={4} style={{ margin: 0 }}>
           <GlobalOutlined style={{ marginRight: 8 }} />
-          Proxies <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>({rows.length})</Typography.Text>
+          代理管理 <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>({rows.length})</Typography.Text>
         </Typography.Title>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>
-            Refresh
+            刷新
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            Add Proxy
+            新建代理
           </Button>
         </Space>
       </div>
