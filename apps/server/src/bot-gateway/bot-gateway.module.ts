@@ -12,6 +12,6 @@ import { BotUpdateAdapter } from './bot-update.adapter';
   imports: [TenantsModule, LeadsModule, AiAgentModule, KnowledgeModule],
   controllers: [BotGatewayController],
   providers: [BotGatewayService, BotReplyService, BotUpdateAdapter],
-  exports: [BotGatewayService],
+  exports: [BotGatewayService, BotReplyService],
 })
 export class BotGatewayModule {}

@@ -1,537 +1,465 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Row,
-  Col,
-  List,
-  Card,
-  Tag,
+  Avatar,
   Badge,
-  Input,
   Button,
+  Empty,
+  Input,
+  List,
+  Modal,
+  Popconfirm,
   Select,
   Space,
-  Typography,
-  Avatar,
-  Divider,
-  message as antdMessage,
-  Empty,
-  Modal,
-  Form,
-  Popconfirm,
+  Tag,
   Tooltip,
+  Typography,
+  message as antdMessage,
 } from 'antd';
 import {
-  UserOutlined,
-  SendOutlined,
+  CheckCircleOutlined,
+  CustomerServiceOutlined,
   ReloadOutlined,
-  DeleteOutlined,
-  TeamOutlined,
-  PlusOutlined,
+  RobotOutlined,
+  SendOutlined,
+  StopOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { leadsApi, slotsApi } from '../../services/api';
+import { io, Socket } from 'socket.io-client';
+import { leadsApi } from '../../services/api';
 
 const { Title, Text } = Typography;
-const { TextArea } = Input;
 
 type Intent = 'cold' | 'warm' | 'hot';
 type LeadStatus = 'new' | 'assigned' | 'in_progress' | 'converted' | 'closed';
 type TakeoverState = 'ai' | 'human' | 'closed' | 'dnr';
+type Sender = 'user' | 'system' | 'human';
 
-interface ApiLead {
+interface Reply {
+  text: string;
+  sentBy: Sender;
+  ts: string;
+}
+
+interface Lead {
   id: string;
   tgUsername: string | null;
   tgUserId: string;
-  campaignId: string | null;
-  product: string | null;
-  budget: string | null;
+  tenantId: string | null;
   intent: Intent;
   status: LeadStatus;
-  assignedCsAccountId: string | null;
+  takeoverState: TakeoverState;
+  takenOverBy: string;
+  takenOverAt: string | null;
   needsHuman: boolean;
   notes: string[] | null;
-  replies: Array<{ text: string; sentBy: 'system' | 'human'; ts: string }> | null;
-  takeoverState: TakeoverState;
-  takenOverBy: string | null;
-  takenOverAt: string | null;
+  replies: Reply[] | null;
+  product: string | null;
+  budget: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-interface CsOption {
-  id: string;
-  phoneNumber: string;
-  no: number;
-  role: string;
-}
-
-const INTENT_COLOR: Record<Intent, string> = {
-  cold: 'blue',
-  warm: 'orange',
-  hot:  'red',
+const INTENT_COLOR: Record<Intent, string> = { cold: 'default', warm: 'orange', hot: 'red' };
+const TAKEOVER_LABEL: Record<TakeoverState, { label: string; color: string }> = {
+  ai:     { label: 'AI 处理中', color: 'blue' },
+  human:  { label: '人工接管', color: 'orange' },
+  closed: { label: '已关闭',   color: 'default' },
+  dnr:    { label: '永久屏蔽', color: 'red' },
 };
 
-const STATUS_BADGE: Record<LeadStatus, 'success' | 'default' | 'processing' | 'warning' | 'error'> = {
-  new:         'processing',
-  assigned:    'success',
-  in_progress: 'warning',
-  converted:   'success',
-  closed:      'default',
-};
+const SF_PRO = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif';
 
 export default function LeadsInbox() {
-  const [leads, setLeads] = useState<ApiLead[]>([]);
-  const [csAccounts, setCsAccounts] = useState<CsOption[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [intentFilter, setIntentFilter] = useState<Intent | undefined>();
-  const [statusFilter, setStatusFilter] = useState<LeadStatus | undefined>();
-  const [needsHumanFilter, setNeedsHumanFilter] = useState<boolean | undefined>();
-  const [replyText, setReplyText] = useState('');
-  const [sending, setSending] = useState(false);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [selected, setSelected] = useState<Lead | null>(null);
+  const [filterIntent, setFilterIntent] = useState<Intent | undefined>();
+  const [filterTakeover, setFilterTakeover] = useState<TakeoverState | undefined>();
   const [loading, setLoading] = useState(false);
-  const [noteText, setNoteText] = useState('');
-  const [noteOpen, setNoteOpen] = useState(false);
-  const [newOpen, setNewOpen] = useState(false);
-  const [createForm] = Form.useForm<{ tgUserId: string; tgUsername?: string; intent?: Intent; product?: string; budget?: string }>();
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const [socketConnected, setSocketConnected] = useState(false);
 
+  const socketRef = useRef<Socket | null>(null);
+  const messageEndRef = useRef<HTMLDivElement>(null);
+
+  // ── REST: load leads ─────────────────────────────────────────────────────
   const reload = useCallback(async () => {
     setLoading(true);
     try {
       const params: Record<string, string> = {};
-      if (statusFilter) params.status = statusFilter;
-      if (intentFilter) params.intent = intentFilter;
-      if (needsHumanFilter !== undefined) params.needsHuman = String(needsHumanFilter);
+      if (filterIntent) params.intent = filterIntent;
       const res = await leadsApi.list(params);
-      const list: ApiLead[] = Array.isArray(res.data) ? res.data : [];
-      setLeads(list);
-      // keep selection if still in list, else pick first
-      if (selectedId && list.some(l => l.id === selectedId)) {
-        // ok
-      } else if (list.length) {
-        setSelectedId(list[0].id);
-      } else {
-        setSelectedId(null);
+      const list: Lead[] = Array.isArray(res.data) ? res.data : [];
+      setLeads(filterTakeover ? list.filter((l) => l.takeoverState === filterTakeover) : list);
+      // Refresh selected
+      if (selected) {
+        const fresh = list.find((l) => l.id === selected.id);
+        if (fresh) setSelected(fresh);
       }
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? 'Failed to load leads');
+      antdMessage.error(err?.response?.data?.message ?? '加载失败');
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, intentFilter, needsHumanFilter, selectedId]);
+  }, [filterIntent, filterTakeover, selected?.id]);
 
-  // Load CS accounts (for assign dropdown) once
+  useEffect(() => { void reload(); }, [reload]);
+
+  // Auto-scroll on new messages
   useEffect(() => {
-    void (async () => {
-      try {
-        const res = await slotsApi.list();
-        const slots = Array.isArray(res.data) ? res.data : [];
-        const cs = slots
-          .filter((s: any) => s.account && (s.account.role === 'cs' || s.account.role === 'hybrid'))
-          .map((s: any) => ({
-            id: s.account.id,
-            phoneNumber: s.account.phoneNumber,
-            no: s.no,
-            role: s.account.role,
-          }));
-        setCsAccounts(cs);
-      } catch {
-        setCsAccounts([]);
-      }
-    })();
-  }, []);
-
-  useEffect(() => {
-    void reload();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, intentFilter, needsHumanFilter]);
-
-  const selected = leads.find(l => l.id === selectedId) ?? null;
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [selected?.replies?.length]);
 
-  const handleSend = async () => {
-    if (!replyText.trim() || !selected) return;
-    setSending(true);
-    try {
-      await leadsApi.reply(selected.id, replyText.trim());
-      setReplyText('');
-      antdMessage.success('Reply recorded (data-layer audit only — Telegram dispatch lands in agent worker)');
-      await reload();
-    } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? 'Reply failed');
-    } finally {
-      setSending(false);
-    }
-  };
+  // ── WebSocket: realtime ──────────────────────────────────────────────────
+  useEffect(() => {
+    const sock = io({
+      path: '/socket.io',
+      transports: ['websocket'],
+    });
+    socketRef.current = sock;
+    sock.on('connect', () => setSocketConnected(true));
+    sock.on('disconnect', () => setSocketConnected(false));
+    sock.on('lead-updated', () => { void reload(); });
+    sock.on('message', (msg: { leadId: string; sender: Sender; text: string; ts: string }) => {
+      setSelected((curr) => {
+        if (!curr || curr.id !== msg.leadId) return curr;
+        const newReply: Reply = { text: msg.text, sentBy: msg.sender, ts: msg.ts };
+        const replies = [...(curr.replies ?? []), newReply];
+        return { ...curr, replies };
+      });
+      // 也刷一下 leads 列表的预览
+      setLeads((list) => list.map((l) =>
+        l.id === msg.leadId
+          ? { ...l, replies: [...(l.replies ?? []), { text: msg.text, sentBy: msg.sender, ts: msg.ts }], updatedAt: msg.ts }
+          : l));
+    });
+    return () => {
+      sock.disconnect();
+      socketRef.current = null;
+    };
+  }, [reload]);
 
-  const handleAssign = async (csId: string) => {
-    if (!selected) return;
-    try {
-      await leadsApi.assign(selected.id, csId);
-      antdMessage.success('Lead assigned');
-      await reload();
-    } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? 'Assign failed');
-    }
-  };
+  // Subscribe to selected lead's room
+  useEffect(() => {
+    const sock = socketRef.current;
+    if (!sock || !selected) return;
+    sock.emit('subscribe', { leadId: selected.id });
+    return () => {
+      sock.emit('unsubscribe', { leadId: selected.id });
+    };
+  }, [selected?.id]);
 
-  const handleAddNote = async () => {
-    if (!selected || !noteText.trim()) return;
-    try {
-      await leadsApi.addNote(selected.id, noteText.trim());
-      antdMessage.success('Note added');
-      setNoteText('');
-      setNoteOpen(false);
-      await reload();
-    } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? 'Add note failed');
-    }
-  };
-
-  const handleDelete = async (lead: ApiLead) => {
-    try {
-      await leadsApi.delete(lead.id);
-      antdMessage.success('Lead deleted');
-      await reload();
-    } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? 'Delete failed');
-    }
-  };
-
-  const handleTakeOver = async (lead: ApiLead) => {
+  // ── Actions ──────────────────────────────────────────────────────────────
+  const handleTakeover = async (lead: Lead) => {
     try {
       await leadsApi.takeOver(lead.id);
-      antdMessage.success(`Took over — AI will not auto-reply to this lead`);
-      await reload();
+      antdMessage.success('已接管，AI 将停止回复，由你接管');
+      void reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? 'Take over failed');
+      antdMessage.error(err?.response?.data?.message ?? '接管失败');
     }
   };
 
-  const handleRelease = async (lead: ApiLead) => {
+  const handleRelease = async (lead: Lead) => {
     try {
       await leadsApi.release(lead.id);
-      antdMessage.success(`Released — AI resumes auto-reply`);
-      await reload();
+      antdMessage.success('已释放，AI 重新接管');
+      void reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? 'Release failed');
+      antdMessage.error(err?.response?.data?.message ?? '释放失败');
     }
   };
 
-  const handleCreate = async () => {
+  const handleClose = async (lead: Lead) => {
     try {
-      const values = await createForm.validateFields();
-      await leadsApi.create({
-        tgUserId: values.tgUserId,
-        tgUsername: values.tgUsername || undefined,
-        intent: values.intent,
-        product: values.product || undefined,
-        budget: values.budget || undefined,
-      });
-      antdMessage.success('Lead created');
-      setNewOpen(false);
-      createForm.resetFields();
-      await reload();
+      await leadsApi.setState(lead.id, 'closed');
+      antdMessage.success('对话已关闭');
+      void reload();
     } catch (err: any) {
-      const msg = err?.response?.data?.message;
-      if (msg) antdMessage.error(Array.isArray(msg) ? msg.join('; ') : msg);
+      antdMessage.error(err?.response?.data?.message ?? '关闭失败');
     }
   };
 
+  const handleSend = async () => {
+    if (!selected || !draft.trim()) return;
+    if (selected.takeoverState !== 'human') {
+      Modal.warning({
+        title: '请先接管',
+        content: '该对话目前由 AI 处理。点击右上角「接管」按钮后才能由人工回复。',
+        okText: '知道了',
+      });
+      return;
+    }
+    const sock = socketRef.current;
+    if (!sock || !sock.connected) {
+      antdMessage.error('WebSocket 未连接，请刷新页面');
+      return;
+    }
+    setSending(true);
+    sock.emit(
+      'reply',
+      { leadId: selected.id, text: draft.trim() },
+      (res: { ok: boolean; error?: string }) => {
+        setSending(false);
+        if (res?.ok) {
+          setDraft('');
+        } else {
+          antdMessage.error(res?.error ?? '发送失败');
+        }
+      },
+    );
+  };
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  const lastMessagePreview = (l: Lead): { text: string; ts: string | null; sender: Sender | null } => {
+    const last = l.replies?.[l.replies.length - 1];
+    if (!last) return { text: '尚无消息', ts: null, sender: null };
+    return { text: last.text, ts: last.ts, sender: last.sentBy };
+  };
+
+  const fmtTime = (iso: string | null) => {
+    if (!iso) return '';
+    const d = dayjs(iso);
+    const diffMin = dayjs().diff(d, 'minute');
+    if (diffMin < 1) return '刚刚';
+    if (diffMin < 60) return `${diffMin}m`;
+    const diffHr = dayjs().diff(d, 'hour');
+    if (diffHr < 24) return `${diffHr}h`;
+    return d.format('MM-DD');
+  };
+
+  const sortedLeads = useMemo(() => {
+    return [...leads].sort((a, b) => {
+      // Pin 'human' takeover state to top
+      if (a.takeoverState === 'human' && b.takeoverState !== 'human') return -1;
+      if (b.takeoverState === 'human' && a.takeoverState !== 'human') return 1;
+      const ta = dayjs(a.replies?.[a.replies.length - 1]?.ts ?? a.updatedAt);
+      const tb = dayjs(b.replies?.[b.replies.length - 1]?.ts ?? b.updatedAt);
+      return tb.valueOf() - ta.valueOf();
+    });
+  }, [leads]);
+
+  // ── Render ───────────────────────────────────────────────────────────────
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>
-          人工接管{' '}
-          <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>({leads.length})</Text>
-        </Title>
-        <Space>
-          <Select
-            placeholder="意向"
-            allowClear
-            style={{ width: 110 }}
-            value={intentFilter}
-            onChange={v => setIntentFilter(v)}
-            options={[
-              { value: 'cold', label: '冷' },
-              { value: 'warm', label: '温' },
-              { value: 'hot',  label: '热' },
-            ]}
-          />
-          <Select
-            placeholder="状态"
-            allowClear
-            style={{ width: 130 }}
-            value={statusFilter}
-            onChange={v => setStatusFilter(v)}
-            options={[
-              { value: 'new',         label: '新建' },
-              { value: 'assigned',    label: '已分配' },
-              { value: 'in_progress', label: '处理中' },
-              { value: 'converted',   label: '已转化' },
-              { value: 'closed',      label: '已关闭' },
-            ]}
-          />
-          <Select
-            placeholder="需人工"
-            allowClear
-            style={{ width: 130 }}
-            value={needsHumanFilter}
-            onChange={v => setNeedsHumanFilter(v)}
-            options={[
-              { value: true,  label: '是' },
-              { value: false, label: '否' },
-            ]}
-          />
-          <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>
-            刷新
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setNewOpen(true)}>
-            新建线索
-          </Button>
-        </Space>
-      </div>
+    <div style={{ display: 'flex', height: 'calc(100vh - 160px)', minHeight: 480, gap: 16 }}>
+      {/* LEFT: lead list */}
+      <div style={{ width: 340, borderRight: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '0 8px 12px', borderBottom: '1px solid #f5f5f5' }}>
+          <Title level={5} style={{ margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span><CustomerServiceOutlined /> 人工接管 <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>({leads.length})</Text></span>
+            <Tooltip title={socketConnected ? 'WebSocket 已连接' : 'WebSocket 未连接'}>
+              <Badge status={socketConnected ? 'processing' : 'error'} />
+            </Tooltip>
+          </Title>
+          <Space style={{ marginTop: 8 }} size={4}>
+            <Select
+              size="small"
+              placeholder="意向"
+              allowClear
+              style={{ width: 80 }}
+              value={filterIntent}
+              onChange={setFilterIntent}
+              options={[
+                { value: 'cold', label: '冷' },
+                { value: 'warm', label: '温' },
+                { value: 'hot', label: '热' },
+              ]}
+            />
+            <Select
+              size="small"
+              placeholder="接管"
+              allowClear
+              style={{ width: 96 }}
+              value={filterTakeover}
+              onChange={setFilterTakeover}
+              options={[
+                { value: 'ai', label: 'AI' },
+                { value: 'human', label: '人工' },
+                { value: 'closed', label: '关闭' },
+                { value: 'dnr', label: '屏蔽' },
+              ]}
+            />
+            <Button size="small" icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading} />
+          </Space>
+        </div>
 
-      <Row gutter={16} style={{ height: 'calc(100vh - 220px)', minHeight: 500 }}>
-        <Col span={9} style={{ height: '100%', overflowY: 'auto', borderRight: '1px solid #f0f0f0' }}>
-          <List
-            dataSource={leads}
-            loading={loading}
-            locale={{ emptyText: <Empty description="No leads yet" /> }}
-            renderItem={lead => (
-              <List.Item
-                key={lead.id}
-                onClick={() => setSelectedId(lead.id)}
-                style={{
-                  cursor: 'pointer',
-                  padding: '12px 16px',
-                  background: selectedId === lead.id ? '#e6f4ff' : 'transparent',
-                  borderRadius: 6,
-                  marginBottom: 4,
-                }}
-              >
-                <List.Item.Meta
-                  avatar={<Avatar icon={<UserOutlined />} />}
-                  title={
-                    <Space size={4}>
-                      <Text strong style={{ fontSize: 13 }}>
-                        {lead.tgUsername ? `@${lead.tgUsername}` : lead.tgUserId}
-                      </Text>
-                      <Tag color={INTENT_COLOR[lead.intent]} style={{ fontSize: 10, padding: '0 4px' }}>
-                        {lead.intent}
-                      </Tag>
-                      {lead.needsHuman && <Tag color="red" style={{ fontSize: 10 }}>需人工</Tag>}
-                      <Badge status={STATUS_BADGE[lead.status]} />
-                    </Space>
-                  }
-                  description={
-                    <div>
-                      {lead.product && (
-                        <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
-                          {lead.product}{lead.budget ? ` · ${lead.budget}` : ''}
-                        </Text>
-                      )}
-                      <Text type="secondary" style={{ fontSize: 10, display: 'block' }}>
-                        {dayjs(lead.updatedAt).format('MM-DD HH:mm')}
-                      </Text>
-                    </div>
-                  }
-                />
-              </List.Item>
-            )}
-          />
-        </Col>
-
-        <Col span={15} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          {selected ? (
-            <>
-              <div style={{ padding: '8px 16px', borderBottom: '1px solid #f0f0f0' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <Space wrap>
-                    <Text strong>{selected.tgUsername ? `@${selected.tgUsername}` : selected.tgUserId}</Text>
-                    <Tag color={INTENT_COLOR[selected.intent]}>{selected.intent}</Tag>
-                    <Badge status={STATUS_BADGE[selected.status]} text={selected.status} />
-                    {selected.takeoverState === 'human' && <Tag color="red">🙋 Human handling</Tag>}
-                    {selected.takeoverState === 'closed' && <Tag>closed</Tag>}
-                    {selected.takeoverState === 'dnr' && <Tag color="default">DNR</Tag>}
-                    {selected.needsHuman && <Tag color="orange">needs human</Tag>}
-                  </Space>
-                  <Space>
-                    {selected.takeoverState === 'ai' ? (
-                      <Tooltip title="Stop AI auto-reply for this lead — operator handles">
-                        <Button size="small" type="primary" onClick={() => handleTakeOver(selected)}>
-                          Take Over
-                        </Button>
-                      </Tooltip>
-                    ) : selected.takeoverState === 'human' ? (
-                      <Tooltip title="Hand back to AI">
-                        <Button size="small" onClick={() => handleRelease(selected)}>
-                          Release
-                        </Button>
-                      </Tooltip>
-                    ) : null}
-                    <Tooltip title="Assign to a CS account">
-                      <Select
-                        size="small"
-                        placeholder={<><TeamOutlined /> Assign</>}
-                        style={{ width: 200 }}
-                        value={selected.assignedCsAccountId ?? undefined}
-                        onChange={(v) => v && handleAssign(v)}
-                        options={csAccounts.map(c => ({
-                          value: c.id,
-                          label: `No.${String(c.no).padStart(2, '0')} · ${c.phoneNumber} (${c.role})`,
-                        }))}
-                        notFoundContent={csAccounts.length ? null : 'No cs/hybrid accounts'}
-                      />
-                    </Tooltip>
-                    <Button size="small" onClick={() => setNoteOpen(true)}>
-                      + Note
-                    </Button>
-                    <Popconfirm
-                      title="Delete this lead?"
-                      onConfirm={() => handleDelete(selected)}
-                      okButtonProps={{ danger: true }}
-                    >
-                      <Button size="small" danger icon={<DeleteOutlined />} />
-                    </Popconfirm>
-                  </Space>
-                </div>
-                <div style={{ fontSize: 11, color: '#8c8c8c' }}>
-                  TG ID: <Text code style={{ fontSize: 10 }}>{selected.tgUserId}</Text>
-                  {selected.product ? ` · Product: ${selected.product}` : ''}
-                  {selected.budget ? ` · Budget: ${selected.budget}` : ''}
-                  {selected.assignedCsAccountId ? ` · Assigned to: ${selected.assignedCsAccountId.slice(0, 8)}...` : ''}
-                </div>
-              </div>
-
-              <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {selected.notes && selected.notes.length > 0 && (
-                  <Card size="small" title="Notes" style={{ background: '#fafafa' }}>
-                    {selected.notes.map((n, i) => (
-                      <div key={i} style={{ fontSize: 12, marginBottom: 4 }}>• {n}</div>
-                    ))}
-                  </Card>
-                )}
-
-                {(selected.replies && selected.replies.length > 0) ? (
-                  selected.replies.map((msg, i) => (
-                    <div
-                      key={i}
-                      style={{ display: 'flex', justifyContent: 'flex-end' }}
-                    >
-                      <div
-                        style={{
-                          maxWidth: '70%',
-                          padding: '8px 12px',
-                          borderRadius: '12px 12px 2px 12px',
-                          background: msg.sentBy === 'human' ? '#1677ff' : '#52c41a',
-                          color: '#fff',
-                        }}
-                      >
-                        <div style={{ fontSize: 13 }}>{msg.text}</div>
-                        <div style={{ fontSize: 10, marginTop: 4, opacity: 0.7, textAlign: 'right' }}>
-                          {msg.sentBy} · {dayjs(msg.ts).format('MM-DD HH:mm')}
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {sortedLeads.length === 0 ? (
+            <Empty description="尚无线索" style={{ marginTop: 60 }} />
+          ) : (
+            <List
+              dataSource={sortedLeads}
+              renderItem={(l) => {
+                const preview = lastMessagePreview(l);
+                const active = selected?.id === l.id;
+                const meta = TAKEOVER_LABEL[l.takeoverState];
+                return (
+                  <div
+                    onClick={() => setSelected(l)}
+                    style={{
+                      padding: '10px 12px',
+                      cursor: 'pointer',
+                      background: active ? '#e6f4ff' : undefined,
+                      borderLeft: active ? '3px solid #1677ff' : '3px solid transparent',
+                      borderBottom: '1px solid #f5f5f5',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Avatar size={32} style={{ backgroundColor: '#229ED9', flexShrink: 0 }}>
+                        {(l.tgUsername || l.tgUserId).slice(0, 2).toUpperCase()}
+                      </Avatar>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 4 }}>
+                          <Text strong style={{ fontSize: 13, fontFamily: SF_PRO, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {l.tgUsername ? `@${l.tgUsername}` : l.tgUserId}
+                          </Text>
+                          <Text type="secondary" style={{ fontSize: 10, flexShrink: 0 }}>{fmtTime(preview.ts)}</Text>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 4, marginTop: 2 }}>
+                          <Text type="secondary" style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {preview.sender === 'user' ? '' : preview.sender === 'system' ? '🤖 ' : preview.sender === 'human' ? '👤 ' : ''}
+                            {preview.text}
+                          </Text>
+                          <Tag color={meta.color} style={{ fontSize: 10, padding: '0 4px', lineHeight: '14px', margin: 0, flexShrink: 0 }}>
+                            {meta.label}
+                          </Tag>
                         </div>
                       </div>
                     </div>
-                  ))
-                ) : (
-                  <Empty
-                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    description="No replies yet — send the first one below"
-                    style={{ marginTop: 40 }}
-                  />
-                )}
-                <div ref={bottomRef} />
-              </div>
-
-              <Divider style={{ margin: 0 }} />
-              <div style={{ padding: '12px 16px', display: 'flex', gap: 8 }}>
-                <TextArea
-                  value={replyText}
-                  onChange={e => setReplyText(e.target.value)}
-                  placeholder="Type a reply... (data-layer audit only for now)"
-                  autoSize={{ minRows: 2, maxRows: 5 }}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSend();
-                  }}
-                  style={{ flex: 1 }}
-                />
-                <Button
-                  type="primary"
-                  icon={<SendOutlined />}
-                  loading={sending}
-                  onClick={handleSend}
-                  disabled={!replyText.trim()}
-                  style={{ alignSelf: 'flex-end' }}
-                >
-                  Send
-                </Button>
-              </div>
-            </>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-              <Empty description="Select a lead to view conversation" />
-            </div>
-          )}
-        </Col>
-      </Row>
-
-      <Modal
-        title="Add note"
-        open={noteOpen}
-        onCancel={() => setNoteOpen(false)}
-        onOk={handleAddNote}
-        okText="Add"
-      >
-        <TextArea
-          rows={4}
-          value={noteText}
-          onChange={(e) => setNoteText(e.target.value)}
-          placeholder="Internal note about this lead"
-        />
-      </Modal>
-
-      <Modal
-        title="Create lead manually"
-        open={newOpen}
-        onCancel={() => setNewOpen(false)}
-        onOk={handleCreate}
-        okText="Create"
-        destroyOnHidden
-      >
-        <Form form={createForm} layout="vertical">
-          <Form.Item
-            name="tgUserId"
-            label="Telegram User ID"
-            rules={[{ required: true, message: 'Required' }]}
-          >
-            <Input placeholder="numeric TG user id" />
-          </Form.Item>
-          <Form.Item name="tgUsername" label="Username">
-            <Input placeholder="without @" />
-          </Form.Item>
-          <Form.Item name="intent" label="Intent">
-            <Select
-              options={[
-                { value: 'cold', label: 'Cold' },
-                { value: 'warm', label: 'Warm' },
-                { value: 'hot',  label: 'Hot' },
-              ]}
-              placeholder="default cold"
+                    {l.intent !== 'cold' && (
+                      <Tag color={INTENT_COLOR[l.intent]} style={{ fontSize: 10, marginTop: 4 }}>
+                        {l.intent.toUpperCase()}
+                      </Tag>
+                    )}
+                  </div>
+                );
+              }}
             />
-          </Form.Item>
-          <Form.Item name="product" label="Product">
-            <Input placeholder="What product they're interested in" />
-          </Form.Item>
-          <Form.Item name="budget" label="Budget">
-            <Input placeholder="e.g. 500-1000 USD" />
-          </Form.Item>
-        </Form>
-      </Modal>
+          )}
+        </div>
+      </div>
+
+      {/* RIGHT: chat panel */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        {!selected ? (
+          <Empty description="选择左侧线索开始对话" style={{ margin: 'auto' }} />
+        ) : (
+          <>
+            <div style={{ padding: '8px 16px', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Space>
+                <Avatar size={36} style={{ backgroundColor: '#229ED9' }}>
+                  {(selected.tgUsername || selected.tgUserId).slice(0, 2).toUpperCase()}
+                </Avatar>
+                <div>
+                  <div style={{ fontFamily: SF_PRO, fontWeight: 600 }}>
+                    {selected.tgUsername ? `@${selected.tgUsername}` : selected.tgUserId}
+                  </div>
+                  <Space size={6}>
+                    <Tag color={TAKEOVER_LABEL[selected.takeoverState].color} style={{ margin: 0, fontSize: 11 }}>
+                      {TAKEOVER_LABEL[selected.takeoverState].label}
+                    </Tag>
+                    <Tag color={INTENT_COLOR[selected.intent]} style={{ margin: 0, fontSize: 11 }}>{selected.intent}</Tag>
+                    {selected.tenantId && <Text type="secondary" style={{ fontSize: 11 }}>tenant {selected.tenantId.slice(0, 8)}</Text>}
+                  </Space>
+                </div>
+              </Space>
+              <Space>
+                {selected.takeoverState === 'ai' && (
+                  <Button type="primary" icon={<UserOutlined />} onClick={() => handleTakeover(selected)}>
+                    接管
+                  </Button>
+                )}
+                {selected.takeoverState === 'human' && (
+                  <Popconfirm
+                    title="释放给 AI？"
+                    description="释放后 AI 会重新自动回复客户。如果你的人工沟通还没完成，建议保持接管状态。"
+                    onConfirm={() => handleRelease(selected)}
+                  >
+                    <Button icon={<RobotOutlined />}>释放给 AI</Button>
+                  </Popconfirm>
+                )}
+                {selected.takeoverState !== 'closed' && (
+                  <Popconfirm title="关闭此对话？" onConfirm={() => handleClose(selected)}>
+                    <Button danger icon={<StopOutlined />}>关闭</Button>
+                  </Popconfirm>
+                )}
+              </Space>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px', background: '#fafafa' }}>
+              {(selected.replies ?? []).length === 0 ? (
+                <Empty description="对话暂无消息" style={{ marginTop: 40 }} />
+              ) : (
+                (selected.replies ?? []).map((r, i) => {
+                  const isUser = r.sentBy === 'user';
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        display: 'flex',
+                        justifyContent: isUser ? 'flex-start' : 'flex-end',
+                        marginBottom: 8,
+                      }}
+                    >
+                      <div style={{ maxWidth: '70%' }}>
+                        <div
+                          style={{
+                            padding: '8px 12px',
+                            borderRadius: isUser ? '4px 12px 12px 12px' : '12px 4px 12px 12px',
+                            background: isUser ? '#fff' : (r.sentBy === 'human' ? '#1677ff' : '#52c41a'),
+                            color: isUser ? '#000' : '#fff',
+                            fontSize: 14,
+                            border: isUser ? '1px solid #f0f0f0' : 'none',
+                            wordBreak: 'break-word',
+                            whiteSpace: 'pre-wrap',
+                          }}
+                        >
+                          {r.text}
+                        </div>
+                        <div style={{ fontSize: 10, color: '#999', marginTop: 2, textAlign: isUser ? 'left' : 'right' }}>
+                          {r.sentBy === 'user' ? '客户' : r.sentBy === 'human' ? '👤 你' : '🤖 AI'}
+                          {' · '}
+                          {dayjs(r.ts).format('HH:mm:ss')}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+              <div ref={messageEndRef} />
+            </div>
+
+            <div style={{ padding: 12, borderTop: '1px solid #f0f0f0', background: '#fff' }}>
+              {selected.takeoverState !== 'human' ? (
+                <div style={{ textAlign: 'center', color: '#999', padding: 12 }}>
+                  <CheckCircleOutlined style={{ marginRight: 6 }} />
+                  此对话由 {selected.takeoverState === 'ai' ? 'AI' : '系统'} 处理。点击右上角「接管」由你回复。
+                </div>
+              ) : (
+                <Space.Compact style={{ width: '100%' }}>
+                  <Input.TextArea
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    placeholder="输入回复... (Enter 发送, Shift+Enter 换行)"
+                    autoSize={{ minRows: 1, maxRows: 4 }}
+                    onPressEnter={(e) => {
+                      if (!e.shiftKey) {
+                        e.preventDefault();
+                        void handleSend();
+                      }
+                    }}
+                    disabled={sending}
+                  />
+                  <Button type="primary" icon={<SendOutlined />} onClick={handleSend} loading={sending}>
+                    发送
+                  </Button>
+                </Space.Compact>
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

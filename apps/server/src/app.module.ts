@@ -19,6 +19,7 @@ import { LoggerModule } from './logger/logger.module';
 import { BotGatewayModule } from './bot-gateway/bot-gateway.module';
 import { TasksModule } from './tasks/tasks.module';
 import { ExecutionGroupsModule } from './execution-groups/execution-groups.module';
+import { TakeoverModule } from './takeover/takeover.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { ExecutionGroupsModule } from './execution-groups/execution-groups.modul
     BotGatewayModule,
     TasksModule,
     ExecutionGroupsModule,
+    TakeoverModule,
   ],
   controllers: [HealthController],
 })

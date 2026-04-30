@@ -1,4 +1,5 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { AiAgentService } from '../ai-agent/ai-agent.service';
 import { AutoReplyDecider } from '../ai-agent/decider.service';
 import { KnowledgeService } from '../knowledge/knowledge.service';
@@ -8,6 +9,12 @@ import { TenantsService } from '../tenants/tenants.service';
 import { TenantBot } from '../tenants/tenant-bot.entity';
 import { BotReplyService } from './bot-reply.service';
 import { BotUpdateAdapter, TelegramUpdate } from './bot-update.adapter';
+
+/** Lazy lookup; avoids hard import on TakeoverGateway to dodge circular deps. */
+type TakeoverGatewayLike = {
+  emitMessage(leadId: string, payload: { sender: 'user' | 'system' | 'human' | 'bot'; text: string; ts?: string }): void;
+  emitLeadUpdate(leadId: string): void;
+};
 
 const POLL_ERROR_BACKOFF_MS = 5_000;
 const POLL_RATE_LIMIT_BACKOFF_MS = 30_000;
@@ -25,7 +32,17 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
     private readonly knowledge: KnowledgeService,
     private readonly botReply: BotReplyService,
     private readonly adapter: BotUpdateAdapter,
+    private readonly moduleRef: ModuleRef,
   ) {}
+
+  /** TakeoverGateway 解耦查找 — avoids hard import to break circular dep with TakeoverModule. */
+  private getTakeover(): TakeoverGatewayLike | null {
+    try {
+      return (this.moduleRef.get('TakeoverGateway' as any, { strict: false }) as TakeoverGatewayLike) ?? null;
+    } catch {
+      return null;
+    }
+  }
 
   async onModuleInit(): Promise<void> {
     const bots = await this.tenants.findActiveBotsWithTokens();
@@ -113,6 +130,10 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
 
     await this.leads.addReply(lead.id, { sender: 'user', text: msg.text });
 
+    // 实时推送给订阅了此 lead 的 operator (任何人在 /leads 页打开该对话)
+    this.getTakeover()?.emitMessage(lead.id, { sender: 'user', text: msg.text });
+    this.getTakeover()?.emitLeadUpdate(lead.id);
+
     if (lead.takeoverState === LeadTakeover.HUMAN) {
       this.logger.debug(`BotGateway: chatId=${msg.chatId} takeoverState=HUMAN, skipping AI`);
       return;
@@ -178,6 +199,7 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
       await this.botReply.sendText(bot.rawToken, msg.chatId, replyText);
       await this.leads.addReply(lead.id, { sender: 'system', text: replyText });
       await this.decider.recordReply(msg.chatId);
+      this.getTakeover()?.emitMessage(lead.id, { sender: 'system', text: replyText });
     }
   }
 }
