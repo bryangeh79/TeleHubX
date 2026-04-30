@@ -47,4 +47,11 @@ export class UpdateTenantSettingsDto {
   @IsUrl({ require_tld: false })
   @MaxLength(256)
   tenantAiBaseUrl?: string | null;
+
+  /** 执行组别数量。0 = 未启用; 2-9 = 启用并自动排期。 */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(9)
+  groupCount?: number;
 }

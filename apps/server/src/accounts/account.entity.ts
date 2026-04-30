@@ -48,6 +48,10 @@ export class Account {
   @Column({ type: 'uuid', nullable: true })
   proxyId: string | null;
 
+  /** FK to execution_groups.id; null = ungrouped. Max 6 accounts per group. */
+  @Column({ type: 'uuid', nullable: true })
+  executionGroupId: string | null;
+
   @Column({ type: 'enum', enum: AccountRole, default: AccountRole.CS })
   role: AccountRole;
 

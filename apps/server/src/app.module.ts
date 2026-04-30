@@ -18,6 +18,7 @@ import { RedisModule } from './redis/redis.module';
 import { LoggerModule } from './logger/logger.module';
 import { BotGatewayModule } from './bot-gateway/bot-gateway.module';
 import { TasksModule } from './tasks/tasks.module';
+import { ExecutionGroupsModule } from './execution-groups/execution-groups.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { TasksModule } from './tasks/tasks.module';
     AuthModule,
     BotGatewayModule,
     TasksModule,
+    ExecutionGroupsModule,
   ],
   controllers: [HealthController],
 })

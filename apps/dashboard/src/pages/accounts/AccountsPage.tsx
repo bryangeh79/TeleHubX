@@ -16,16 +16,19 @@ import {
 import {
   PlusOutlined,
   SearchOutlined,
-  UploadOutlined,
   ReloadOutlined,
   LockOutlined,
   UnlockOutlined,
   RedoOutlined,
   LogoutOutlined,
+  TeamOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
+import GroupsDrawer from './groups/GroupsDrawer';
+import GroupSettingsModal from './groups/GroupSettingsModal';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { accountsApi, proxiesApi, slotsApi } from '../../services/api';
+import { accountsApi, executionGroupsApi, proxiesApi, slotsApi } from '../../services/api';
 
 /** Telegram paper-plane SVG, sized to inline with text. */
 const TelegramIcon = ({ size = 14 }: { size?: number }) => (
@@ -91,9 +94,12 @@ interface ApiAccount {
   lastActiveAt: string | null;
   boundIp: string | null;
   proxyId: string | null;
+  executionGroupId: string | null;
   sessionEncrypted: boolean;
   createdAt: string;
 }
+
+const SF_PRO_FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, sans-serif';
 
 interface ApiSlot {
   id: string;
@@ -127,18 +133,25 @@ export default function AccountsPage() {
   const [statusFilter, setStatusFilter] = useState<AccountStatus | undefined>();
   const [slots, setSlots] = useState<ApiSlot[]>([]);
   const [proxyMap, setProxyMap] = useState<Map<string, ApiProxy>>(new Map());
+  const [groupMap, setGroupMap] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(false);
+  const [groupsDrawerOpen, setGroupsDrawerOpen] = useState(false);
+  const [groupSettingsOpen, setGroupSettingsOpen] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const [slotsRes, proxiesRes] = await Promise.all([
+      const [slotsRes, proxiesRes, groupsRes] = await Promise.all([
         slotsApi.list(),
         proxiesApi.list().catch(() => ({ data: [] })),
+        executionGroupsApi.list().catch(() => ({ data: [] })),
       ]);
       setSlots(Array.isArray(slotsRes.data) ? slotsRes.data : []);
-      const list: ApiProxy[] = Array.isArray(proxiesRes.data) ? proxiesRes.data : [];
-      setProxyMap(new Map(list.map((p) => [p.id, p])));
+      const proxyList: ApiProxy[] = Array.isArray(proxiesRes.data) ? proxiesRes.data : [];
+      setProxyMap(new Map(proxyList.map((p) => [p.id, p])));
+
+      const groupList: Array<{ id: string; slotNum: number }> = Array.isArray(groupsRes.data) ? groupsRes.data : [];
+      setGroupMap(new Map(groupList.map((g) => [g.id, g.slotNum])));
     } catch (err: any) {
       antdMessage.error(err?.response?.data?.message ?? '加载槽位失败');
     } finally {
@@ -208,7 +221,12 @@ export default function AccountsPage() {
           const country = phoneCountry(slot.account.phoneNumber);
           return (
             <div style={{ lineHeight: 1.2 }}>
-              <Typography.Text strong style={{ fontSize: 14, fontFamily: 'monospace' }}>
+              <Typography.Text strong style={{
+                fontSize: 15,
+                fontFamily: SF_PRO_FONT,
+                fontFeatureSettings: '"tnum", "ss01"',
+                letterSpacing: 0.2,
+              }}>
                 {slot.account.phoneNumber}
               </Typography.Text>
               <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
@@ -233,6 +251,20 @@ export default function AccountsPage() {
         ) : (
           <Typography.Text type="secondary">—</Typography.Text>
         ),
+    },
+    {
+      title: '组别',
+      key: 'executionGroupId',
+      width: 80,
+      render: (_, slot) => {
+        if (!slot.account) return <Typography.Text type="secondary">—</Typography.Text>;
+        const gid = slot.account.executionGroupId;
+        if (!gid) return <Typography.Text type="secondary" style={{ fontSize: 11 }}>未分组</Typography.Text>;
+        const slotNum = groupMap.get(gid);
+        return slotNum
+          ? <Tag color="blue" style={{ fontFamily: SF_PRO_FONT }}>组 {slotNum}</Tag>
+          : <Typography.Text type="secondary" style={{ fontSize: 11 }}>?</Typography.Text>;
+      },
     },
     {
       title: '状态',
@@ -414,8 +446,11 @@ export default function AccountsPage() {
           <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>
             刷新
           </Button>
-          <Button icon={<UploadOutlined />} onClick={() => navigate('/accounts/import')}>
-            批量导入
+          <Button icon={<TeamOutlined />} onClick={() => setGroupsDrawerOpen(true)}>
+            执行组别
+          </Button>
+          <Button icon={<SettingOutlined />} onClick={() => setGroupSettingsOpen(true)}>
+            分组设置
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/accounts/bind')}>
             新建账号
@@ -475,6 +510,17 @@ export default function AccountsPage() {
           background: #fff7e6 !important;
         }
       `}</style>
+
+      <GroupsDrawer
+        open={groupsDrawerOpen}
+        onClose={() => setGroupsDrawerOpen(false)}
+        onChange={() => void reload()}
+      />
+      <GroupSettingsModal
+        open={groupSettingsOpen}
+        onClose={() => setGroupSettingsOpen(false)}
+        onChange={() => void reload()}
+      />
     </div>
   );
 }

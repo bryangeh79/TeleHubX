@@ -172,6 +172,21 @@ export const tasksApi = {
   stats: (tenantId?: string) => api.get('/tasks/stats', { params: tenantId ? { tenantId } : {} }),
 };
 
+export const executionGroupsApi = {
+  list: (tenantId?: string) => api.get('/execution-groups', { params: tenantId ? { tenantId } : {} }),
+  listUngrouped: (tenantId?: string) => api.get('/execution-groups/ungrouped', { params: tenantId ? { tenantId } : {} }),
+  update: (id: string, data: { name?: string; notes?: string }) =>
+    api.patch(`/execution-groups/${id}`, data),
+  assignMembers: (id: string, accountIds: string[]) =>
+    api.post(`/execution-groups/${id}/members`, { accountIds }),
+  assignAccount: (accountId: string, groupId: string | null) =>
+    api.post(`/execution-groups/accounts/${accountId}/assign`, { groupId }),
+  reconcile: (count: number, tenantId?: string) =>
+    api.post('/execution-groups/reconcile', { count }, { params: tenantId ? { tenantId } : {} }),
+  autoSchedule: (tenantId?: string) =>
+    api.post('/execution-groups/auto-schedule', null, { params: tenantId ? { tenantId } : {} }),
+};
+
 export const proxiesApi = {
   list: (params?: { status?: string }) => api.get('/proxies', { params }),
   get: (id: string) => api.get(`/proxies/${id}`),

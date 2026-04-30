@@ -59,6 +59,10 @@ export class TenantSettings {
   @Column({ type: 'varchar', length: 256, nullable: true })
   tenantAiBaseUrl: string | null;
 
+  /** 执行组别数量 (2-9)。修改后系统会重排所有组的任务时间。 */
+  @Column({ type: 'int', default: 0 })
+  groupCount: number;
+
   @CreateDateColumn()
   createdAt: Date;
 
