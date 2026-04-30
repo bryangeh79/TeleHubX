@@ -193,6 +193,7 @@ export const proxiesApi = {
   create: (data: any) => api.post('/proxies', data),
   update: (id: string, data: any) => api.patch(`/proxies/${id}`, data),
   delete: (id: string) => api.delete(`/proxies/${id}`),
+  test: (id: string) => api.post(`/proxies/${id}/test`, {}, { timeout: 30000 }),
 };
 
 export const slotsApi = {

@@ -48,4 +48,13 @@ export class ProxiesController {
   remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.remove(id);
   }
+
+  /**
+   * 真实测试代理：通过它向 ipify/ipinfo 拉一次外网 IP。
+   * 返回延迟 + 观察到的外部 IP；失败时把 status 标记为 error。
+   */
+  @Post(':id/test')
+  test(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.test(id);
+  }
 }

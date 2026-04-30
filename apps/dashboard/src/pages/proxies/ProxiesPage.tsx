@@ -21,6 +21,9 @@ import {
   EditOutlined,
   DeleteOutlined,
   GlobalOutlined,
+  ThunderboltOutlined,
+  CheckCircleFilled,
+  CloseCircleFilled,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -88,6 +91,44 @@ export default function ProxiesPage() {
   const [editing, setEditing] = useState<ProxyRow | null>(null);
   const [form] = Form.useForm<FormValues>();
   const [saving, setSaving] = useState(false);
+  const [testingId, setTestingId] = useState<Record<string, boolean>>({});
+
+  const handleTest = async (row: ProxyRow) => {
+    setTestingId((s) => ({ ...s, [row.id]: true }));
+    try {
+      const res = await proxiesApi.test(row.id);
+      const r = res.data;
+      Modal.info({
+        icon: r.ok
+          ? <CheckCircleFilled style={{ color: '#52c41a' }} />
+          : <CloseCircleFilled style={{ color: '#cf1322' }} />,
+        title: r.ok ? `代理「${row.name}」连接正常` : `代理「${row.name}」测试失败`,
+        content: r.ok ? (
+          <div style={{ marginTop: 12 }}>
+            <p><strong>外网 IP：</strong> <Typography.Text code copyable>{r.externalIp}</Typography.Text></p>
+            <p><strong>延迟：</strong> {r.latencyMs} ms</p>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              测试方式：通过该代理向 ipify.org / ipinfo.io 发起 HTTP 请求并解析返回的 IP。
+              注意：住宅代理外网 IP 通常不等于代理服务器 IP（出口 IP 池属正常）。
+            </Typography.Text>
+          </div>
+        ) : (
+          <div style={{ marginTop: 12 }}>
+            <p style={{ color: '#cf1322' }}>{r.error}</p>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              已自动把代理状态标记为 <Typography.Text code>dead</Typography.Text>。
+              请检查 host:port 是否正确、代理是否在线、用户名密码是否过期。
+            </Typography.Text>
+          </div>
+        ),
+      });
+      void reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '测试请求失败');
+    } finally {
+      setTestingId((s) => ({ ...s, [row.id]: false }));
+    }
+  };
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -236,19 +277,29 @@ export default function ProxiesPage() {
       render: (v: string) => dayjs(v).format('MM-DD HH:mm'),
     },
     {
-      title: 'Actions',
+      title: '操作',
       key: 'actions',
-      width: 130,
+      width: 220,
       render: (_, row) => (
         <Space size={4}>
+          <Button
+            size="small"
+            type="primary"
+            ghost
+            icon={<ThunderboltOutlined />}
+            loading={!!testingId[row.id]}
+            onClick={() => handleTest(row)}
+          >
+            测试
+          </Button>
           <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(row)}>
-            Edit
+            编辑
           </Button>
           <Popconfirm
-            title={`Delete "${row.name}"?`}
-            description="Accounts using this proxy will lose their reference."
+            title={`删除 "${row.name}"?`}
+            description="使用此代理的账号将失去引用。"
             onConfirm={() => remove(row)}
-            okText="Delete"
+            okText="删除"
             okButtonProps={{ danger: true }}
           >
             <Button size="small" danger icon={<DeleteOutlined />} />
