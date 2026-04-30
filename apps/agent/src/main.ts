@@ -135,6 +135,7 @@ async function bootstrap(): Promise<void> {
   }
 
   async function resolveProxy(account: ApiAccount): Promise<ConnectedSlot extends never ? never : import('./telegram/telegram-client.factory').ProxyConfig | undefined> {
+    // 老路径：proxyConfig 内联在 account 上（legacy）。直接当 SOCKS5 用。
     if (account.proxyConfig?.host && account.proxyConfig.port) {
       return {
         ip: account.proxyConfig.host,
@@ -144,18 +145,25 @@ async function bootstrap(): Promise<void> {
         password: account.proxyConfig.password,
       };
     }
+    // 新路径：通过 server 的 /proxies/:id/gram-config 拿"即插即用"描述符。
+    // server 会自动处理 HTTP→SOCKS5 桥接（HttpToSocks5Bridge 在 server 进程跑），
+    // 返回的可能是远端 SOCKS5 凭证，也可能是 127.0.0.1:bridge_port。
     if (account.proxyId) {
       try {
-        const p = await fetchJson<ApiProxy>(`/proxies/${account.proxyId}`);
-        if (p && p.status === 'active' && (p.type === 'socks5' || p.type === 'socks4')) {
+        const cfg = await fetchJson<{
+          ip: string; port: number; socksType: 4 | 5;
+          username?: string; password?: string;
+        } | null>(`/proxies/${account.proxyId}/gram-config`);
+        if (cfg && cfg.ip && cfg.port) {
           return {
-            ip: p.host,
-            port: p.port,
-            socksType: (p.type === 'socks4' ? 4 : 5) as 4 | 5,
-            username: p.username,
-            password: p.password,
+            ip: cfg.ip,
+            port: cfg.port,
+            socksType: cfg.socksType,
+            username: cfg.username,
+            password: cfg.password,
           };
         }
+        logger.warn(`[proxy] ${account.proxyId.slice(0, 8)}: server returned null gram-config`);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         logger.warn(`[proxy] failed to load ${account.proxyId.slice(0, 8)}: ${msg}`);

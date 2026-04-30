@@ -57,4 +57,17 @@ export class ProxiesController {
   test(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.test(id);
   }
+
+  /**
+   * 给 agent 进程用的"即插即用"代理描述符。
+   * - SOCKS5/4 → 解密后直接返回
+   * - HTTP/HTTPS → 后台启动 HttpToSocks5Bridge，返回 127.0.0.1:bridge_port
+   *
+   * 这个端点跳过 select:false 的 password 字段限制（service.toGramConfig 内部走 getDecrypted）。
+   * 仅在内网 (localhost) 调用安全；公网部署应加 JWT 守卫。
+   */
+  @Get(':id/gram-config')
+  gramConfig(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.toGramConfig(id);
+  }
 }

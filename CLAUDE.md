@@ -144,6 +144,13 @@
 - [ ] **多租户行级隔离** — schema-per-tenant 未实现，目前单 schema
 - [ ] **agent 端 AI 调用走 effectiveAiConfig** — 当前 BotGateway 已切，但 cs MTProto 账号走 agent 那条路还没切
 
+#### SaaS 多租户架构关键决策（2026-05-01 记，用户已知道但延后）
+- [ ] **每租户独立 api_id / api_hash** — 当前所有租户共享 `.env` 中一个 `TG_API_ID`，TG 后台数据上 N 租户看起来是同一个 app。租户多了（>5）会被 TG 风控当成"自动化应用"。
+  - 短期 (<5 租户): 共享 .env api_id 凑合
+  - 中期 (5-50 租户): TenantSettings 加 `tgApiId` / `tgApiHash` 字段，每租户在 https://my.telegram.org 自己注册一个 app，填进 dashboard
+  - 长期 (50+ 租户): 平台维护 api_id 池，自动轮询分配；被封时迁移
+  - 改动点：bind.service / agent main.ts 创建 TelegramClient 时改为 `tenant.tgApiId ?? envFallback`
+
 ### Phase 顺序（v2.0 已确认）
 ```
 Phase 1: Telegram 底层基建（GramJS + Session + Docker + 代理 + 行为模拟）
