@@ -1,7 +1,9 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -10,8 +12,27 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { AuthUser, CurrentUser, isAgent, isSuperAdmin } from '../auth/current-user.decorator';
 import { CandidateStatus } from './lead-candidate.entity';
 import { BulkUpsertItem, LeadCandidatesService } from './leads-candidates.service';
+
+/**
+ * 租户隔离规则：
+ *   - SUPER_ADMIN：可显式传 query.tenantId 跨租户查；不传则用自己的
+ *   - AGENT：必须传 body.tenantId / query.tenantId（agent 一个进程服务多租户）
+ *   - 普通用户：query.tenantId 一律忽略，强制用 user.tenantId
+ */
+function resolveTenantId(user: AuthUser, fallback?: string): string {
+  if (isAgent(user)) {
+    if (!fallback) throw new BadRequestException('agent calls must provide tenantId');
+    return fallback;
+  }
+  if (isSuperAdmin(user)) {
+    return fallback ?? user.tenantId ?? '';
+  }
+  if (!user.tenantId) throw new ForbiddenException('user has no tenantId — relogin required');
+  return user.tenantId;
+}
 
 @Controller('lead-candidates')
 export class LeadCandidatesController {
@@ -22,23 +43,35 @@ export class LeadCandidatesController {
    * body: { tenantId, items: BulkUpsertItem[] }
    */
   @Post('bulk-upsert')
-  bulkUpsert(@Body() body: { tenantId: string; items: BulkUpsertItem[] }) {
-    return this.service.bulkUpsert(body.tenantId, body.items ?? []);
+  bulkUpsert(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { tenantId: string; items: BulkUpsertItem[] },
+  ) {
+    const tenantId = resolveTenantId(user, body.tenantId);
+    return this.service.bulkUpsert(tenantId, body.items ?? []);
   }
 
   @Get('pending')
-  listPending(@Query('tenantId') tenantId: string, @Query('limit') limit?: string) {
-    return this.service.listPending(tenantId, limit ? parseInt(limit, 10) : 50);
+  listPending(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') q?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.listPending(resolveTenantId(user, q), limit ? parseInt(limit, 10) : 50);
   }
 
   @Get()
-  findAll(@Query('tenantId') tenantId: string, @Query('status') status?: CandidateStatus) {
-    return this.service.findAll(tenantId, status);
+  findAll(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') q?: string,
+    @Query('status') status?: CandidateStatus,
+  ) {
+    return this.service.findAll(resolveTenantId(user, q), status);
   }
 
   @Get('stats')
-  stats(@Query('tenantId') tenantId: string) {
-    return this.service.stats(tenantId);
+  stats(@CurrentUser() user: AuthUser, @Query('tenantId') q?: string) {
+    return this.service.stats(resolveTenantId(user, q));
   }
 
   @Get(':id')
