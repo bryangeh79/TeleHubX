@@ -31,6 +31,15 @@ interface ResolvedProvider {
   model: string;
 }
 
+export interface RuntimeAiOverride {
+  /** Already-decrypted API key (tenant-owned or platform fallback) */
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  /** Provider hint for logging/error mapping */
+  provider?: AiProviderId;
+}
+
 const CONV_TTL_SECONDS = 86400;
 const CONV_KEY_PREFIX = 'ai:conv:';
 const MAX_HISTORY = 20;
@@ -158,8 +167,21 @@ export class AiAgentService {
 
   async reply(
     dto: AiReplyDto,
+    override?: RuntimeAiOverride,
   ): Promise<{ reply: string; tokens: number; provider: AiProviderId; model: string }> {
-    const provider = this.resolve(dto.provider, dto.model);
+    let provider: ResolvedProvider;
+    if (override) {
+      const id: AiProviderId = override.provider ?? 'openai';
+      provider = {
+        id,
+        config: AI_PROVIDERS[id],
+        apiKey: override.apiKey,
+        baseUrl: override.baseUrl,
+        model: override.model,
+      };
+    } else {
+      provider = this.resolve(dto.provider, dto.model);
+    }
     const client = this.getClient(provider);
     const key = `${CONV_KEY_PREFIX}${dto.chatId}`;
     const history = await this.loadHistory(key);

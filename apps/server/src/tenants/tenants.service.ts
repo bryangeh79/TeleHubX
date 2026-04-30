@@ -6,8 +6,23 @@ import { deriveKey, encryptSession, decryptSession } from '../crypto/session-cry
 import { PLAN_MAX_ACCOUNTS, Tenant, TenantPlan, TenantStatus } from './tenant.entity';
 import { TenantBot } from './tenant-bot.entity';
 import { CreateTenantBotDto, UpdateTenantBotDto } from './tenant-bot.dto';
-import { ReplyMode, TenantSettings } from './tenant-settings.entity';
+import { ReplyMode, TenantAiProvider, TenantSettings } from './tenant-settings.entity';
 import { UpdateTenantSettingsDto } from './tenant-settings.dto';
+
+export interface EffectiveAiConfig {
+  source: 'tenant' | 'platform';
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  provider: 'openai' | 'deepseek' | 'gemini' | 'custom';
+}
+
+const PROVIDER_DEFAULTS: Record<TenantAiProvider, { baseUrl: string; model: string }> = {
+  [TenantAiProvider.OPENAI]:   { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+  [TenantAiProvider.DEEPSEEK]: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
+  [TenantAiProvider.GEMINI]:   { baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.0-flash' },
+  [TenantAiProvider.CUSTOM]:   { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+};
 
 @Injectable()
 export class TenantsService implements OnModuleInit {
@@ -174,22 +189,98 @@ export class TenantsService implements OnModuleInit {
   }
 
   async updateSettings(tenantId: string, dto: UpdateTenantSettingsDto): Promise<TenantSettings> {
-    if (dto.replyMode === ReplyMode.SMART && !this.hasAnyAiKey()) {
-      throw new BadRequestException(
-        '启用 AI 智能模式需要先配置至少一个 AI provider 的 API key（OpenAI / DeepSeek / Gemini）。请前往 AI Settings 页面查看，并在服务端 .env 中配置后重启。',
-      );
+    const s = await this.getSettingsWithKey(tenantId);
+
+    // Smart 模式：要求租户已配置自有 key（优先）或平台有兜底 key
+    if (dto.replyMode === ReplyMode.SMART) {
+      const tenantKeyAfter = dto.tenantAiApiKey ?? (s.tenantAiKeyEncrypted ? '<existing>' : '');
+      if (!tenantKeyAfter && !this.hasPlatformAiKey()) {
+        throw new BadRequestException(
+          '启用 AI 智能模式需要：① 租户在「AI Settings」配置自有 API Key，或 ② 平台 .env 配置 PLATFORM_OPENAI_API_KEY 等兜底 key。',
+        );
+      }
     }
-    const s = await this.getSettings(tenantId);
-    Object.assign(s, dto);
-    return this.settingsRepo.save(s);
+
+    // 租户 API key 加密处理
+    if (dto.tenantAiApiKey !== undefined) {
+      if (!dto.tenantAiApiKey) {
+        s.tenantAiKeyEncrypted = null;
+      } else {
+        if (!this.encKey) throw new BadRequestException('SESSION_ENCRYPTION_KEY not configured');
+        s.tenantAiKeyEncrypted = encryptSession(dto.tenantAiApiKey, this.encKey);
+      }
+    }
+
+    const { tenantAiApiKey: _omit, ...rest } = dto;
+    Object.assign(s, rest);
+    const saved = await this.settingsRepo.save(s);
+    // Strip encrypted key from response
+    const { tenantAiKeyEncrypted: _strip, ...safe } = saved;
+    return safe as TenantSettings;
   }
 
-  private hasAnyAiKey(): boolean {
-    return Boolean(
-      this.config.get<string>('OPENAI_API_KEY') ||
-      this.config.get<string>('DEEPSEEK_API_KEY') ||
-      this.config.get<string>('GEMINI_API_KEY') ||
-      this.config.get<string>('AI_API_KEY'),
-    );
+  /** Read settings WITH the encrypted key column (for internal use). */
+  async getSettingsWithKey(tenantId: string): Promise<TenantSettings> {
+    const existing = await this.settingsRepo
+      .createQueryBuilder('s')
+      .addSelect('s.tenantAiKeyEncrypted')
+      .where('s.tenantId = :tenantId', { tenantId })
+      .getOne();
+    if (existing) return existing;
+    return this.getSettings(tenantId);
+  }
+
+  /**
+   * Returns the effective AI config for runtime use:
+   *   - tenant key if the tenant has configured one
+   *   - else platform fallback (.env PLATFORM_*)
+   *   - else null (caller decides whether to error)
+   */
+  async getEffectiveAiConfig(tenantId: string): Promise<EffectiveAiConfig | null> {
+    const s = await this.getSettingsWithKey(tenantId);
+    if (s.tenantAiKeyEncrypted && this.encKey && s.tenantAiProvider) {
+      let plain: string;
+      try {
+        plain = decryptSession(s.tenantAiKeyEncrypted, this.encKey);
+      } catch {
+        this.logger.warn(`Failed to decrypt tenant AI key for tenant=${tenantId}`);
+        plain = '';
+      }
+      if (plain) {
+        const def = PROVIDER_DEFAULTS[s.tenantAiProvider];
+        return {
+          source: 'tenant',
+          apiKey: plain,
+          baseUrl: s.tenantAiBaseUrl || def.baseUrl,
+          model: s.tenantAiModel || def.model,
+          provider: s.tenantAiProvider,
+        };
+      }
+    }
+    // Platform fallback
+    return this.getPlatformAiConfig();
+  }
+
+  getPlatformAiConfig(): EffectiveAiConfig | null {
+    const openai = this.config.get<string>('PLATFORM_OPENAI_API_KEY') || this.config.get<string>('OPENAI_API_KEY');
+    const deepseek = this.config.get<string>('PLATFORM_DEEPSEEK_API_KEY') || this.config.get<string>('DEEPSEEK_API_KEY');
+    const gemini = this.config.get<string>('PLATFORM_GEMINI_API_KEY') || this.config.get<string>('GEMINI_API_KEY');
+    const apiKey = openai || deepseek || gemini;
+    if (!apiKey) return null;
+
+    const provider: 'openai' | 'deepseek' | 'gemini' = openai ? 'openai' : deepseek ? 'deepseek' : 'gemini';
+    const baseUrl = this.config.get<string>('PLATFORM_AI_BASE_URL')
+      || this.config.get<string>('AI_BASE_URL')
+      || (provider === 'deepseek' ? 'https://api.deepseek.com'
+        : provider === 'gemini' ? 'https://generativelanguage.googleapis.com/v1beta/openai'
+        : 'https://api.openai.com/v1');
+    const model = this.config.get<string>('PLATFORM_AI_MODEL')
+      || this.config.get<string>('AI_MODEL')
+      || (provider === 'deepseek' ? 'deepseek-chat' : 'gpt-4o-mini');
+    return { source: 'platform', apiKey, baseUrl, model, provider };
+  }
+
+  private hasPlatformAiKey(): boolean {
+    return Boolean(this.getPlatformAiConfig());
   }
 }

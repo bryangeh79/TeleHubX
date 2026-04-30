@@ -1,5 +1,5 @@
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
-import { ReplyMode } from './tenant-settings.entity';
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, IsUrl, Matches, Max, MaxLength, Min } from 'class-validator';
+import { ReplyMode, TenantAiProvider } from './tenant-settings.entity';
 
 export class UpdateTenantSettingsDto {
   @IsOptional()
@@ -25,4 +25,26 @@ export class UpdateTenantSettingsDto {
   @IsString()
   @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'quietHoursEnd must be HH:MM' })
   quietHoursEnd?: string;
+
+  // 租户自有 AI（customer chat 用）
+  @IsOptional()
+  @IsEnum(TenantAiProvider)
+  tenantAiProvider?: TenantAiProvider | null;
+
+  /** Plaintext key from UI; service will encrypt before persisting. Empty string clears. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  tenantAiApiKey?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  tenantAiModel?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @IsUrl({ require_tld: false })
+  @MaxLength(256)
+  tenantAiBaseUrl?: string | null;
 }

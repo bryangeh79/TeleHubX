@@ -139,8 +139,22 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
           break;
 
         case 'reply_ai': {
-          const result = await this.aiAgent.reply({ chatId: msg.chatId, userMessage: msg.text });
+          const aiConfig = await this.tenants.getEffectiveAiConfig(bot.tenantId);
+          if (!aiConfig) {
+            this.logger.warn(`BotGateway: no AI config for tenant=${bot.tenantId}, skipping AI reply`);
+            break;
+          }
+          const result = await this.aiAgent.reply(
+            { chatId: msg.chatId, userMessage: msg.text },
+            {
+              apiKey: aiConfig.apiKey,
+              baseUrl: aiConfig.baseUrl,
+              model: aiConfig.model,
+              provider: aiConfig.provider === 'custom' ? 'openai' : aiConfig.provider,
+            },
+          );
           replyText = result.reply;
+          this.logger.debug(`BotGateway: AI reply via ${aiConfig.source} key, tenant=${bot.tenantId}`);
           break;
         }
 

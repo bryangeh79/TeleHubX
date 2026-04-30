@@ -17,10 +17,12 @@ import {
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
+  KeyOutlined,
   ReloadOutlined,
+  SaveOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { aiApi } from '../../services/api';
+import { aiApi, tenantsApi } from '../../services/api';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -54,9 +56,29 @@ interface FaqResult {
   model: string;
 }
 
+type TenantAiProvider = 'openai' | 'deepseek' | 'gemini' | 'custom';
+
+interface TenantAiSettings {
+  tenantId: string;
+  tenantAiProvider: TenantAiProvider | null;
+  tenantAiModel: string | null;
+  tenantAiBaseUrl: string | null;
+}
+
 export default function AiSettingsPage() {
   const [info, setInfo] = useState<AiInfo | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Tenant-level AI config
+  const [tenantId, setTenantId] = useState<string | null>(null);
+  const [tenantAi, setTenantAi] = useState<TenantAiSettings | null>(null);
+  const [tenantAiSaving, setTenantAiSaving] = useState(false);
+  const [tenantForm] = Form.useForm<{
+    tenantAiProvider: TenantAiProvider;
+    tenantAiApiKey: string;
+    tenantAiModel: string;
+    tenantAiBaseUrl: string;
+  }>();
 
   // Test playground
   const [testProvider, setTestProvider] = useState<ProviderId | undefined>();
@@ -72,6 +94,69 @@ export default function AiSettingsPage() {
   const [faqContext, setFaqContext] = useState('');
   const [faqResult, setFaqResult] = useState<FaqResult | null>(null);
   const [faqLoading, setFaqLoading] = useState(false);
+
+  const loadTenant = useCallback(async () => {
+    try {
+      const tRes = await tenantsApi.getDefault();
+      const t = tRes.data;
+      setTenantId(t.id);
+      const sRes = await tenantsApi.getSettings(t.id);
+      const s: TenantAiSettings = sRes.data;
+      setTenantAi(s);
+      tenantForm.setFieldsValue({
+        tenantAiProvider: s.tenantAiProvider ?? 'openai',
+        tenantAiApiKey: '',
+        tenantAiModel: s.tenantAiModel ?? '',
+        tenantAiBaseUrl: s.tenantAiBaseUrl ?? '',
+      });
+    } catch (err: any) {
+      // Tenant settings 加载失败不影响 platform 部分
+      console.warn('Failed to load tenant AI settings', err);
+    }
+  }, [tenantForm]);
+
+  const saveTenantAi = async (values: any) => {
+    if (!tenantId) return;
+    setTenantAiSaving(true);
+    try {
+      const payload: any = {
+        tenantAiProvider: values.tenantAiProvider,
+        tenantAiModel: values.tenantAiModel || null,
+        tenantAiBaseUrl: values.tenantAiBaseUrl || null,
+      };
+      // 只在用户输入了新 key 时才发送
+      if (values.tenantAiApiKey?.trim()) {
+        payload.tenantAiApiKey = values.tenantAiApiKey.trim();
+      }
+      await tenantsApi.updateSettings(tenantId, payload);
+      antdMessage.success('租户 AI 配置已保存');
+      tenantForm.setFieldsValue({ tenantAiApiKey: '' });
+      void loadTenant();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '保存失败');
+    } finally {
+      setTenantAiSaving(false);
+    }
+  };
+
+  const clearTenantAi = async () => {
+    if (!tenantId) return;
+    setTenantAiSaving(true);
+    try {
+      await tenantsApi.updateSettings(tenantId, {
+        tenantAiProvider: null,
+        tenantAiApiKey: '',
+        tenantAiModel: null,
+        tenantAiBaseUrl: null,
+      });
+      antdMessage.success('已清空租户 AI 配置，将回落到平台兜底');
+      void loadTenant();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '清空失败');
+    } finally {
+      setTenantAiSaving(false);
+    }
+  };
 
   const loadInfo = useCallback(async () => {
     setLoading(true);
@@ -91,7 +176,8 @@ export default function AiSettingsPage() {
 
   useEffect(() => {
     void loadInfo();
-  }, [loadInfo]);
+    void loadTenant();
+  }, [loadInfo, loadTenant]);
 
   const handleTestReply = async () => {
     if (!userMessage.trim()) return;
@@ -160,16 +246,59 @@ export default function AiSettingsPage() {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="API key 配置在服务端 .env 里"
+        message="两层 AI Key：你的 Key（客服聊天用）vs 平台兜底（FAQ 生成等内部工具用）"
         description={
           <>
-            修改 provider key 需要 SSH 到服务器编辑 <Text code>.env</Text> 后{' '}
-            <Text code>pm2 restart telehubx-server</Text>。
-            支持三家 OpenAI 协议 provider（共享同一个 OpenAI SDK，仅 baseURL 切换）：
-            <Text code>OPENAI_API_KEY</Text>、<Text code>DEEPSEEK_API_KEY</Text>、<Text code>GEMINI_API_KEY</Text>。
+            <Text strong>① 你的 Key</Text>（下方表单）：用于客户与 Bot 聊天的 AI 兜底回复，token 由你自己付费。<br />
+            <Text strong>② 平台兜底 Key</Text>（服务端 <Text code>.env</Text> 中的 <Text code>PLATFORM_*_API_KEY</Text>）：
+            用于 FAQ 自动生成、文案优化、翻译等系统内部 AI 任务，由公司付费。
           </>
         }
       />
+
+      {/* === Tenant AI Config (用户聊天用) === */}
+      <Card
+        title={<Space><KeyOutlined />你的 AI Key（用于客户聊天）</Space>}
+        style={{ marginBottom: 16 }}
+        extra={
+          tenantAi?.tenantAiProvider ? (
+            <Tag color="green" icon={<CheckCircleOutlined />}>已配置 · {tenantAi.tenantAiProvider}</Tag>
+          ) : (
+            <Tag color="orange" icon={<CloseCircleOutlined />}>未配置（将回落到平台兜底）</Tag>
+          )
+        }
+      >
+        <Form form={tenantForm} layout="vertical" onFinish={saveTenantAi}>
+          <Space size={16} style={{ display: 'flex', flexWrap: 'wrap' }}>
+            <Form.Item name="tenantAiProvider" label="Provider" style={{ minWidth: 180 }} rules={[{ required: true }]}>
+              <Select
+                options={[
+                  { value: 'openai',   label: 'OpenAI' },
+                  { value: 'deepseek', label: 'DeepSeek' },
+                  { value: 'gemini',   label: 'Google Gemini' },
+                  { value: 'custom',   label: '自定义 (OpenAI 兼容)' },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item name="tenantAiApiKey" label="API Key" style={{ flex: 1, minWidth: 280 }}
+              extra={tenantAi?.tenantAiProvider ? '留空则保留现有 Key（不会显示）' : '首次配置请填写'}>
+              <Input.Password placeholder={tenantAi?.tenantAiProvider ? '••••••••（保留现有）' : 'sk-...'} autoComplete="off" />
+            </Form.Item>
+            <Form.Item name="tenantAiModel" label="Model（可选）" style={{ minWidth: 200 }}>
+              <Input placeholder="gpt-4o-mini / deepseek-chat" />
+            </Form.Item>
+            <Form.Item name="tenantAiBaseUrl" label="Base URL（自定义时填）" style={{ minWidth: 280 }}>
+              <Input placeholder="https://api.openai.com/v1" />
+            </Form.Item>
+          </Space>
+          <Space>
+            <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={tenantAiSaving}>保存</Button>
+            {tenantAi?.tenantAiProvider && (
+              <Button danger onClick={clearTenantAi} loading={tenantAiSaving}>清空（回落平台兜底）</Button>
+            )}
+          </Space>
+        </Form>
+      </Card>
 
       {loading && !info ? (
         <Spin />
@@ -177,7 +306,7 @@ export default function AiSettingsPage() {
         <Empty description="AI info unavailable" />
       ) : (
         <>
-          <Card title={`Providers (${configuredCount}/${info.providers.length} configured)`} style={{ marginBottom: 16 }}>
+          <Card title={`平台兜底 Providers (${configuredCount}/${info.providers.length} configured)`} style={{ marginBottom: 16 }}>
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
               {info.providers.map((p) => (
                 <div

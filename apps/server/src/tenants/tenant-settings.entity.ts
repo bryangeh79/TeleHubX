@@ -15,6 +15,13 @@ export enum ReplyMode {
   SMART = 'smart',
 }
 
+export enum TenantAiProvider {
+  OPENAI = 'openai',
+  DEEPSEEK = 'deepseek',
+  GEMINI = 'gemini',
+  CUSTOM = 'custom',
+}
+
 @Entity('tenant_settings')
 export class TenantSettings {
   @PrimaryColumn({ type: 'uuid' })
@@ -34,6 +41,23 @@ export class TenantSettings {
 
   @Column({ type: 'varchar', length: 5, default: '08:00' })
   quietHoursEnd: string;
+
+  // ── 租户自有 AI 配置（用于 customer chat，cost 由租户承担）──
+  // 留空时：smart 模式仍可用，但 AiAgentService 会回落到 PLATFORM_* env 配置；
+  // 公司不愿提供时可强制 smart 模式必须填写（updateSettings 已校验）。
+
+  @Column({ type: 'enum', enum: TenantAiProvider, nullable: true })
+  tenantAiProvider: TenantAiProvider | null;
+
+  /** AES-256-GCM 加密的租户自有 API key */
+  @Column({ type: 'text', nullable: true, select: false })
+  tenantAiKeyEncrypted: string | null;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  tenantAiModel: string | null;
+
+  @Column({ type: 'varchar', length: 256, nullable: true })
+  tenantAiBaseUrl: string | null;
 
   @CreateDateColumn()
   createdAt: Date;

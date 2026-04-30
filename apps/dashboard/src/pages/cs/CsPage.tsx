@@ -202,12 +202,8 @@ export default function CsPage() {
     setRegisterVisible(true);
   };
 
-  const handleModeChange = async (mode: ReplyMode) => {
-    if (!tenant || mode === currentMode || savingMode) return;
-    if (mode === 'smart' && !aiConfigured) {
-      antdMessage.warning('启用 AI 智能模式需要先在 AI Settings 配置 API key');
-      return;
-    }
+  const performModeChange = async (mode: ReplyMode) => {
+    if (!tenant) return;
     setSavingMode(true);
     try {
       const res = await tenantsApi.updateSettings(tenant.id, { replyMode: mode });
@@ -219,6 +215,81 @@ export default function CsPage() {
     } finally {
       setSavingMode(false);
     }
+  };
+
+  const handleModeChange = (mode: ReplyMode) => {
+    if (!tenant || mode === currentMode || savingMode) return;
+
+    // Smart 模式无 key → 阻断弹窗，引导去配置
+    if (mode === 'smart' && !aiConfigured) {
+      Modal.warning({
+        title: '无法启用 AI 智能模式',
+        content: (
+          <div>
+            <Paragraph>启用 AI 智能模式需要先配置至少一个 AI Provider 的 API Key。</Paragraph>
+            <Paragraph type="secondary" style={{ fontSize: 13 }}>
+              请前往 <Text strong>AI Settings</Text> 页面查看，并在服务端 <Text code>.env</Text> 中配置
+              <Text code>OPENAI_API_KEY</Text> / <Text code>DEEPSEEK_API_KEY</Text> / <Text code>GEMINI_API_KEY</Text> 后重启 telehubx-server。
+            </Paragraph>
+          </div>
+        ),
+        okText: '前往 AI Settings',
+        onOk: () => { window.location.href = '/ai'; },
+      });
+      return;
+    }
+
+    const dialogs: Record<ReplyMode, { title: string; content: React.ReactNode; okText: string; okType?: 'primary' | 'danger' }> = {
+      off: {
+        title: '确认关闭自动回复？',
+        content: (
+          <Paragraph>
+            关闭后，客户回复广告时系统 <Text strong style={{ color: '#cf1322' }}>100% 不会自动处理</Text>，
+            全部留给人工。广告跑了也没人自动回，确认？
+          </Paragraph>
+        ),
+        okText: '确定关闭',
+        okType: 'danger',
+      },
+      faq: {
+        title: '确认启用 FAQ 模式？',
+        content: (
+          <Paragraph>
+            只用 FAQ 匹配客户消息，命中就回，没命中的自动转「人工接管」。
+            <br />
+            <Text type="secondary">无需配置 AI Key · 免费使用</Text>
+          </Paragraph>
+        ),
+        okText: '确定启用',
+        okType: 'primary',
+      },
+      smart: {
+        title: '确认启用 AI 智能 + FAQ？',
+        content: (
+          <div>
+            <Paragraph>
+              FAQ 优先，命中就回；没命中时调用 AI 兜底回复。
+            </Paragraph>
+            <Paragraph type="secondary" style={{ fontSize: 13 }}>
+              该模式将消耗你配置的 AI Provider Token（OpenAI/DeepSeek/Gemini）。
+              开启后客户消息进入 Bot 会自动回复，对所有 cs 与 ad 账号生效。
+            </Paragraph>
+          </div>
+        ),
+        okText: '确定启用',
+        okType: 'primary',
+      },
+    };
+
+    const cfg = dialogs[mode];
+    Modal.confirm({
+      title: cfg.title,
+      content: cfg.content,
+      okText: cfg.okText,
+      okType: cfg.okType,
+      cancelText: '取消',
+      onOk: () => performModeChange(mode),
+    });
   };
 
   const botStatusBadge = activeBot
