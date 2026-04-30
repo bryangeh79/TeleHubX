@@ -44,6 +44,39 @@ interface ApiProxy {
   country?: string | null;
 }
 
+/** 手机国际区号 -> 国名（中文）。长 prefix 优先匹配。 */
+const PHONE_COUNTRY: Array<[string, string]> = [
+  ['+852', '香港'], ['+853', '澳门'], ['+886', '台湾'],
+  ['+1',  '美国/加拿大'], ['+7',  '俄罗斯'],
+  ['+33', '法国'], ['+34', '西班牙'], ['+39', '意大利'], ['+44', '英国'], ['+49', '德国'], ['+55', '巴西'],
+  ['+60', '马来西亚'], ['+62', '印度尼西亚'], ['+63', '菲律宾'], ['+65', '新加坡'], ['+66', '泰国'],
+  ['+81', '日本'], ['+82', '韩国'], ['+84', '越南'], ['+86', '中国'], ['+90', '土耳其'],
+  ['+91', '印度'], ['+92', '巴基斯坦'], ['+95', '缅甸'], ['+98', '伊朗'],
+  ['+971', 'UAE'], ['+966', '沙特'], ['+972', '以色列'],
+];
+
+function phoneCountry(phone: string): string | null {
+  const norm = phone.startsWith('+') ? phone : '+' + phone;
+  for (const [code, name] of PHONE_COUNTRY) {
+    if (norm.startsWith(code)) return name;
+  }
+  return null;
+}
+
+/** 紧凑的相对时间：刚刚 / X分钟前 / X小时前 / X天前 / MM-DD HH:mm（更早）。 */
+function compactRelative(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const t = dayjs(iso);
+  const diffMin = dayjs().diff(t, 'minute');
+  if (diffMin < 1) return '刚刚';
+  if (diffMin < 60) return `${diffMin} 分钟前`;
+  const diffHr = dayjs().diff(t, 'hour');
+  if (diffHr < 24) return `${diffHr} 小时前`;
+  const diffDay = dayjs().diff(t, 'day');
+  if (diffDay < 30) return `${diffDay} 天前`;
+  return t.format('MM-DD HH:mm');
+}
+
 type Role = 'cs' | 'ad' | 'hybrid';
 type AccountStatus = 'online' | 'offline' | 'connecting' | 'error' | 'banned';
 type SlotStatus = 'vacant' | 'occupied' | 'released';
@@ -172,7 +205,17 @@ export default function AccountsPage() {
       width: 180,
       render: (_, slot) => {
         if (slot.status === 'occupied' && slot.account) {
-          return <Typography.Text code>{slot.account.phoneNumber}</Typography.Text>;
+          const country = phoneCountry(slot.account.phoneNumber);
+          return (
+            <div style={{ lineHeight: 1.2 }}>
+              <Typography.Text strong style={{ fontSize: 14, fontFamily: 'monospace' }}>
+                {slot.account.phoneNumber}
+              </Typography.Text>
+              <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+                {country ?? <span style={{ fontStyle: 'italic' }}>未知区号</span>}
+              </div>
+            </div>
+          );
         }
         if (slot.status === 'released') {
           return <Typography.Text type="warning">已释放 — 需要重置</Typography.Text>;
@@ -282,18 +325,24 @@ export default function AccountsPage() {
     {
       title: '最后活跃',
       key: 'lastActiveAt',
+      width: 110,
       render: (_, slot) => {
         if (slot.status === 'released' && slot.lastReleasedAt) {
           return (
-            <Tooltip title="该槽位释放时间">
+            <Tooltip title={`槽位释放于 ${dayjs(slot.lastReleasedAt).format('YYYY-MM-DD HH:mm')}`}>
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                释放于 {dayjs(slot.lastReleasedAt).format('MM-DD HH:mm')}
+                释放 · {compactRelative(slot.lastReleasedAt)}
               </Typography.Text>
             </Tooltip>
           );
         }
         const v = slot.account?.lastActiveAt;
-        return v ? dayjs(v).format('YYYY-MM-DD HH:mm') : <Typography.Text type="secondary">—</Typography.Text>;
+        if (!v) return <Typography.Text type="secondary">—</Typography.Text>;
+        return (
+          <Tooltip title={dayjs(v).format('YYYY-MM-DD HH:mm:ss')}>
+            <Typography.Text style={{ fontSize: 12 }}>{compactRelative(v)}</Typography.Text>
+          </Tooltip>
+        );
       },
     },
     {
@@ -417,7 +466,7 @@ export default function AccountsPage() {
         rowKey="id"
         loading={loading}
         pagination={{ pageSize: 50, hideOnSinglePage: true }}
-        size="middle"
+        size="small"
         rowClassName={(slot) => (slot.status === 'released' ? 'slot-row-released' : '')}
       />
 
