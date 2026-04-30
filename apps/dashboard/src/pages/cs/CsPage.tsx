@@ -55,7 +55,16 @@ interface Tenant {
   status: string;
 }
 
-type ReplyMode = 'off' | 'faq' | 'ai';
+interface TenantSettings {
+  tenantId: string;
+  replyMode: ReplyMode;
+  dailyReplyLimit: number;
+  quietHoursEnabled: boolean;
+  quietHoursStart: string;
+  quietHoursEnd: string;
+}
+
+type ReplyMode = 'off' | 'faq' | 'smart';
 
 const MODE_CARDS: Array<{
   key: ReplyMode;
@@ -77,7 +86,7 @@ const MODE_CARDS: Array<{
     desc: '只用 FAQ 匹配，命中就回，不命中转人工',
   },
   {
-    key: 'ai',
+    key: 'smart',
     icon: <RobotOutlined style={{ fontSize: 28 }} />,
     title: 'AI 智能 + FAQ',
     desc: 'FAQ 优先，不命中时用 AI 兜底',
@@ -88,9 +97,11 @@ const MODE_CARDS: Array<{
 export default function CsPage() {
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [bots, setBots] = useState<TenantBot[]>([]);
+  const [settings, setSettings] = useState<TenantSettings | null>(null);
   const [kbCount, setKbCount] = useState(0);
   const [aiConfigured, setAiConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [savingMode, setSavingMode] = useState(false);
 
   const [registerVisible, setRegisterVisible] = useState(false);
   const [replaceTarget, setReplaceTarget] = useState<TenantBot | null>(null);
@@ -98,7 +109,7 @@ export default function CsPage() {
   const [form] = Form.useForm();
 
   const activeBot = bots[0] ?? null;
-  const currentMode: ReplyMode = !activeBot ? 'off' : 'ai';
+  const currentMode: ReplyMode = settings?.replyMode ?? 'smart';
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -115,8 +126,12 @@ export default function CsPage() {
         const providers: any[] = aiRes.data.providers ?? [];
         setAiConfigured(providers.some((p: any) => p.configured));
       }
-      const botsRes = await tenantsApi.listBots(t.id);
+      const [botsRes, settingsRes] = await Promise.all([
+        tenantsApi.listBots(t.id),
+        tenantsApi.getSettings(t.id),
+      ]);
       setBots(Array.isArray(botsRes.data) ? botsRes.data : []);
+      setSettings(settingsRes.data ?? null);
     } catch (err: any) {
       antdMessage.error(err?.response?.data?.message ?? '加载失败');
     } finally {
@@ -187,6 +202,25 @@ export default function CsPage() {
     setRegisterVisible(true);
   };
 
+  const handleModeChange = async (mode: ReplyMode) => {
+    if (!tenant || mode === currentMode || savingMode) return;
+    if (mode === 'smart' && !aiConfigured) {
+      antdMessage.warning('启用 AI 智能模式需要先在 AI Settings 配置 API key');
+      return;
+    }
+    setSavingMode(true);
+    try {
+      const res = await tenantsApi.updateSettings(tenant.id, { replyMode: mode });
+      setSettings(res.data);
+      const label = mode === 'off' ? '关闭' : mode === 'faq' ? 'FAQ 模式' : 'AI 智能 + FAQ';
+      antdMessage.success(`已切换到 ${label}`);
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '切换失败');
+    } finally {
+      setSavingMode(false);
+    }
+  };
+
   const botStatusBadge = activeBot
     ? activeBot.isActive
       ? <Badge status="processing" text="轮询中" />
@@ -224,13 +258,21 @@ export default function CsPage() {
             <Col flex={1}>
               <Space direction="vertical" size={2}>
                 <Space>
-                  <Text strong style={{ fontSize: 16 }}>@{activeBot.botUsername}</Text>
+                  <Typography.Link
+                    href={`https://t.me/${activeBot.botUsername}`}
+                    target="_blank"
+                    strong
+                    style={{ fontSize: 16 }}
+                  >
+                    @{activeBot.botUsername}
+                  </Typography.Link>
                   {activeBot.isActive
                     ? <Tag color="green" icon={<PlayCircleOutlined />}>轮询中</Tag>
                     : <Tag color="default" icon={<PauseCircleOutlined />}>已停止</Tag>}
                 </Space>
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  已接收 {activeBot.pollingOffset} 条 update
+                  Bot 记录 ID: <Text code copyable={{ text: activeBot.id }} style={{ fontSize: 11 }}>{activeBot.id.slice(0, 8)}…</Text>
+                  {' · '}已接收 {activeBot.pollingOffset} 条 update
                   {activeBot.lastPollAt && (
                     <> · 最后活动：{new Date(activeBot.lastPollAt).toLocaleTimeString()}</>
                   )}
@@ -250,12 +292,14 @@ export default function CsPage() {
                 >
                   {activeBot.isActive ? '停止轮询' : '启动轮询'}
                 </Button>
-                <Tooltip title="更换 Bot Token（会先删除旧 Bot）">
+                <Tooltip title="切换到不同的 Bot（删除当前记录，注册新 Bot 的 Token）">
                   <Button icon={<SwapOutlined />} onClick={() => openReplace(activeBot)}>
-                    更换 Token
+                    切换 Bot
                   </Button>
                 </Tooltip>
-                <Button danger icon={<DeleteOutlined />} onClick={() => handleDelete(activeBot)} />
+                <Tooltip title="删除 Bot 记录">
+                  <Button danger icon={<DeleteOutlined />} onClick={() => handleDelete(activeBot)} />
+                </Tooltip>
               </Space>
             </Col>
           </Row>
@@ -273,24 +317,33 @@ export default function CsPage() {
       </Card>
 
       {/* 自动回复模式 */}
-      <Card title="自动回复模式" style={{ marginBottom: 16 }}>
+      <Card title="自动回复模式" style={{ marginBottom: 16 }} loading={loading}>
         <Row gutter={12}>
           {MODE_CARDS.map((m) => {
             const active = m.key === currentMode;
+            const aiBlocked = m.key === 'smart' && !aiConfigured;
             return (
               <Col span={8} key={m.key}>
                 <Card
+                  hoverable={!savingMode}
+                  onClick={() => handleModeChange(m.key)}
                   style={{
                     textAlign: 'center',
-                    cursor: 'default',
+                    cursor: savingMode ? 'wait' : 'pointer',
                     border: active ? '2px solid #1677ff' : '1px solid #f0f0f0',
                     background: active ? '#f0f7ff' : '#fafafa',
                     borderRadius: 8,
+                    opacity: aiBlocked && !active ? 0.7 : 1,
+                    position: 'relative',
                   }}
                   styles={{ body: { padding: '20px 12px' } }}
                 >
+                  {active && (
+                    <CheckCircleFilled
+                      style={{ position: 'absolute', top: 8, right: 8, color: '#1677ff', fontSize: 16 }}
+                    />
+                  )}
                   <div style={{ color: active ? '#1677ff' : '#999', marginBottom: 8 }}>
-                    {active && <CheckCircleFilled style={{ position: 'absolute', top: 8, right: 8, color: '#1677ff' }} />}
                     {m.icon}
                   </div>
                   <Text strong style={{ color: active ? '#1677ff' : undefined }}>{m.title}</Text>
@@ -298,22 +351,34 @@ export default function CsPage() {
                   <Paragraph type="secondary" style={{ fontSize: 12, margin: '8px 0 0' }}>
                     {m.desc}
                   </Paragraph>
-                  {m.key === 'faq' && !aiConfigured && (
-                    <Tag color="orange" style={{ fontSize: 11 }}>无需 AI Key</Tag>
+                  {m.key === 'faq' && (
+                    <Tag color="green" style={{ fontSize: 11 }}>无需 AI Key</Tag>
                   )}
-                  {m.key === 'ai' && !aiConfigured && active && (
-                    <Tag color="orange" style={{ marginTop: 4, fontSize: 11 }}>需配置 AI Key</Tag>
+                  {m.key === 'smart' && (
+                    <Tag color={aiConfigured ? 'blue' : 'orange'} style={{ fontSize: 11 }}>
+                      {aiConfigured ? '已配 AI Key' : '需配 AI Key'}
+                    </Tag>
                   )}
                 </Card>
               </Col>
             );
           })}
         </Row>
+        {!aiConfigured && (
+          <Alert
+            style={{ marginTop: 12 }}
+            type="warning"
+            showIcon
+            message="未配置 AI API Key"
+            description="请前往 AI Settings 页面，在服务端 .env 中配置 OPENAI_API_KEY / DEEPSEEK_API_KEY / GEMINI_API_KEY 后重启 telehubx-server，再启用「AI 智能 + FAQ」模式。"
+            action={<Button size="small" type="link" href="/ai">前往 AI Settings</Button>}
+          />
+        )}
         <Alert
           style={{ marginTop: 12 }}
           type="info"
           showIcon
-          message="内部频率/夜间/去重规则全自动，无需配置（悬停查看）"
+          message="模式切换立即生效。进入 Leads 页的对话被人工接管后，AI 永远不会插嘴。"
         />
       </Card>
 
@@ -334,12 +399,15 @@ export default function CsPage() {
                     <Col span={6}>
                       <Statistic
                         title="当前模式"
-                        value={currentMode === 'ai' ? '智能' : '关闭'}
-                        valueStyle={{ color: currentMode === 'ai' ? '#1677ff' : '#999' }}
+                        value={currentMode === 'smart' ? '智能 + FAQ' : currentMode === 'faq' ? 'FAQ Only' : '关闭'}
+                        valueStyle={{
+                          color: currentMode === 'smart' ? '#1677ff' : currentMode === 'faq' ? '#52c41a' : '#999',
+                          fontSize: 18,
+                        }}
                       />
                     </Col>
                     <Col span={6}>
-                      <Statistic title="每日上限" value={50} suffix="条/对话" />
+                      <Statistic title="每日上限" value={settings?.dailyReplyLimit ?? 50} suffix="条/对话" />
                     </Col>
                     <Col span={6}>
                       <Statistic title="转人工触发词" value="13+" />
@@ -421,7 +489,7 @@ export default function CsPage() {
 
       {/* 注册 / 更换 Bot Token Modal */}
       <Modal
-        title={replaceTarget ? `更换 @${replaceTarget.botUsername} 的 Token` : '添加 Bot Token'}
+        title={replaceTarget ? `切换 Bot（当前：@${replaceTarget.botUsername}）` : '添加 Bot Token'}
         open={registerVisible}
         onCancel={() => { setRegisterVisible(false); setReplaceTarget(null); form.resetFields(); }}
         footer={null}
@@ -431,7 +499,7 @@ export default function CsPage() {
           <Alert
             type="warning"
             showIcon
-            message="更换 Token 会先删除旧 Bot 记录并停止轮询，然后注册新 Bot。"
+            message="切换 Bot 会删除旧记录并停止轮询，然后用新 Token 注册不同的 Bot。一个 Telegram Bot ID 只能对应一个 Token，所以这是切换到完全不同的 Bot。"
             style={{ marginBottom: 16 }}
           />
         )}
@@ -459,7 +527,7 @@ export default function CsPage() {
                 取消
               </Button>
               <Button type="primary" htmlType="submit" loading={submitting}>
-                {replaceTarget ? '更换并启动' : '注册并启动'}
+                {replaceTarget ? '切换并启动' : '注册并启动'}
               </Button>
             </Space>
           </Form.Item>

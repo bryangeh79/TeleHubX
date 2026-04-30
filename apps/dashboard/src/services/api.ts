@@ -106,6 +106,9 @@ export const tenantsApi = {
     api.post(`/tenants/${tenantId}/bots/${botId}/start`),
   stopBot: (tenantId: string, botId: string) =>
     api.post(`/tenants/${tenantId}/bots/${botId}/stop`),
+  getSettings: (tenantId: string) => api.get(`/tenants/${tenantId}/settings`),
+  updateSettings: (tenantId: string, data: any) =>
+    api.patch(`/tenants/${tenantId}/settings`, data),
 };
 
 export const knowledgeApi = {

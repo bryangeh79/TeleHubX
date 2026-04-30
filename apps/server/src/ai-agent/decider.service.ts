@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../redis/redis.provider';
 import { KnowledgeService } from '../knowledge/knowledge.service';
+import { ReplyMode } from '../tenants/tenant-settings.entity';
 
 export type DeciderOutcome =
   | { action: 'reply_faq'; answer: string; matchedFaqId: string }
@@ -16,6 +17,8 @@ export interface DeciderInput {
   userMessage: string;
   /** When provided, FAQ search is constrained to this KB. */
   kbId?: string;
+  /** Tenant-level reply mode. Defaults to SMART (FAQ + AI fallback). */
+  mode?: ReplyMode;
 }
 
 const DEFAULT_HANDOFF_KEYWORDS_ZH = [
@@ -77,8 +80,13 @@ export class AutoReplyDecider {
    *   5. Default → reply_ai (caller invokes AiAgentService.reply)
    */
   async decide(input: DeciderInput): Promise<DeciderOutcome> {
-    const { chatId, userMessage, kbId } = input;
+    const { chatId, userMessage, kbId, mode = ReplyMode.SMART } = input;
     const text = userMessage.trim();
+
+    // --- 0. Mode gate: 'off' bypasses everything (100% human) ---
+    if (mode === ReplyMode.OFF) {
+      return { action: 'silent', reason: 'reply_mode=off (100% human)' };
+    }
 
     // --- 1. Rate limit (min interval) ---
     const lastReplyAt = await this.redis.get(RATE_LIMIT_KEY(chatId));
@@ -120,7 +128,10 @@ export class AutoReplyDecider {
       this.logger.warn(`[decider] FAQ search failed: ${err instanceof Error ? err.message : err}`);
     }
 
-    // --- 5. Default to AI ---
+    // --- 5. Default to AI (only in SMART mode; FAQ-only mode falls through to silent) ---
+    if (mode === ReplyMode.FAQ) {
+      return { action: 'silent', reason: 'reply_mode=faq, no FAQ match' };
+    }
     return { action: 'reply_ai' };
   }
 

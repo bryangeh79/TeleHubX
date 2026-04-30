@@ -125,7 +125,12 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
     let replyText: string | null = null;
 
     try {
-      const outcome = await this.decider.decide({ chatId: msg.chatId, userMessage: msg.text });
+      const settings = await this.tenants.getSettings(bot.tenantId);
+      const outcome = await this.decider.decide({
+        chatId: msg.chatId,
+        userMessage: msg.text,
+        mode: settings.replyMode,
+      });
 
       switch (outcome.action) {
         case 'reply_faq':

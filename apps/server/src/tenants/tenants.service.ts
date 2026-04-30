@@ -6,6 +6,8 @@ import { deriveKey, encryptSession, decryptSession } from '../crypto/session-cry
 import { PLAN_MAX_ACCOUNTS, Tenant, TenantPlan, TenantStatus } from './tenant.entity';
 import { TenantBot } from './tenant-bot.entity';
 import { CreateTenantBotDto, UpdateTenantBotDto } from './tenant-bot.dto';
+import { ReplyMode, TenantSettings } from './tenant-settings.entity';
+import { UpdateTenantSettingsDto } from './tenant-settings.dto';
 
 @Injectable()
 export class TenantsService implements OnModuleInit {
@@ -15,6 +17,7 @@ export class TenantsService implements OnModuleInit {
   constructor(
     @InjectRepository(Tenant) private readonly repo: Repository<Tenant>,
     @InjectRepository(TenantBot) private readonly botRepo: Repository<TenantBot>,
+    @InjectRepository(TenantSettings) private readonly settingsRepo: Repository<TenantSettings>,
     private readonly config: ConfigService,
   ) {
     const raw = this.config.get<string>('SESSION_ENCRYPTION_KEY');
@@ -156,5 +159,37 @@ export class TenantsService implements OnModuleInit {
 
   async setBotActive(botId: string, isActive: boolean): Promise<void> {
     await this.botRepo.update(botId, { isActive });
+  }
+
+  // ── Settings (per-tenant CS config) ──────────────────────────────────────
+
+  async getSettings(tenantId: string): Promise<TenantSettings> {
+    let s = await this.settingsRepo.findOneBy({ tenantId });
+    if (!s) {
+      await this.findOne(tenantId);
+      s = this.settingsRepo.create({ tenantId, replyMode: ReplyMode.SMART });
+      s = await this.settingsRepo.save(s);
+    }
+    return s;
+  }
+
+  async updateSettings(tenantId: string, dto: UpdateTenantSettingsDto): Promise<TenantSettings> {
+    if (dto.replyMode === ReplyMode.SMART && !this.hasAnyAiKey()) {
+      throw new BadRequestException(
+        '启用 AI 智能模式需要先配置至少一个 AI provider 的 API key（OpenAI / DeepSeek / Gemini）。请前往 AI Settings 页面查看，并在服务端 .env 中配置后重启。',
+      );
+    }
+    const s = await this.getSettings(tenantId);
+    Object.assign(s, dto);
+    return this.settingsRepo.save(s);
+  }
+
+  private hasAnyAiKey(): boolean {
+    return Boolean(
+      this.config.get<string>('OPENAI_API_KEY') ||
+      this.config.get<string>('DEEPSEEK_API_KEY') ||
+      this.config.get<string>('GEMINI_API_KEY') ||
+      this.config.get<string>('AI_API_KEY'),
+    );
   }
 }
