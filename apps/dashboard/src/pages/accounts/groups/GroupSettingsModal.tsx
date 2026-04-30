@@ -65,9 +65,10 @@ export default function GroupSettingsModal({ open, onClose, onChange }: Props) {
       const created = r1.data?.created ?? 0;
       const removed = r1.data?.removed ?? 0;
       const scheduled = r2.data?.scheduled ?? 0;
+      const purged = r2.data?.purgedStale ?? 0;
 
       antdMessage.success(
-        `已配置 ${selectedCount} 组（新建 ${created} / 移除 ${removed}），生成 ${scheduled} 条排期任务`,
+        `已配置 ${selectedCount} 组（新建 ${created}/移除 ${removed}）· 清理旧排期 ${purged} 条 · 重新生成 ${scheduled} 条`,
       );
       onChange?.();
       onClose();

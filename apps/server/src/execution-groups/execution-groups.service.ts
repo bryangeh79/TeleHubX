@@ -153,16 +153,43 @@ export class ExecutionGroupsService {
 
   /**
    * Schedule baseline `idle_keepalive` tasks staggered across groups.
-   * Each group fires every 6 hours, staggered by (24h / groupCount) per group.
-   * Only schedules a single 24h cycle as a starting baseline; worker (TBD) recreates daily.
+   *
+   * 重要：每次调用都会先清掉**所有未启动**的 autoScheduled 任务，再重新生成。
+   * 这样切换组数（如 3→4）时旧排期不会和新排期撞车。已运行 / 已完成 / 失败的
+   * 任务保留，不影响审计历史。
+   *
+   * 算法：等距偏移 = 24h / groupCount，组 N 起始时间 = now + (N-1) * offset。
    */
-  async autoSchedule(tenantId: string | null): Promise<{ scheduled: number; groupCount: number }> {
+  async autoSchedule(tenantId: string | null): Promise<{
+    scheduled: number;
+    groupCount: number;
+    purgedStale: number;
+  }> {
+    // Step 1: purge stale pending autoScheduled tasks
+    const purgeQb = this.tasks
+      .createQueryBuilder()
+      .delete()
+      .from(Task)
+      .where('status = :s', { s: TaskStatus.PENDING })
+      .andWhere(`payload->>'autoScheduled' = 'true'`);
+    if (tenantId) {
+      purgeQb.andWhere('"tenantId" = :tid', { tid: tenantId });
+    } else {
+      purgeQb.andWhere('"tenantId" IS NULL');
+    }
+    const purgeResult = await purgeQb.execute();
+    const purgedStale = purgeResult.affected ?? 0;
+
+    // Step 2: re-generate based on current group count
     const where = tenantId ? { tenantId } : {};
     const groupsList = await this.groups.find({ where, order: { slotNum: 'ASC' } });
-    if (groupsList.length < 2) return { scheduled: 0, groupCount: groupsList.length };
+    if (groupsList.length < 2) {
+      this.logger.log(`autoSchedule: <2 groups, purged ${purgedStale}, scheduled 0`);
+      return { scheduled: 0, groupCount: groupsList.length, purgedStale };
+    }
 
     const groupCount = groupsList.length;
-    const offsetMs = (24 * 60 * 60 * 1000) / groupCount; // 等距偏移
+    const offsetMs = (24 * 60 * 60 * 1000) / groupCount;
     const now = Date.now();
 
     let scheduled = 0;
@@ -187,7 +214,9 @@ export class ExecutionGroupsService {
         scheduled++;
       }
     }
-    this.logger.log(`autoSchedule: created ${scheduled} tasks across ${groupCount} groups`);
-    return { scheduled, groupCount };
+    this.logger.log(
+      `autoSchedule: purged ${purgedStale} stale, created ${scheduled} tasks across ${groupCount} groups (offset=${(offsetMs / 3600000).toFixed(1)}h)`,
+    );
+    return { scheduled, groupCount, purgedStale };
   }
 }
