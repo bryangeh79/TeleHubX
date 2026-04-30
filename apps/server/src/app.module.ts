@@ -5,6 +5,7 @@ import { HealthController } from './health.controller';
 import { DatabaseModule } from './database/database.module';
 import { AccountsModule } from './accounts/accounts.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
+import { ChatScriptsModule } from './chat-scripts/chat-scripts.module';
 import { LeadsModule } from './leads/leads.module';
 import { AiAgentModule } from './ai-agent/ai-agent.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
@@ -34,7 +35,7 @@ import { LoggerModule } from './logger/logger.module';
         password: config.get('DB_PASSWORD', 'telehubx'),
         database: config.get('DB_NAME', 'telehubx'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        synchronize: config.get('NODE_ENV') !== 'production',
+        synchronize: true,
         logging: config.get('NODE_ENV') === 'development',
       }),
     }),
@@ -43,6 +44,7 @@ import { LoggerModule } from './logger/logger.module';
     DatabaseModule,
     AccountsModule,
     CampaignsModule,
+    ChatScriptsModule,
     LeadsModule,
     AiAgentModule,
     ProxiesModule,

@@ -14,7 +14,8 @@ module.exports = {
         "DB_NAME": "telehubx",
         "REDIS_HOST": "localhost",
         "REDIS_PORT": "6386",
-        "DB_LOGGING": "false"
+        "DB_LOGGING": "false",
+        "SYNC_DB": "true"
       },
       "max_restarts": 10,
       "restart_delay": 3000,
