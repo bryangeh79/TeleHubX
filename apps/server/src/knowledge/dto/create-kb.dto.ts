@@ -16,6 +16,15 @@ export class CreateKbDto {
   description?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  goalPrompt?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
+
+  @IsOptional()
   @IsBoolean()
   enabled?: boolean;
 }
@@ -35,6 +44,15 @@ export class UpdateKbDto {
   @IsString()
   @MaxLength(500)
   description?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  goalPrompt?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
 
   @IsOptional()
   @IsBoolean()

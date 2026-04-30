@@ -1,7 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { AiFaqGeneratorService } from './ai-faq-generator.service';
+import { EntityExtractorService } from './entity-extractor.service';
 import { Faq, FaqSource } from './faq.entity';
+import { FileParserService } from './file-parser.service';
+import { KbProtected, ProtectedEntityType } from './kb-protected.entity';
+import { KbSource, KbSourceKind, KbSourceStatus } from './kb-source.entity';
 import { KbType, KnowledgeBase } from './kb.entity';
 import { CreateKbDto, UpdateKbDto } from './dto/create-kb.dto';
 import { CreateFaqDto, UpdateFaqDto } from './dto/create-faq.dto';
@@ -16,6 +21,11 @@ export class KnowledgeService {
   constructor(
     @InjectRepository(KnowledgeBase) private readonly kbs: Repository<KnowledgeBase>,
     @InjectRepository(Faq) private readonly faqs: Repository<Faq>,
+    @InjectRepository(KbSource) private readonly sources: Repository<KbSource>,
+    @InjectRepository(KbProtected) private readonly protectedEntities: Repository<KbProtected>,
+    private readonly fileParser: FileParserService,
+    private readonly entityExtractor: EntityExtractorService,
+    private readonly aiFaqGen: AiFaqGeneratorService,
   ) {}
 
   // === KB CRUD ===
@@ -141,5 +151,126 @@ export class KnowledgeService {
   /** Increment hit counter when a FAQ is actually used to answer. */
   async recordHit(id: string): Promise<void> {
     await this.faqs.increment({ id }, 'hitCount', 1);
+  }
+
+  // === Sources (uploaded documents) ===
+
+  async uploadSource(
+    kbId: string,
+    file: { buffer: Buffer; originalname: string; mimetype: string; size: number },
+  ): Promise<KbSource> {
+    await this.getKb(kbId);
+    const kind = this.fileParser.detectKind(file.originalname, file.mimetype);
+    let rawText = '';
+    let status: KbSourceStatus = KbSourceStatus.PROCESSED;
+    let errorMsg: string | null = null;
+    try {
+      rawText = await this.fileParser.parse(file.buffer, kind);
+    } catch (err) {
+      status = KbSourceStatus.FAILED;
+      errorMsg = err instanceof Error ? err.message : String(err);
+    }
+
+    const src = this.sources.create({
+      kbId,
+      fileName: file.originalname,
+      kind,
+      mime: file.mimetype,
+      byteSize: file.size,
+      rawText,
+      status,
+      errorMsg,
+      processedAt: status === KbSourceStatus.PROCESSED ? new Date() : null,
+    });
+    const saved = await this.sources.save(src);
+
+    // Auto-extract protected entities (best-effort, non-fatal)
+    if (status === KbSourceStatus.PROCESSED && rawText) {
+      const extracted = this.entityExtractor.extract(rawText);
+      for (const e of extracted) {
+        try {
+          await this.protectedEntities.save(
+            this.protectedEntities.create({ kbId, ...e, sourceId: saved.id }),
+          );
+        } catch {
+          // Unique constraint violation = already exists, skip silently
+        }
+      }
+    }
+    return saved;
+  }
+
+  async listSources(kbId: string): Promise<KbSource[]> {
+    return this.sources.find({ where: { kbId }, order: { createdAt: 'DESC' } });
+  }
+
+  async getSource(id: string): Promise<KbSource> {
+    const s = await this.sources.findOneBy({ id });
+    if (!s) throw new NotFoundException(`Source ${id} not found`);
+    return s;
+  }
+
+  async removeSource(id: string): Promise<void> {
+    const s = await this.getSource(id);
+    await this.sources.remove(s);
+  }
+
+  // === Protected entities ===
+
+  listProtected(kbId: string): Promise<KbProtected[]> {
+    return this.protectedEntities.find({ where: { kbId }, order: { createdAt: 'DESC' } });
+  }
+
+  async addProtected(kbId: string, entityType: ProtectedEntityType, value: string): Promise<KbProtected> {
+    await this.getKb(kbId);
+    const trimmed = value.trim();
+    const existing = await this.protectedEntities.findOneBy({ kbId, entityType, value: trimmed });
+    if (existing) return existing;
+    const p = this.protectedEntities.create({ kbId, entityType, value: trimmed });
+    return this.protectedEntities.save(p);
+  }
+
+  async removeProtected(id: string): Promise<void> {
+    const p = await this.protectedEntities.findOneBy({ id });
+    if (!p) throw new NotFoundException(`Protected entity ${id} not found`);
+    await this.protectedEntities.remove(p);
+  }
+
+  // === AI FAQ generation ===
+
+  async generateFaqsFromSources(
+    kbId: string,
+    options: { count?: number; sourceIds?: string[] } = {},
+  ): Promise<{ generated: number; ids: string[] }> {
+    const kb = await this.getKb(kbId);
+    const where: { kbId: string; status: KbSourceStatus } = { kbId, status: KbSourceStatus.PROCESSED };
+    let srcs = await this.sources.find({ where });
+    if (options.sourceIds?.length) {
+      const wanted = new Set(options.sourceIds);
+      srcs = srcs.filter((s) => wanted.has(s.id));
+    }
+    const corpus = srcs.map((s) => s.rawText ?? '').filter(Boolean).join('\n\n---\n\n');
+    if (!corpus.trim()) {
+      throw new NotFoundException('No processed source text available for this KB. Upload a document first.');
+    }
+
+    const generated = await this.aiFaqGen.generate(corpus, {
+      count: options.count,
+      goalPrompt: kb.goalPrompt,
+    });
+
+    const created: Faq[] = [];
+    for (const g of generated) {
+      const faq = this.faqs.create({
+        kbId,
+        question: g.question,
+        answer: g.answer,
+        tags: g.tags,
+        source: FaqSource.AI_GENERATED,
+        enabled: true,
+      });
+      created.push(await this.faqs.save(faq));
+    }
+    return { generated: created.length, ids: created.map((f) => f.id) };
   }
 }

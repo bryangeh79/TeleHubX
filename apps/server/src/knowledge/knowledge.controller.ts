@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -10,11 +11,17 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ProtectedEntityType } from './kb-protected.entity';
 import { KbType } from './kb.entity';
 import { KnowledgeService } from './knowledge.service';
 import { CreateKbDto, UpdateKbDto } from './dto/create-kb.dto';
 import { CreateFaqDto, SearchFaqDto, UpdateFaqDto } from './dto/create-faq.dto';
+
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 @Controller('knowledge')
 export class KnowledgeController {
@@ -103,5 +110,71 @@ export class KnowledgeController {
   @HttpCode(HttpStatus.OK)
   search(@Body() dto: SearchFaqDto) {
     return this.service.search(dto.query, dto.kbId);
+  }
+
+  // === Sources (uploaded documents) ===
+
+  @Post('kbs/:id/sources')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES } }))
+  uploadSource(
+    @Param('id', ParseUUIDPipe) kbId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('No file uploaded under field "file"');
+    return this.service.uploadSource(kbId, {
+      buffer: file.buffer,
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+      size: file.size,
+    });
+  }
+
+  @Get('kbs/:id/sources')
+  listSources(@Param('id', ParseUUIDPipe) kbId: string) {
+    return this.service.listSources(kbId);
+  }
+
+  @Delete('kbs/:kbId/sources/:srcId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeSource(
+    @Param('kbId', ParseUUIDPipe) _kbId: string,
+    @Param('srcId', ParseUUIDPipe) srcId: string,
+  ) {
+    return this.service.removeSource(srcId);
+  }
+
+  // === Protected entities ===
+
+  @Get('kbs/:id/protected')
+  listProtected(@Param('id', ParseUUIDPipe) kbId: string) {
+    return this.service.listProtected(kbId);
+  }
+
+  @Post('kbs/:id/protected')
+  addProtected(
+    @Param('id', ParseUUIDPipe) kbId: string,
+    @Body() body: { entityType: ProtectedEntityType; value: string },
+  ) {
+    if (!body.value?.trim()) throw new BadRequestException('value is required');
+    return this.service.addProtected(kbId, body.entityType, body.value);
+  }
+
+  @Delete('kbs/:kbId/protected/:entId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeProtected(
+    @Param('kbId', ParseUUIDPipe) _kbId: string,
+    @Param('entId', ParseUUIDPipe) entId: string,
+  ) {
+    return this.service.removeProtected(entId);
+  }
+
+  // === AI FAQ generation ===
+
+  @Post('kbs/:id/generate-faqs')
+  generateFaqs(
+    @Param('id', ParseUUIDPipe) kbId: string,
+    @Body() body: { count?: number; sourceIds?: string[] } = {},
+  ) {
+    return this.service.generateFaqsFromSources(kbId, body);
   }
 }

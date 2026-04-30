@@ -129,6 +129,27 @@ export const knowledgeApi = {
     api.post('/knowledge/faqs/bulk-import', { kbId, items }),
   search: (query: string, kbId?: string) =>
     api.post('/knowledge/faqs/search', { query, kbId }),
+
+  listSources: (kbId: string) => api.get(`/knowledge/kbs/${kbId}/sources`),
+  uploadSource: (kbId: string, file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post(`/knowledge/kbs/${kbId}/sources`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
+    });
+  },
+  deleteSource: (kbId: string, srcId: string) =>
+    api.delete(`/knowledge/kbs/${kbId}/sources/${srcId}`),
+
+  listProtected: (kbId: string) => api.get(`/knowledge/kbs/${kbId}/protected`),
+  addProtected: (kbId: string, entityType: string, value: string) =>
+    api.post(`/knowledge/kbs/${kbId}/protected`, { entityType, value }),
+  deleteProtected: (kbId: string, entId: string) =>
+    api.delete(`/knowledge/kbs/${kbId}/protected/${entId}`),
+
+  generateFaqs: (kbId: string, count?: number) =>
+    api.post(`/knowledge/kbs/${kbId}/generate-faqs`, count ? { count } : {}, { timeout: 120000 }),
 };
 
 export const aiApi = {

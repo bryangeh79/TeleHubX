@@ -25,6 +25,9 @@ export class KnowledgeBase {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  @Column({ type: 'uuid', nullable: true })
+  tenantId: string | null;
+
   @Column()
   name: string;
 
@@ -33,6 +36,17 @@ export class KnowledgeBase {
 
   @Column({ nullable: true })
   description: string;
+
+  /**
+   * AI 回复时的终极目标。会被拼入 system prompt。
+   * 例：「让客户了解本公司的服务和联系方式，引导咨询或预约」
+   */
+  @Column({ type: 'text', nullable: true })
+  goalPrompt: string | null;
+
+  /** 公司通用 KB 标记。每个 tenant 至多一个 isDefault=true。 */
+  @Column({ default: false })
+  isDefault: boolean;
 
   @Column({ default: true })
   enabled: boolean;
