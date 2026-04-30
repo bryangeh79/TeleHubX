@@ -25,7 +25,24 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { accountsApi, slotsApi } from '../../services/api';
+import { accountsApi, proxiesApi, slotsApi } from '../../services/api';
+
+/** Telegram paper-plane SVG, sized to inline with text. */
+const TelegramIcon = ({ size = 14 }: { size?: number }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="#229ED9" style={{ verticalAlign: '-2px' }}>
+    <path d="M11.944 0A12 12 0 000 12a12 12 0 0012 12 12 12 0 0012-12A12 12 0 0012 0a12 12 0 00-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 01.171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+  </svg>
+);
+
+interface ApiProxy {
+  id: string;
+  name: string;
+  type: string;
+  host: string;
+  port: number;
+  status: string;
+  country?: string | null;
+}
 
 type Role = 'cs' | 'ad' | 'hybrid';
 type AccountStatus = 'online' | 'offline' | 'connecting' | 'error' | 'banned';
@@ -40,6 +57,7 @@ interface ApiAccount {
   healthScore: number;
   lastActiveAt: string | null;
   boundIp: string | null;
+  proxyId: string | null;
   sessionEncrypted: boolean;
   createdAt: string;
 }
@@ -75,15 +93,21 @@ export default function AccountsPage() {
   const [roleFilter, setRoleFilter] = useState<Role | undefined>();
   const [statusFilter, setStatusFilter] = useState<AccountStatus | undefined>();
   const [slots, setSlots] = useState<ApiSlot[]>([]);
+  const [proxyMap, setProxyMap] = useState<Map<string, ApiProxy>>(new Map());
   const [loading, setLoading] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await slotsApi.list();
-      setSlots(Array.isArray(res.data) ? res.data : []);
+      const [slotsRes, proxiesRes] = await Promise.all([
+        slotsApi.list(),
+        proxiesApi.list().catch(() => ({ data: [] })),
+      ]);
+      setSlots(Array.isArray(slotsRes.data) ? slotsRes.data : []);
+      const list: ApiProxy[] = Array.isArray(proxiesRes.data) ? proxiesRes.data : [];
+      setProxyMap(new Map(list.map((p) => [p.id, p])));
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? 'Failed to load slots');
+      antdMessage.error(err?.response?.data?.message ?? '加载槽位失败');
     } finally {
       setLoading(false);
     }
@@ -96,10 +120,10 @@ export default function AccountsPage() {
   const handleReset = async (slot: ApiSlot) => {
     try {
       await slotsApi.reset(slot.id);
-      antdMessage.success(`Slot No.${slot.no} reset to vacant — ready for new bind`);
+      antdMessage.success(`槽位 No.${slot.no} 已重置 — 可绑定新账号`);
       await reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? 'Reset failed');
+      antdMessage.error(err?.response?.data?.message ?? '重置失败');
     }
   };
 
@@ -108,11 +132,11 @@ export default function AccountsPage() {
     try {
       await accountsApi.delete(slot.account.id);
       antdMessage.warning(
-        `Account on slot No.${slot.no} deleted. Slot is now "released" — click Reset to free it.`,
+        `No.${slot.no} 槽位的账号已删除。槽位变为「已释放」 — 点击「重置」可释放槽位。`,
       );
       await reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? 'Delete failed');
+      antdMessage.error(err?.response?.data?.message ?? '删除失败');
     }
   };
 
@@ -132,7 +156,7 @@ export default function AccountsPage() {
 
   const columns: ColumnsType<ApiSlot> = [
     {
-      title: 'No.',
+      title: '编号',
       key: 'no',
       width: 70,
       align: 'center',
@@ -143,7 +167,7 @@ export default function AccountsPage() {
       ),
     },
     {
-      title: 'Phone',
+      title: '手机号',
       key: 'phoneNumber',
       width: 180,
       render: (_, slot) => {
@@ -151,13 +175,13 @@ export default function AccountsPage() {
           return <Typography.Text code>{slot.account.phoneNumber}</Typography.Text>;
         }
         if (slot.status === 'released') {
-          return <Typography.Text type="warning">slot released — needs reset</Typography.Text>;
+          return <Typography.Text type="warning">已释放 — 需要重置</Typography.Text>;
         }
-        return <Typography.Text type="secondary">vacant</Typography.Text>;
+        return <Typography.Text type="secondary">空闲</Typography.Text>;
       },
     },
     {
-      title: 'Role',
+      title: '角色',
       key: 'role',
       width: 90,
       render: (_, slot) =>
@@ -168,28 +192,67 @@ export default function AccountsPage() {
         ),
     },
     {
-      title: 'Status',
+      title: '状态',
       key: 'status',
-      width: 130,
+      width: 150,
       render: (_, slot) => {
         if (slot.status === 'released') {
-          return <Badge status="error" text="released" />;
+          return <Badge status="error" text="已释放" />;
         }
         if (slot.status === 'vacant') {
-          return <Badge status="default" text="vacant" />;
+          return <Badge status="default" text="空闲" />;
         }
         const a = slot.account;
-        return a ? <Badge status={STATUS_BADGE[a.status]} text={a.status} /> : <Badge status="default" text="—" />;
+        if (!a) return <Badge status="default" text="—" />;
+        const STATUS_LABEL: Record<AccountStatus, string> = {
+          online: '在线', offline: '离线', connecting: '连接中', error: '异常', banned: '已封禁',
+        };
+        return (
+          <Space size={6}>
+            <Tooltip title="Telegram 账号">
+              <span style={{ display: 'inline-flex' }}><TelegramIcon size={14} /></span>
+            </Tooltip>
+            <Badge status={STATUS_BADGE[a.status]} text={STATUS_LABEL[a.status]} />
+          </Space>
+        );
       },
     },
     {
-      title: 'Warmup',
+      title: 'VPN / IP',
+      key: 'proxy',
+      width: 200,
+      render: (_, slot) => {
+        if (!slot.account) return <Typography.Text type="secondary">—</Typography.Text>;
+        const a = slot.account;
+        const proxy = a.proxyId ? proxyMap.get(a.proxyId) : null;
+        const ip = a.boundIp;
+        if (!proxy && !ip) {
+          return <Tag color="orange">未绑定</Tag>;
+        }
+        return (
+          <Space direction="vertical" size={0}>
+            {proxy ? (
+              <Tooltip title={`${proxy.type.toUpperCase()} · ${proxy.host}:${proxy.port}${proxy.country ? ' · ' + proxy.country : ''}`}>
+                <Tag color="cyan" style={{ marginRight: 0 }}>{proxy.name}</Tag>
+              </Tooltip>
+            ) : null}
+            {ip ? (
+              <Typography.Text type="secondary" style={{ fontSize: 11, fontFamily: 'monospace' }}>
+                {ip}
+              </Typography.Text>
+            ) : null}
+          </Space>
+        );
+      },
+    },
+    {
+      title: '养号',
       key: 'warmupPhase',
       width: 80,
       render: (_, slot) => (slot.account ? <Tag>P{slot.account.warmupPhase}</Tag> : <Typography.Text type="secondary">—</Typography.Text>),
     },
     {
-      title: 'Health',
+      title: '健康分',
       key: 'healthScore',
       width: 75,
       render: (_, slot) => {
@@ -206,25 +269,25 @@ export default function AccountsPage() {
       render: (_, slot) => {
         if (!slot.account) return <Typography.Text type="secondary">—</Typography.Text>;
         return slot.account.sessionEncrypted ? (
-          <Tooltip title="Encrypted at rest (AES-256-GCM)">
-            <Tag icon={<LockOutlined />} color="green">encrypted</Tag>
+          <Tooltip title="AES-256-GCM 加密存储">
+            <Tag icon={<LockOutlined />} color="green">已加密</Tag>
           </Tooltip>
         ) : (
-          <Tooltip title="Stored as plaintext — set SESSION_ENCRYPTION_KEY in .env">
-            <Tag icon={<UnlockOutlined />} color="orange">plain</Tag>
+          <Tooltip title="明文存储 — 请在 .env 设置 SESSION_ENCRYPTION_KEY">
+            <Tag icon={<UnlockOutlined />} color="orange">明文</Tag>
           </Tooltip>
         );
       },
     },
     {
-      title: 'Last Active',
+      title: '最后活跃',
       key: 'lastActiveAt',
       render: (_, slot) => {
         if (slot.status === 'released' && slot.lastReleasedAt) {
           return (
-            <Tooltip title="Slot was released at this time">
+            <Tooltip title="该槽位释放时间">
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                released {dayjs(slot.lastReleasedAt).format('MM-DD HH:mm')}
+                释放于 {dayjs(slot.lastReleasedAt).format('MM-DD HH:mm')}
               </Typography.Text>
             </Tooltip>
           );
@@ -234,7 +297,7 @@ export default function AccountsPage() {
       },
     },
     {
-      title: 'Actions',
+      title: '操作',
       key: 'actions',
       width: 220,
       render: (_, slot) => {
@@ -242,23 +305,23 @@ export default function AccountsPage() {
           return (
             <Space size={4}>
               <Button size="small" onClick={() => navigate(`/accounts/${slot.account!.id}`)}>
-                Detail
+                详情
               </Button>
               <Popconfirm
-                title={`Delete account on slot No.${slot.no}?`}
+                title={`删除 No.${slot.no} 槽位的账号？`}
                 description={
                   <div style={{ maxWidth: 280 }}>
-                    Removes the encrypted session and all account-bound data.
-                    Slot No.{slot.no} becomes <Typography.Text strong>released</Typography.Text>{' '}
-                    and stays parked until you click <Typography.Text strong>Reset</Typography.Text>.
+                    将删除加密的 session 及账号绑定的所有数据。
+                    槽位 No.{slot.no} 状态变为 <Typography.Text strong>已释放</Typography.Text>，
+                    需点击 <Typography.Text strong>重置</Typography.Text> 后才能绑定新账号。
                   </div>
                 }
-                okText="Delete"
+                okText="删除"
                 okButtonProps={{ danger: true }}
                 onConfirm={() => handleRelease(slot)}
               >
                 <Button size="small" danger icon={<LogoutOutlined />}>
-                  Release
+                  释放
                 </Button>
               </Popconfirm>
             </Space>
@@ -267,14 +330,14 @@ export default function AccountsPage() {
         if (slot.status === 'released') {
           return (
             <Popconfirm
-              title={`Reset slot No.${slot.no}?`}
-              description="This wipes the released marker. The next new account binding will take this slot. Past audit history (campaigns, leads) stays attached to the old account UUID."
-              okText="Reset to Vacant"
+              title={`重置 No.${slot.no} 槽位？`}
+              description="将清除释放标记。下次绑定新账号将使用该槽位。历史记录（广告、线索）仍绑定到旧账号 UUID。"
+              okText="重置为空闲"
               okButtonProps={{ danger: false }}
               onConfirm={() => handleReset(slot)}
             >
               <Button size="small" type="primary" icon={<RedoOutlined />}>
-                Reset
+                重置
               </Button>
             </Popconfirm>
           );
@@ -282,7 +345,7 @@ export default function AccountsPage() {
         // vacant
         return (
           <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-            ready for next bind
+            可绑定新账号
           </Typography.Text>
         );
       },
