@@ -13,6 +13,7 @@ import LeadsInbox from './pages/leads/LeadsInbox';
 import AiSettingsPage from './pages/ai/AiSettingsPage';
 import ProxiesPage from './pages/proxies/ProxiesPage';
 import KnowledgePage from './pages/knowledge/KnowledgePage';
+import CsPage from './pages/cs/CsPage';
 import LoginPage from './pages/auth/LoginPage';
 import ActivatePage from './pages/auth/ActivatePage';
 
@@ -35,6 +36,7 @@ const App: React.FC = () => (
       <Route path="proxies" element={<ProxiesPage />} />
       <Route path="leads" element={<LeadsInbox />} />
       <Route path="knowledge" element={<KnowledgePage />} />
+      <Route path="cs" element={<CsPage />} />
       <Route path="ai" element={<AiSettingsPage />} />
     </Route>
   </Routes>

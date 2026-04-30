@@ -95,6 +95,17 @@ export const tenantsApi = {
   list: () => api.get('/tenants'),
   get: (id: string) => api.get(`/tenants/${id}`),
   getDefault: () => api.get('/tenants/default'),
+  listBots: (tenantId: string) => api.get(`/tenants/${tenantId}/bots`),
+  registerBot: (tenantId: string, token: string) =>
+    api.post(`/tenants/${tenantId}/bots`, { token }),
+  updateBot: (tenantId: string, botId: string, data: { isActive?: boolean; botUsername?: string }) =>
+    api.patch(`/tenants/${tenantId}/bots/${botId}`, data),
+  deleteBot: (tenantId: string, botId: string) =>
+    api.delete(`/tenants/${tenantId}/bots/${botId}`),
+  startBot: (tenantId: string, botId: string) =>
+    api.post(`/tenants/${tenantId}/bots/${botId}/start`),
+  stopBot: (tenantId: string, botId: string) =>
+    api.post(`/tenants/${tenantId}/bots/${botId}/stop`),
 };
 
 export const knowledgeApi = {
