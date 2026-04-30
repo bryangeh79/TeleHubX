@@ -104,26 +104,19 @@ export class BindOrchestratorService implements OnModuleDestroy {
     // 1. 拿账号专属设备指纹（永远跟着 accountId 走，绑/重连都一致）
     const fp = await this.accounts.ensureDeviceFingerprint(accountId);
 
-    // 2. 拿账号绑定的代理（如果有），转成 GramJS 期望的 SOCKS 格式
+    // 2. 拿账号绑定的代理（SOCKS5/4 直用；HTTP/HTTPS 走本地桥透明转 SOCKS5）
     let gramProxy: GramProxy | undefined;
     if (account.proxyId) {
       try {
-        const p = await this.proxies.getDecrypted(account.proxyId);
-        const t = p.type.toLowerCase();
-        if (t === 'socks5' || t === 'socks4') {
-          gramProxy = {
-            ip: p.host,
-            port: p.port,
-            socksType: t === 'socks4' ? 4 : 5,
-            username: p.username,
-            password: p.password,
-          };
+        const cfg = await this.proxies.toGramConfig(account.proxyId);
+        if (cfg) {
+          gramProxy = cfg;
           this.logger.log(
-            `[bind:${accountId}] using proxy ${t}://${p.host}:${p.port}`,
+            `[bind:${accountId}] using proxy via socks5 ${cfg.ip}:${cfg.port} (proxyId=${account.proxyId.slice(0, 8)})`,
           );
         } else {
           this.logger.warn(
-            `[bind:${accountId}] proxy type=${p.type} 不被 GramJS MTProto 支持 — 本次绑号将走服务器直连。请改用 SOCKS5 代理。`,
+            `[bind:${accountId}] proxy 类型不受支持，本次绑号走直连`,
           );
         }
       } catch (err) {
@@ -131,7 +124,7 @@ export class BindOrchestratorService implements OnModuleDestroy {
       }
     } else {
       this.logger.warn(
-        `[bind:${accountId}] 账号未绑定代理 — 走服务器直连。强烈建议为每号绑定 SOCKS5 住宅代理。`,
+        `[bind:${accountId}] 账号未绑定代理 — 走服务器直连。强烈建议为每号绑定代理。`,
       );
     }
 

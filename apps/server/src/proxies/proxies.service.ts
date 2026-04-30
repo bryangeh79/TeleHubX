@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import { deriveKey, encryptSession, decryptSession } from '../crypto/session-crypto.util';
 import { CreateProxyDto } from './dto/create-proxy.dto';
 import { UpdateProxyDto } from './dto/update-proxy.dto';
+import { HttpToSocks5Bridge } from './http-to-socks5.bridge';
 import { Proxy, ProxyStatus } from './proxy.entity';
 
 export interface ProxyTestResult {
@@ -27,10 +28,22 @@ export interface DecryptedProxyConfig {
   password?: string;
 }
 
+/** GramJS-ready proxy descriptor (always SOCKS5 from caller's perspective). */
+export interface GramProxyConfig {
+  ip: string;
+  port: number;
+  socksType: 4 | 5;
+  username?: string;
+  password?: string;
+}
+
 @Injectable()
 export class ProxiesService {
   private readonly logger = new Logger(ProxiesService.name);
   private readonly encKey: Buffer | null;
+
+  /** 缓存：每个 HTTP 代理 id -> 长期运行的本地 SOCKS5 桥。bind/agent 共用同一个桥，节省端口。 */
+  private readonly bridges = new Map<string, HttpToSocks5Bridge>();
 
   constructor(
     @InjectRepository(Proxy)
@@ -156,6 +169,58 @@ export class ProxiesService {
 
     await this.repo.update(id, { status: ProxyStatus.DEAD });
     return { ok: false, latencyMs: null, externalIp: null, error: lastError ?? 'unknown', testedAt: startedAt };
+  }
+
+  /**
+   * 给 GramJS / MTProto 用的代理配置。
+   *
+   * - SOCKS4/5 → 直接返回原配置
+   * - HTTP/HTTPS → 起本地 SOCKS5 桥，返回 127.0.0.1:bridgePort（透明转发到 HTTP CONNECT）
+   * - 其他类型 → null，调用方应跳过代理
+   *
+   * 桥按 proxyId 缓存，多次调用同一个 id 返回同一个端口。
+   */
+  async toGramConfig(proxyId: string): Promise<GramProxyConfig | null> {
+    const cfg = await this.getDecrypted(proxyId);
+    const t = cfg.type.toLowerCase();
+
+    if (t === 'socks5' || t === 'socks4') {
+      return {
+        ip: cfg.host,
+        port: cfg.port,
+        socksType: t === 'socks4' ? 4 : 5,
+        username: cfg.username,
+        password: cfg.password,
+      };
+    }
+
+    if (t === 'http' || t === 'https') {
+      let bridge = this.bridges.get(proxyId);
+      if (!bridge) {
+        bridge = new HttpToSocks5Bridge(
+          {
+            host: cfg.host,
+            port: cfg.port,
+            username: cfg.username,
+            password: cfg.password,
+            scheme: t === 'https' ? 'https' : 'http',
+          },
+          proxyId.slice(0, 8),
+        );
+        await bridge.start();
+        this.bridges.set(proxyId, bridge);
+      }
+      const addr = await bridge.start();
+      return {
+        ip: addr.host,
+        port: addr.port,
+        socksType: 5,
+        // bridge listens locally with no auth — auth is forwarded via Proxy-Authorization in CONNECT
+      };
+    }
+
+    this.logger.warn(`proxy ${proxyId} has unsupported type=${cfg.type}, skipping`);
+    return null;
   }
 
   /** Build the proxy URL string used by the agent libs. */
