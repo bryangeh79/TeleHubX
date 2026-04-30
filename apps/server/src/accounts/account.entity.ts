@@ -73,6 +73,14 @@ export class Account {
   @Column({ default: false })
   sessionEncrypted: boolean;
 
+  /**
+   * 设备指纹快照 (deviceModel / systemVersion / appVersion / langCode / systemLangCode)。
+   * 创建账号时确定，**永不变更** — 改了会让 Telegram 视为"换设备登录"，触发安全告警。
+   * 重连/重启都用这个指纹，跨进程一致。
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  deviceFingerprint: Record<string, string> | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

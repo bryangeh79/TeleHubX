@@ -8,6 +8,7 @@ import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { CsvAccountRow, ImportResult } from './dto/import-accounts.dto';
 import { deriveKey, encryptSession, decryptSession } from '../crypto/session-crypto.util';
+import { generateDeviceFingerprint } from './device-fingerprint.util';
 import { SlotsService } from '../slots/slots.service';
 
 export interface HealthStats {
@@ -37,9 +38,25 @@ export class AccountsService {
   async create(dto: CreateAccountDto): Promise<Account> {
     const account = this.repo.create(dto);
     const saved = await this.repo.save(account);
+    // Generate unique device fingerprint NOW, derived from the saved id.
+    // 不能延后到 bind 时刻 — bind 失败重试时 id 不变指纹必须稳定。
+    if (!saved.deviceFingerprint) {
+      const fp = generateDeviceFingerprint(saved.id);
+      saved.deviceFingerprint = fp as any;
+      await this.repo.update(saved.id, { deviceFingerprint: fp as any });
+    }
     // Assign a slot (lowest VACANT, or new at max+1) so the tenant gets a stable No.
     await this.slots.assignToAccount(saved.id);
     return saved;
+  }
+
+  /** Internal: ensure account has a fingerprint (lazy-init for legacy rows). */
+  async ensureDeviceFingerprint(id: string): Promise<Record<string, string>> {
+    const account = await this.findOne(id);
+    if (account.deviceFingerprint) return account.deviceFingerprint;
+    const fp = generateDeviceFingerprint(id) as any;
+    await this.repo.update(id, { deviceFingerprint: fp });
+    return fp;
   }
 
   findAll(filters: { role?: AccountRole; status?: AccountStatus }): Promise<Account[]> {

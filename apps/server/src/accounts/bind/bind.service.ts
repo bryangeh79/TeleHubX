@@ -11,6 +11,7 @@ import { Api, TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions';
 import { computeCheck } from 'telegram/Password';
 import { AccountsService } from '../accounts.service';
+import { ProxiesService } from '../../proxies/proxies.service';
 
 interface ActiveBind {
   client: TelegramClient;
@@ -41,13 +42,14 @@ export interface BindVerifyNeedsPassword {
 const BIND_TTL_MS = 5 * 60_000;
 const GC_INTERVAL_MS = 60_000;
 
-const DEVICE_FINGERPRINT = {
-  deviceModel: 'Samsung SM-S928B',
-  systemVersion: 'Android 14',
-  appVersion: '10.14.2',
-  langCode: 'en',
-  systemLangCode: 'en',
-};
+/** GramJS proxy format. SOCKS only (MTProto needs binary tunnel). */
+interface GramProxy {
+  ip: string;
+  port: number;
+  socksType: 4 | 5;
+  username?: string;
+  password?: string;
+}
 
 @Injectable()
 export class BindOrchestratorService implements OnModuleDestroy {
@@ -61,6 +63,7 @@ export class BindOrchestratorService implements OnModuleDestroy {
   constructor(
     private readonly config: ConfigService,
     private readonly accounts: AccountsService,
+    private readonly proxies: ProxiesService,
   ) {
     const idRaw = this.config.get<string>('TG_API_ID', '');
     this.apiId = parseInt(idRaw, 10) || 0;
@@ -93,16 +96,58 @@ export class BindOrchestratorService implements OnModuleDestroy {
     }
 
     // Verify the account record exists; throws NotFoundException if not
-    await this.accounts.findOne(accountId);
+    const account = await this.accounts.findOne(accountId);
 
     // Cancel any in-progress bind for this account (e.g. user retried)
     await this.cancelExisting(accountId);
+
+    // 1. 拿账号专属设备指纹（永远跟着 accountId 走，绑/重连都一致）
+    const fp = await this.accounts.ensureDeviceFingerprint(accountId);
+
+    // 2. 拿账号绑定的代理（如果有），转成 GramJS 期望的 SOCKS 格式
+    let gramProxy: GramProxy | undefined;
+    if (account.proxyId) {
+      try {
+        const p = await this.proxies.getDecrypted(account.proxyId);
+        const t = p.type.toLowerCase();
+        if (t === 'socks5' || t === 'socks4') {
+          gramProxy = {
+            ip: p.host,
+            port: p.port,
+            socksType: t === 'socks4' ? 4 : 5,
+            username: p.username,
+            password: p.password,
+          };
+          this.logger.log(
+            `[bind:${accountId}] using proxy ${t}://${p.host}:${p.port}`,
+          );
+        } else {
+          this.logger.warn(
+            `[bind:${accountId}] proxy type=${p.type} 不被 GramJS MTProto 支持 — 本次绑号将走服务器直连。请改用 SOCKS5 代理。`,
+          );
+        }
+      } catch (err) {
+        this.logger.error(`[bind:${accountId}] failed to load proxy: ${(err as Error).message}`);
+      }
+    } else {
+      this.logger.warn(
+        `[bind:${accountId}] 账号未绑定代理 — 走服务器直连。强烈建议为每号绑定 SOCKS5 住宅代理。`,
+      );
+    }
 
     const client = new TelegramClient(
       new StringSession(''),
       this.apiId,
       this.apiHash,
-      { connectionRetries: 3, ...DEVICE_FINGERPRINT },
+      {
+        connectionRetries: 3,
+        deviceModel: fp.deviceModel,
+        systemVersion: fp.systemVersion,
+        appVersion: fp.appVersion,
+        langCode: fp.langCode || 'en',
+        systemLangCode: fp.systemLangCode || 'en',
+        ...(gramProxy ? { proxy: gramProxy } : {}),
+      },
     );
 
     try {

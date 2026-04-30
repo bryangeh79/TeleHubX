@@ -9,29 +9,38 @@ export interface ProxyConfig {
   password?: string;
 }
 
+export interface DeviceFingerprint {
+  deviceModel: string;
+  systemVersion: string;
+  appVersion: string;
+  langCode: string;
+  systemLangCode: string;
+}
+
 export interface TelegramClientConfig {
   phoneNumber: string;
   sessionString: string;
   apiId: number;
   apiHash: string;
   proxy?: ProxyConfig;
+  /**
+   * 账号专属设备指纹。**必须**和绑号时使用的指纹完全一致 —
+   * 否则 Telegram 会检测到"设备变化"并强制重新登录。
+   * 由 server 端从 account.deviceFingerprint 读出后传过来。
+   */
+  deviceFingerprint: DeviceFingerprint;
 }
-
-// Mimic Samsung SM-S928B running Telegram 10.14.2 — TG sees "mobile app login"
-const DEVICE_FINGERPRINT = {
-  deviceModel: 'Samsung SM-S928B',
-  systemVersion: 'Android 14',
-  appVersion: '10.14.2',
-  langCode: 'en',
-  systemLangCode: 'en',
-};
 
 export function createTelegramClient(config: TelegramClientConfig): TelegramClient {
   const session = new StringSession(config.sessionString);
   return new TelegramClient(session, config.apiId, config.apiHash, {
     connectionRetries: 5,
     proxy: config.proxy,
-    ...DEVICE_FINGERPRINT,
+    deviceModel: config.deviceFingerprint.deviceModel,
+    systemVersion: config.deviceFingerprint.systemVersion,
+    appVersion: config.deviceFingerprint.appVersion,
+    langCode: config.deviceFingerprint.langCode || 'en',
+    systemLangCode: config.deviceFingerprint.systemLangCode || 'en',
   });
 }
 

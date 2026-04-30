@@ -32,7 +32,22 @@ interface ApiAccount {
   sessionEncrypted: boolean;
   proxyConfig?: { host: string; port: number; username?: string; password?: string } | null;
   proxyId?: string | null;
+  deviceFingerprint?: {
+    deviceModel: string;
+    systemVersion: string;
+    appVersion: string;
+    langCode: string;
+    systemLangCode: string;
+  } | null;
 }
+
+const FALLBACK_FINGERPRINT = {
+  deviceModel: 'Samsung SM-S928B',
+  systemVersion: 'Android 14',
+  appVersion: '10.14.2',
+  langCode: 'en',
+  systemLangCode: 'en',
+};
 
 interface ApiProxy {
   id: string;
@@ -175,6 +190,7 @@ async function bootstrap(): Promise<void> {
         apiId,
         apiHash,
         proxy,
+        deviceFingerprint: account.deviceFingerprint ?? FALLBACK_FINGERPRINT,
       });
     } catch (err: unknown) {
       logger.error(`[connect] ${account.id.slice(0, 8)} addAccount failed: ${err instanceof Error ? err.message : err}`);
