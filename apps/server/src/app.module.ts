@@ -29,7 +29,7 @@ import { LoggerModule } from './logger/logger.module';
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
         host: config.get('DB_HOST', 'localhost'),
-        port: config.get<number>('DB_PORT', 5433),
+        port: config.get<number>('DB_PORT', 5436),
         username: config.get('DB_USER', 'telehubx'),
         password: config.get('DB_PASSWORD', 'telehubx'),
         database: config.get('DB_NAME', 'telehubx'),

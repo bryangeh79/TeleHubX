@@ -28,8 +28,8 @@
 |------|------|----------|------|
 | Backend (NestJS) | 9600 | pm2 (telehubx-server) | ✅ online |
 | Dashboard (Vite) | 9601 | pm2 (telehubx-dashboard) | ✅ online |
-| PostgreSQL | 5433 | 本地服务 | ✅ connected |
-| Redis | 6380 | 本地服务 | ✅ connected |
+| PostgreSQL | 5436 | 本地服务 | ✅ connected |
+| Redis | 6386 | 本地服务 | ✅ connected |
 
 快速查看：`pm2 list`  
 实时日志：`pm2 logs telehubx-server`  
@@ -290,13 +290,13 @@ session string 已加密存进 `accounts.session_string`，**不会**通过响�
 NODE_ENV=development
 APP_PORT=9600
 DB_HOST=localhost
-DB_PORT=5433
+DB_PORT=5436              # moved from 5433 (FAhubX took it back)
 DB_USER=telehubx
 DB_PASSWORD=telehubx
 DB_NAME=telehubx
 DB_LOGGING=false
 REDIS_HOST=localhost
-REDIS_PORT=6380          # 注意：不是 6379
+REDIS_PORT=6386           # moved from 6380 (FAhubX took it back)
 # 可选 — 不设置时 AI 模块返回 503，不会崩
 SESSION_ENCRYPTION_KEY=your-32-char-secret
 OPENAI_API_KEY=sk-...
