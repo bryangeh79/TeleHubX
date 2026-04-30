@@ -7,6 +7,7 @@ export interface DispatchedTask {
   accountId: string | null;
   accountLabel: string | null;
   payload: Record<string, any> | null;
+  tenantId?: string | null;
 }
 
 export interface ServerCallbacks {
@@ -51,6 +52,9 @@ export async function executeTask(
     client,
     payload: task.payload ?? {},
     reportProgress: (pct) => cb.updateProgress(task.id, pct).catch(() => {}),
+    taskId: task.id,
+    accountId: task.accountId ?? undefined,
+    tenantId: task.tenantId ?? undefined,
   };
 
   cb.log.info(`[task ${task.id.slice(0, 8)}] start type=${task.type} account=${task.accountLabel ?? task.accountId?.slice(0, 8)}`);

@@ -1,5 +1,6 @@
 import { Api, type TelegramClient } from 'telegram';
 import { gaussianDelayMs, sendMessageLikeHuman, simulateReading, sleep } from './behavior-simulator';
+import { bulkUpsertCandidates, markCandidateContacted } from './server-callback';
 
 /**
  * 每个 executor 的合约：
@@ -14,6 +15,12 @@ export interface ExecutorCtx {
   payload: Record<string, any>;
   /** 报告进度（0-100），上层会 PATCH /tasks/:id */
   reportProgress?: (pct: number) => Promise<void>;
+  /** 任务自身的 id（写 lead_candidates.contactTaskId 用） */
+  taskId?: string;
+  /** 执行任务的账号 id (UUID) */
+  accountId?: string;
+  /** 租户 id —— group_scrape 写候选池必须有 */
+  tenantId?: string;
 }
 
 // ─── 1. IDLE_KEEPALIVE ───────────────────────────────────────────────
@@ -300,6 +307,207 @@ export async function postChannel(ctx: ExecutorCtx): Promise<void> {
   await ctx.reportProgress?.(100);
 }
 
+// ─── 10. GROUP_SCRAPE ────────────────────────────────────────────────
+/**
+ * 爬群成员到 LeadCandidate 池。
+ *
+ * payload: { tgChatIds: string[], maxScrapePerGroup?: 50 }
+ * 需 ctx.tenantId + ctx.accountId 才能落库。
+ */
+export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
+  const chatIds: string[] = (ctx.payload.tgChatIds ?? []) as string[];
+  const maxPer = (ctx.payload.maxScrapePerGroup as number) ?? 50;
+  if (!chatIds.length) throw new Error('payload.tgChatIds 为空');
+  if (!ctx.tenantId) throw new Error('ctx.tenantId 缺失（爬完无法落库）');
+
+  const cutoff = Date.now() / 1000 - 30 * 86400; // 30 天活跃过的才要
+
+  let totalInserted = 0;
+  for (let i = 0; i < chatIds.length; i++) {
+    const chatId = chatIds[i].trim();
+    try {
+      const entity = await ctx.client.getEntity(chatId);
+      const participants = await ctx.client.getParticipants(entity, {
+        limit: 200,
+      });
+
+      const items: any[] = [];
+      for (const p of participants) {
+        const u: any = p;
+        // 只要真人：非 bot, 非已删除, 30 天内活跃过
+        if (u.bot || u.deleted) continue;
+        const lastSeenSec = (u.status?.wasOnline as number | undefined) ?? null;
+        if (lastSeenSec !== null && lastSeenSec < cutoff) continue;
+        items.push({
+          tgUserId: String(u.id),
+          tgUsername: u.username ?? null,
+          firstName: u.firstName ?? null,
+          lastName: u.lastName ?? null,
+          sourceGroupId: chatId,
+          scrapedByAccountId: ctx.accountId ?? null,
+          priorityScore: 50 + (u.username ? 10 : 0) + (u.photo ? 5 : 0),
+        });
+        if (items.length >= maxPer) break;
+      }
+
+      if (items.length) {
+        const result = await bulkUpsertCandidates(ctx.tenantId, items);
+        totalInserted += result?.inserted ?? 0;
+      }
+    } catch (err) {
+      // 单个群失败不中断整个任务
+      const msg = (err as Error).message ?? '';
+      if (!msg.includes('CHAT_ADMIN_REQUIRED') && !msg.includes('PARTICIPANTS_FORBIDDEN')) {
+        throw err;
+      }
+    }
+
+    await ctx.reportProgress?.(Math.round(((i + 1) / chatIds.length) * 100));
+    if (i < chatIds.length - 1) {
+      // 群之间间隔 10-30 分钟（防 ban）
+      await sleep(gaussianDelayMs(10 * 60_000, 30 * 60_000));
+    }
+  }
+}
+
+// ─── 11. CONTACT_ADD ─────────────────────────────────────────────────
+/**
+ * 加 contact + 可选发开场白。从 LeadCandidate 池或显式 targets 取目标。
+ *
+ * payload: {
+ *   mode: 'username' | 'phone',
+ *   targets?: Array<{ candidateId?, tgUserId?, username?, phone?, firstName?, lastName? }>,
+ *   maxPerDay?: 5,
+ *   greetingText?: string  // 加完后立即发的开场白（可选）
+ * }
+ */
+export async function contactAdd(ctx: ExecutorCtx): Promise<void> {
+  const mode = (ctx.payload.mode ?? 'username') as 'username' | 'phone';
+  const targets: any[] = (ctx.payload.targets ?? []) as any[];
+  const maxPerDay = (ctx.payload.maxPerDay as number) ?? 5;
+  const greeting: string | undefined = ctx.payload.greetingText;
+  if (!targets.length) throw new Error('payload.targets 为空');
+
+  const limited = targets.slice(0, maxPerDay);
+  for (let i = 0; i < limited.length; i++) {
+    const t = limited[i];
+    try {
+      let entity: any;
+      if (mode === 'phone' && t.phone) {
+        // ImportContacts → 拿到 user
+        const res: any = await ctx.client.invoke(
+          new Api.contacts.ImportContacts({
+            contacts: [
+              new Api.InputPhoneContact({
+                clientId: BigInt(Date.now() + i) as any,
+                phone: t.phone,
+                firstName: t.firstName ?? 'Friend',
+                lastName: t.lastName ?? '',
+              }),
+            ],
+          }),
+        );
+        if (!res.users?.length) continue;
+        entity = res.users[0];
+      } else {
+        const handle = (t.username ?? '').replace(/^@/, '');
+        if (!handle) continue;
+        entity = await ctx.client.getEntity(handle);
+        await ctx.client.invoke(
+          new Api.contacts.AddContact({
+            id: entity,
+            firstName: t.firstName ?? entity.firstName ?? 'Friend',
+            lastName: t.lastName ?? entity.lastName ?? '',
+            phone: '',
+            addPhonePrivacyException: false,
+          }),
+        );
+      }
+
+      // 加完发开场白
+      if (greeting) {
+        await sleep(gaussianDelayMs(5_000, 15_000));
+        await sendMessageLikeHuman(ctx.client, entity, greeting);
+      }
+
+      // 候选池回写
+      if (t.candidateId && ctx.accountId) {
+        await markCandidateContacted(t.candidateId, ctx.accountId, ctx.taskId);
+      }
+    } catch (err) {
+      const msg = (err as Error).message ?? '';
+      // 隐私限制 / 已被屏蔽 / 不可达 → 跳过该条不抛
+      if (
+        msg.includes('USER_PRIVACY_RESTRICTED') ||
+        msg.includes('USERNAME_INVALID') ||
+        msg.includes('USERNAME_NOT_OCCUPIED') ||
+        msg.includes('PEER_ID_INVALID')
+      ) {
+        // 静默跳过
+      } else {
+        throw err; // FloodWait / PEER_FLOOD 由上层接管
+      }
+    }
+
+    await ctx.reportProgress?.(Math.round(((i + 1) / limited.length) * 100));
+    if (i < limited.length - 1) {
+      await sleep(gaussianDelayMs(3 * 60_000, 10 * 60_000));
+    }
+  }
+}
+
+// ─── 12. CAMPAIGN_SINGLE ─────────────────────────────────────────────
+/**
+ * 单条群发：targets × variants 矩阵，每条随机抽 variant，间隔 Gaussian。
+ *
+ * payload: {
+ *   targets: Array<string | { username?, candidateId? }>,  // string 视为 username
+ *   variants: string[],
+ *   intervalSec?: [60, 300]
+ * }
+ */
+export async function campaignSingle(ctx: ExecutorCtx): Promise<void> {
+  const rawTargets = (ctx.payload.targets ?? []) as any[];
+  const variants: string[] = (ctx.payload.variants ?? []) as string[];
+  const [minSec, maxSec] = (ctx.payload.intervalSec as [number, number]) ?? [60, 300];
+
+  if (!rawTargets.length) throw new Error('payload.targets 为空');
+  if (!variants.length) throw new Error('payload.variants 为空');
+
+  for (let i = 0; i < rawTargets.length; i++) {
+    const raw = rawTargets[i];
+    const target = typeof raw === 'string' ? { username: raw } : raw;
+    const handle = (target.username ?? '').replace(/^@/, '');
+    if (!handle) continue;
+
+    try {
+      const entity = await ctx.client.getEntity(handle);
+      const variant = variants[Math.floor(Math.random() * variants.length)];
+      await sendMessageLikeHuman(ctx.client, entity, variant);
+
+      if (target.candidateId && ctx.accountId) {
+        await markCandidateContacted(target.candidateId, ctx.accountId, ctx.taskId);
+      }
+    } catch (err) {
+      const msg = (err as Error).message ?? '';
+      if (
+        msg.includes('USER_PRIVACY_RESTRICTED') ||
+        msg.includes('PEER_ID_INVALID') ||
+        msg.includes('USERNAME_NOT_OCCUPIED')
+      ) {
+        // 跳过
+      } else {
+        throw err;
+      }
+    }
+
+    await ctx.reportProgress?.(Math.round(((i + 1) / rawTargets.length) * 100));
+    if (i < rawTargets.length - 1) {
+      await sleep(gaussianDelayMs(minSec * 1000, maxSec * 1000));
+    }
+  }
+}
+
 // ─── Dispatcher ─────────────────────────────────────────────────────
 export const EXECUTORS: Record<string, (ctx: ExecutorCtx) => Promise<void>> = {
   idle_keepalive:  idleKeepalive,
@@ -311,4 +519,7 @@ export const EXECUTORS: Record<string, (ctx: ExecutorCtx) => Promise<void>> = {
   accept_invites:  acceptInvites,
   profile_update:  profileUpdate,
   post_channel:    postChannel,
+  group_scrape:    groupScrape,
+  contact_add:     contactAdd,
+  campaign_single: campaignSingle,
 };

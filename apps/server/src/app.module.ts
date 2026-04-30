@@ -22,6 +22,7 @@ import { ExecutionGroupsModule } from './execution-groups/execution-groups.modul
 import { TakeoverModule } from './takeover/takeover.module';
 import { AssetsModule } from './assets/assets.module';
 import { GroupsModule } from './groups/groups.module';
+import { LeadCandidatesModule } from './leads-candidates/leads-candidates.module';
 
 @Module({
   imports: [
@@ -65,6 +66,7 @@ import { GroupsModule } from './groups/groups.module';
     TakeoverModule,
     AssetsModule,
     GroupsModule,
+    LeadCandidatesModule,
   ],
   controllers: [HealthController],
 })
