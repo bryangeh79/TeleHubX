@@ -56,6 +56,22 @@ export const campaignsApi = {
   send: (id: string) => api.post(`/campaigns/${id}/send`),
 };
 
+export const takeoverApi = {
+  upload: (leadId: string, file: File, onProgress?: (pct: number) => void) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post(`/takeover/leads/${leadId}/upload`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+      onUploadProgress: onProgress
+        ? (e) => {
+            if (e.total) onProgress(Math.round((e.loaded / e.total) * 100));
+          }
+        : undefined,
+    });
+  },
+};
+
 export const leadsApi = {
   list: (params?: any) => api.get('/leads', { params }),
   get: (id: string) => api.get(`/leads/${id}`),

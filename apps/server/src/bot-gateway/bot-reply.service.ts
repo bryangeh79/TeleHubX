@@ -80,4 +80,58 @@ export class BotReplyService {
       this.logger.error(`sendText failed chatId=${chatId} status=${res.status} body=${body}`);
     }
   }
+
+  /**
+   * 发送多媒体消息到 Telegram。
+   * @param kind 'photo' / 'video' / 'document' — TG API 端点和字段名都不同
+   * @param file Node Buffer + 原始文件名 + mime
+   * @param caption 可选附文（≤1024 字符）
+   */
+  async sendMedia(
+    token: string,
+    chatId: string,
+    kind: 'photo' | 'video' | 'document',
+    file: { buffer: Buffer; filename: string; mimetype: string },
+    caption?: string,
+  ): Promise<{ ok: boolean; description?: string }> {
+    const fd = new FormData();
+    fd.append('chat_id', String(chatId));
+    if (caption) fd.append('caption', caption);
+    // Web FormData wants Blob/File; convert from Buffer (Node 20+ has Blob globally)
+    const blob = new Blob([new Uint8Array(file.buffer)], { type: file.mimetype || 'application/octet-stream' });
+    fd.append(kind, blob, file.filename);
+
+    let res: Response;
+    try {
+      res = await fetch(`${TG_API}/bot${token}/send${kind.charAt(0).toUpperCase() + kind.slice(1)}`, {
+        method: 'POST',
+        body: fd,
+      });
+    } catch (err) {
+      const e = (err as Error).message;
+      this.logger.error(`send${kind} network error chatId=${chatId}: ${e}`);
+      return { ok: false, description: e };
+    }
+    const body = (await res.json()) as { ok: boolean; description?: string };
+    if (!body.ok) {
+      this.logger.error(`send${kind} failed chatId=${chatId} status=${res.status} body=${JSON.stringify(body).slice(0, 200)}`);
+    }
+    return { ok: body.ok, description: body.description };
+  }
+
+  /**
+   * 把 Telegram 上的文件 (file_id) 通过 getFile + downloadable URL 转成可分享 URL。
+   * 用于客户发图给 bot 时，dashboard 端能渲染缩略图。
+   * 注意：URL 30 分钟后失效，且 token 嵌在 URL 里 — 仅给 dashboard 内网用。
+   */
+  async getFileUrl(token: string, fileId: string): Promise<string | null> {
+    try {
+      const res = await fetch(`${TG_API}/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`);
+      const body = (await res.json()) as { ok: boolean; result?: { file_path: string }; description?: string };
+      if (!body.ok || !body.result?.file_path) return null;
+      return `${TG_API}/file/bot${token}/${body.result.file_path}`;
+    } catch {
+      return null;
+    }
+  }
 }

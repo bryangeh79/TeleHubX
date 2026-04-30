@@ -12,12 +12,51 @@ export interface TelegramChat {
   type: 'private' | 'group' | 'supergroup' | 'channel';
 }
 
+export interface TelegramPhotoSize {
+  file_id: string;
+  file_unique_id: string;
+  width: number;
+  height: number;
+  file_size?: number;
+}
+
+export interface TelegramVideo {
+  file_id: string;
+  file_unique_id: string;
+  width: number;
+  height: number;
+  duration: number;
+  mime_type?: string;
+  file_size?: number;
+}
+
+export interface TelegramDocument {
+  file_id: string;
+  file_unique_id: string;
+  file_name?: string;
+  mime_type?: string;
+  file_size?: number;
+}
+
+export interface TelegramSticker {
+  file_id: string;
+  file_unique_id: string;
+  emoji?: string;
+  set_name?: string;
+}
+
 export interface TelegramMessage {
   message_id: number;
   from?: TelegramUser;
   chat: TelegramChat;
   date: number;
   text?: string;
+  caption?: string;
+  photo?: TelegramPhotoSize[];      // 多个尺寸数组，最后一个是最大原图
+  video?: TelegramVideo;
+  document?: TelegramDocument;
+  sticker?: TelegramSticker;
+  voice?: { file_id: string; duration: number; mime_type?: string };
 }
 
 export interface TelegramUpdate {
@@ -38,16 +77,36 @@ export class BotUpdateAdapter {
   normalize(update: TelegramUpdate): NormalizedMessage | null {
     const msg = update.message;
     if (!msg) return null;
-    if (!msg.text) return null;
     if (!msg.from) return null;
     if (msg.from.is_bot) return null;
     if (msg.chat.type !== 'private') return null;
+
+    // 文字消息直接用
+    let text = msg.text ?? '';
+    if (!text) {
+      // 媒体消息：转成可读占位文字（caption + 类型标签）
+      const cap = msg.caption ?? '';
+      if (msg.photo?.length) {
+        text = `[图片]${cap ? ' ' + cap : ''}`;
+      } else if (msg.video) {
+        text = `[视频]${cap ? ' ' + cap : ''}`;
+      } else if (msg.document) {
+        const fname = msg.document.file_name ?? '文件';
+        text = `[文件: ${fname}]${cap ? ' ' + cap : ''}`;
+      } else if (msg.sticker) {
+        text = `[贴纸 ${msg.sticker.emoji ?? ''}]`;
+      } else if (msg.voice) {
+        text = `[语音 ${msg.voice.duration}s]`;
+      } else {
+        return null;
+      }
+    }
 
     return {
       chatId: String(msg.chat.id),
       tgUserId: String(msg.from.id),
       tgUsername: msg.from.username,
-      text: msg.text,
+      text,
     };
   }
 }

@@ -3,30 +3,41 @@ import {
   Avatar,
   Badge,
   Button,
+  Dropdown,
   Empty,
   Input,
   List,
   Modal,
   Popconfirm,
+  Progress,
   Select,
   Space,
   Tag,
   Tooltip,
   Typography,
+  Upload,
   message as antdMessage,
 } from 'antd';
 import {
   CheckCircleOutlined,
   CustomerServiceOutlined,
+  PaperClipOutlined,
   ReloadOutlined,
   RobotOutlined,
   SendOutlined,
+  SmileOutlined,
   StopOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { io, Socket } from 'socket.io-client';
-import { leadsApi } from '../../services/api';
+import { leadsApi, takeoverApi } from '../../services/api';
+
+const COMMON_EMOJIS = [
+  '😀', '😂', '😍', '🥰', '😘', '😎', '🤔', '😮', '😢', '😭',
+  '👍', '👎', '👏', '🙏', '💪', '🔥', '✨', '🎉', '❤️', '💯',
+  '✅', '❌', '⚠️', '⏰', '📞', '📧', '💰', '🎁', '🚀', '👀',
+];
 
 const { Title, Text } = Typography;
 
@@ -79,6 +90,9 @@ export default function LeadsInbox() {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [socketConnected, setSocketConnected] = useState(false);
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const textareaRef = useRef<any>(null);
 
   const socketRef = useRef<Socket | null>(null);
   const messageEndRef = useRef<HTMLDivElement>(null);
@@ -178,6 +192,34 @@ export default function LeadsInbox() {
       void reload();
     } catch (err: any) {
       antdMessage.error(err?.response?.data?.message ?? '关闭失败');
+    }
+  };
+
+  const insertEmoji = (e: string) => {
+    setDraft((d) => d + e);
+    setEmojiOpen(false);
+    // Refocus textarea
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  };
+
+  const handleUpload = async (file: File) => {
+    if (!selected) return;
+    if (selected.takeoverState !== 'human') {
+      antdMessage.warning('请先点「接管」再上传文件');
+      return;
+    }
+    setUploadPct(0);
+    try {
+      const res = await takeoverApi.upload(selected.id, file, (p) => setUploadPct(p));
+      if (res.data?.ok) {
+        antdMessage.success(`已发送 ${file.name}`);
+      } else {
+        antdMessage.error(`发送失败: ${res.data?.description ?? 'unknown'}`);
+      }
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '上传失败');
+    } finally {
+      setUploadPct(null);
     }
   };
 
@@ -437,24 +479,89 @@ export default function LeadsInbox() {
                   此对话由 {selected.takeoverState === 'ai' ? 'AI' : '系统'} 处理。点击右上角「接管」由你回复。
                 </div>
               ) : (
-                <Space.Compact style={{ width: '100%' }}>
-                  <Input.TextArea
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    placeholder="输入回复... (Enter 发送, Shift+Enter 换行)"
-                    autoSize={{ minRows: 1, maxRows: 4 }}
-                    onPressEnter={(e) => {
-                      if (!e.shiftKey) {
-                        e.preventDefault();
-                        void handleSend();
-                      }
-                    }}
-                    disabled={sending}
-                  />
-                  <Button type="primary" icon={<SendOutlined />} onClick={handleSend} loading={sending}>
-                    发送
-                  </Button>
-                </Space.Compact>
+                <div>
+                  {uploadPct !== null && (
+                    <Progress percent={uploadPct} size="small" style={{ marginBottom: 8 }} />
+                  )}
+                  <div style={{ display: 'flex', gap: 4, alignItems: 'flex-end' }}>
+                    {/* Emoji picker */}
+                    <Dropdown
+                      open={emojiOpen}
+                      onOpenChange={setEmojiOpen}
+                      trigger={['click']}
+                      placement="topLeft"
+                      dropdownRender={() => (
+                        <div style={{
+                          background: '#fff',
+                          border: '1px solid #f0f0f0',
+                          borderRadius: 8,
+                          padding: 8,
+                          boxShadow: '0 6px 16px rgba(0,0,0,0.08)',
+                          width: 280,
+                        }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 4 }}>
+                            {COMMON_EMOJIS.map((e) => (
+                              <button
+                                key={e}
+                                type="button"
+                                onClick={() => insertEmoji(e)}
+                                style={{
+                                  fontSize: 18,
+                                  border: 'none',
+                                  background: 'transparent',
+                                  cursor: 'pointer',
+                                  padding: 4,
+                                  borderRadius: 4,
+                                }}
+                                onMouseEnter={(ev) => { (ev.currentTarget as HTMLButtonElement).style.background = '#f0f0f0'; }}
+                                onMouseLeave={(ev) => { (ev.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+                              >{e}</button>
+                            ))}
+                          </div>
+                          <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 6 }}>
+                            提示：操作系统自带 emoji 键盘也可用 (Win+. / Cmd+Ctrl+Space)
+                          </Typography.Text>
+                        </div>
+                      )}
+                    >
+                      <Button type="text" icon={<SmileOutlined />} disabled={sending} />
+                    </Dropdown>
+
+                    {/* File upload */}
+                    <Upload
+                      showUploadList={false}
+                      beforeUpload={(file) => {
+                        void handleUpload(file as File);
+                        return false; // 阻止默认上传，我们自己控制
+                      }}
+                      accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar"
+                      disabled={sending || uploadPct !== null}
+                    >
+                      <Tooltip title="发送图片 / 视频 / 文件">
+                        <Button type="text" icon={<PaperClipOutlined />} disabled={sending || uploadPct !== null} />
+                      </Tooltip>
+                    </Upload>
+
+                    <Input.TextArea
+                      ref={textareaRef}
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      placeholder="输入回复... (Enter 发送, Shift+Enter 换行)"
+                      autoSize={{ minRows: 1, maxRows: 4 }}
+                      onPressEnter={(e) => {
+                        if (!e.shiftKey) {
+                          e.preventDefault();
+                          void handleSend();
+                        }
+                      }}
+                      disabled={sending}
+                      style={{ flex: 1 }}
+                    />
+                    <Button type="primary" icon={<SendOutlined />} onClick={handleSend} loading={sending}>
+                      发送
+                    </Button>
+                  </div>
+                </div>
               )}
             </div>
           </>
