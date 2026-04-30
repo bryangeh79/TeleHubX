@@ -17,6 +17,8 @@ import CsPage from './pages/cs/CsPage';
 import SettingsHubPage from './pages/settings/SettingsHubPage';
 import SchedulerPage from './pages/scheduler/SchedulerPage';
 import AdminPage from './pages/admin/AdminPage';
+import AssetsPage from './pages/assets/AssetsPage';
+import GroupsPage from './pages/groups/GroupsPage';
 import LoginPage from './pages/auth/LoginPage';
 import ActivatePage from './pages/auth/ActivatePage';
 
@@ -44,6 +46,8 @@ const App: React.FC = () => (
       <Route path="settings" element={<SettingsHubPage />} />
       <Route path="scheduler" element={<SchedulerPage />} />
       <Route path="admin" element={<AdminPage />} />
+      <Route path="assets" element={<AssetsPage />} />
+      <Route path="groups" element={<GroupsPage />} />
     </Route>
   </Routes>
 );

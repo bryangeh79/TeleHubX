@@ -179,6 +179,31 @@ export const aiApi = {
   clearConversation: (chatId: string) => api.delete(`/ai/conversation/${chatId}`),
 };
 
+export const assetsApi = {
+  list: (params?: { category?: string; enabled?: boolean }) => api.get('/assets', { params }),
+  upload: (file: File, opts: { category?: string; description?: string; tags?: string } = {}) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    if (opts.category) fd.append('category', opts.category);
+    if (opts.description) fd.append('description', opts.description);
+    if (opts.tags) fd.append('tags', opts.tags);
+    return api.post('/assets/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 });
+  },
+  createSnippet: (text: string, tags?: string[], description?: string) =>
+    api.post('/assets/text-snippet', { text, tags, description }),
+  contentUrl: (id: string) => `/api/v1/assets/${id}/content`,
+  update: (id: string, data: any) => api.patch(`/assets/${id}`, data),
+  delete: (id: string) => api.delete(`/assets/${id}`),
+};
+
+export const testGroupsApi = {
+  list: (params?: { source?: string; executionGroupId?: string }) =>
+    api.get('/test-groups', { params }),
+  create: (data: any) => api.post('/test-groups', data),
+  update: (id: string, data: any) => api.patch(`/test-groups/${id}`, data),
+  delete: (id: string) => api.delete(`/test-groups/${id}`),
+};
+
 export const tasksApi = {
   list: (params?: { status?: string; type?: string; tenantId?: string }) =>
     api.get('/tasks', { params }),

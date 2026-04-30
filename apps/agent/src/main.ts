@@ -94,6 +94,23 @@ async function fetchJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 }
 
+async function patchJson<T = any>(path: string, body: any): Promise<T | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), HEARTBEAT_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function postNoBody(path: string): Promise<void> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), HEARTBEAT_TIMEOUT_MS);
@@ -274,15 +291,81 @@ async function bootstrap(): Promise<void> {
     void syncFromDb();
   }, POLL_INTERVAL_MS);
 
+  // ── Task dispatcher ────────────────────────────────────────────────────
+  const TASK_POLL_INTERVAL_MS = parseInt(process.env.TASK_POLL_INTERVAL_MS ?? '15000', 10);
+  const taskCallbacks = {
+    updateProgress: (id: string, pct: number) =>
+      patchJson(`/tasks/${id}`, { progress: pct }).catch(() => {}),
+    markDone: (id: string) =>
+      patchJson(`/tasks/${id}`, { status: 'done', progress: 100 }).catch(() => {}),
+    markFailed: (id: string, errorMsg: string) =>
+      patchJson(`/tasks/${id}`, { status: 'failed', errorMsg }).catch(() => {}),
+    quarantineAccount: async (accountId: string, untilEpochMs: number, reason: string) => {
+      try {
+        await patchJson(`/accounts/${accountId}`, {
+          quarantineUntil: new Date(untilEpochMs).toISOString(),
+          quarantineReason: reason,
+          status: 'error',
+        });
+      } catch {}
+    },
+    log: { info: (m: string) => logger.info(m), warn: (m: string) => logger.warn(m), error: (m: string) => logger.error(m) },
+  };
+
+  async function dispatchTasks(): Promise<void> {
+    const accountIds = [...slots.keys()];
+    if (!accountIds.length) return;
+    let dispatched: any[] = [];
+    try {
+      const res = await fetch(`${API_BASE}/tasks/dispatch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountIds, limit: 5 }),
+      });
+      if (!res.ok) {
+        if (res.status !== 404) logger.warn(`[task-dispatch] HTTP ${res.status}`);
+        return;
+      }
+      dispatched = (await res.json()) as any[];
+    } catch (err) {
+      logger.warn(`[task-dispatch] fetch error: ${err instanceof Error ? err.message : err}`);
+      return;
+    }
+    if (!dispatched.length) return;
+    logger.info(`[task-dispatch] received ${dispatched.length} task(s)`);
+
+    for (const t of dispatched) {
+      const slot = slots.get(t.accountId);
+      if (!slot) {
+        await taskCallbacks.markFailed(t.id, `Account ${t.accountId?.slice(0, 8)} not connected to this agent`);
+        continue;
+      }
+      // 串行执行（同一时刻一个 agent 不并行跑多个 task 给同一个号）
+      const { executeTask } = await import('./tasks/task-runner');
+      await executeTask(
+        { id: t.id, type: t.type, accountId: t.accountId, accountLabel: t.accountLabel, payload: t.payload },
+        slot.client,
+        taskCallbacks,
+      ).catch((err) => {
+        logger.error(`[task ${t.id?.slice(0, 8)}] uncaught: ${err instanceof Error ? err.message : err}`);
+      });
+    }
+  }
+
+  const taskTimer = setInterval(() => {
+    void dispatchTasks();
+  }, TASK_POLL_INTERVAL_MS);
+
   onShutdown(async () => {
     clearInterval(pollTimer);
+    clearInterval(taskTimer);
     for (const id of [...slots.keys()]) {
       await disconnect(id);
     }
     logger.info('Agent shutdown complete');
   });
 
-  logger.info(`TeleHubX Agent ready — server=${SERVER_URL} poll=${POLL_INTERVAL_MS}ms`);
+  logger.info(`TeleHubX Agent ready — server=${SERVER_URL} poll=${POLL_INTERVAL_MS}ms task-poll=${TASK_POLL_INTERVAL_MS}ms`);
 }
 
 bootstrap().catch((err: unknown) => {

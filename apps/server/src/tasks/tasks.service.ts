@@ -90,4 +90,41 @@ export class TasksService {
       done:    all.filter((t) => t.status === TaskStatus.DONE).length,
     };
   }
+
+  /**
+   * Agent 调用：原子地领取一批可执行任务（pending + scheduledAt<=now + 限定 accountId）。
+   * 领取的任务立即 status=running 并设 startedAt，避免多 agent 重复执行。
+   *
+   * 客户端约束：
+   *   - 只领自己负责的账号的任务（accountIds 列表）
+   *   - 一次最多 limit 个（默认 5），避免单 agent 抢光
+   *   - 每个 task 用 typeORM 乐观锁防 race
+   */
+  async dispatchToAgent(accountIds: string[], limit = 5): Promise<Task[]> {
+    if (!accountIds.length) return [];
+    const now = new Date();
+    const candidates = await this.repo
+      .createQueryBuilder('t')
+      .where('t.status = :s', { s: TaskStatus.PENDING })
+      .andWhere('t."scheduledAt" <= :now', { now })
+      .andWhere('t."accountId" IN (:...ids)', { ids: accountIds })
+      .orderBy('t."scheduledAt"', 'ASC')
+      .limit(limit)
+      .getMany();
+
+    if (!candidates.length) return [];
+
+    // 原子转 running
+    const ids = candidates.map((c) => c.id);
+    const updateRes = await this.repo
+      .createQueryBuilder()
+      .update(Task)
+      .set({ status: TaskStatus.RUNNING, startedAt: now })
+      .where('id IN (:...ids)', { ids })
+      .andWhere('status = :s', { s: TaskStatus.PENDING })
+      .returning('*')
+      .execute();
+
+    return (updateRes.raw as Task[]) ?? [];
+  }
 }

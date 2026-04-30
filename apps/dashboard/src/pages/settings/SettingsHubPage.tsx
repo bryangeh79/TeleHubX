@@ -75,10 +75,16 @@ const SETTING_ITEMS: SettingItem[] = [
   {
     key: 'assets',
     icon: <DatabaseOutlined style={{ fontSize: 28, color: '#a0d911' }} />,
-    title: '资源库',
-    desc: '广告素材 / 图片 / 视频 / 语音 / 文件',
-    badge: '即将上线',
-    disabled: true,
+    title: '素材库',
+    desc: '图片 / 视频 / 语音 / 文档 / 文本片段，MEDIA_* 任务从这里随机抽',
+    to: '/assets',
+  },
+  {
+    key: 'groups',
+    icon: <TeamOutlined style={{ fontSize: 28, color: '#fa541c' }} />,
+    title: '群组管理',
+    desc: '自建群 / 自有群 / 公开群登记，ChatScript 等任务的运行场地',
+    to: '/groups',
   },
   {
     key: 'system',

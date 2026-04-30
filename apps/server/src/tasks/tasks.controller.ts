@@ -38,6 +38,15 @@ export class TasksController {
     return this.service.stats(tenantId);
   }
 
+  /**
+   * Agent 调度：领一批可执行任务（POST 因为有副作用：marks running）。
+   * 请求 body: { accountIds: string[], limit?: number }
+   */
+  @Post('dispatch')
+  dispatch(@Body() body: { accountIds: string[]; limit?: number }) {
+    return this.service.dispatchToAgent(body.accountIds ?? [], body.limit);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.findOne(id);
