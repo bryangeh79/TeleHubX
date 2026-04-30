@@ -18,6 +18,21 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// 401 → 清 token + 跳登录页（避免 token 过期后 silent stuck）
+api.interceptors.response.use(
+  (resp) => resp,
+  (err) => {
+    if (err?.response?.status === 401) {
+      const path = window.location.pathname;
+      if (!path.startsWith('/login') && !path.startsWith('/activate')) {
+        try { localStorage.removeItem('telehubx:token'); } catch {}
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(err);
+  },
+);
+
 export const accountsApi = {
   list: (params?: any) => api.get('/accounts', { params }),
   get: (id: string) => api.get(`/accounts/${id}`),
@@ -281,6 +296,17 @@ async function fetchOverview(): Promise<DashboardOverview> {
     return FALLBACK_OVERVIEW;
   }
 }
+
+export const leadCandidatesApi = {
+  list: (params?: { tenantId: string; status?: string }) =>
+    api.get('/lead-candidates', { params }),
+  pending: (tenantId: string, limit = 50) =>
+    api.get('/lead-candidates/pending', { params: { tenantId, limit } }),
+  stats: (tenantId: string) =>
+    api.get('/lead-candidates/stats', { params: { tenantId } }),
+  get: (id: string) => api.get(`/lead-candidates/${id}`),
+  remove: (id: string) => api.delete(`/lead-candidates/${id}`),
+};
 
 export const statsApi = {
   get: () => api.get('/accounts/health-stats').catch(() => ({

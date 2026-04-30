@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Post,
 } from '@nestjs/common';
+import { Public } from '../auth/public.decorator';
 import { TenantPlan } from '../tenants/tenant.entity';
 import { LicensesService } from './licenses.service';
 
@@ -26,6 +27,7 @@ export class LicensesController {
     return this.service.list();
   }
 
+  @Public()
   @Post('activate')
   @HttpCode(HttpStatus.OK)
   activate(

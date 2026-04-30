@@ -39,6 +39,7 @@ const MENU_ITEMS_BASE = [
   { key: '/campaigns',  icon: <SendOutlined />,             label: '广告投放' },
   { key: '/cs',         icon: <CustomerServiceOutlined />,  label: '智能客服' },
   { key: '/leads',      icon: <InboxOutlined />,            label: '人工接管' },
+  { key: '/lead-candidates', icon: <TeamOutlined />,        label: '候选人池' },
   { key: '/settings',   icon: <SettingOutlined />,          label: '设置' },
 ];
 

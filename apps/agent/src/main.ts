@@ -70,6 +70,13 @@ const API_BASE = `${SERVER_URL}/api/v1`;
 const POLL_INTERVAL_MS = parseInt(process.env.AGENT_POLL_INTERVAL_MS ?? '30000', 10);
 const HEARTBEAT_TIMEOUT_MS = 5_000;
 const FETCH_TIMEOUT_MS = 10_000;
+const AGENT_TOKEN = process.env.AGENT_TOKEN ?? '';
+if (!AGENT_TOKEN) {
+  logger.warn('AGENT_TOKEN missing in env — server will reject agent callbacks. Set AGENT_TOKEN to match server.');
+}
+const AGENT_AUTH_HEADER: Record<string, string> = AGENT_TOKEN
+  ? { 'X-Agent-Token': AGENT_TOKEN }
+  : {};
 
 registerSignalHandlers();
 
@@ -82,6 +89,7 @@ async function fetchJson<T>(path: string, init: RequestInit = {}): Promise<T> {
       signal: ctrl.signal,
       headers: {
         'Content-Type': 'application/json',
+        ...AGENT_AUTH_HEADER,
         ...(init.headers ?? {}),
       },
     });
@@ -100,7 +108,7 @@ async function patchJson<T = any>(path: string, body: any): Promise<T | null> {
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...AGENT_AUTH_HEADER },
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
@@ -115,7 +123,7 @@ async function postNoBody(path: string): Promise<void> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), HEARTBEAT_TIMEOUT_MS);
   try {
-    await fetch(`${API_BASE}${path}`, { method: 'POST', signal: ctrl.signal });
+    await fetch(`${API_BASE}${path}`, { method: 'POST', headers: AGENT_AUTH_HEADER, signal: ctrl.signal });
   } finally {
     clearTimeout(timer);
   }
@@ -319,7 +327,7 @@ async function bootstrap(): Promise<void> {
     try {
       const res = await fetch(`${API_BASE}/tasks/dispatch`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...AGENT_AUTH_HEADER },
         body: JSON.stringify({ accountIds, limit: 5 }),
       });
       if (!res.ok) {

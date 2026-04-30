@@ -10,6 +10,7 @@ import WarmupPage from './pages/warmup/WarmupPage';
 import CampaignsPage from './pages/campaigns/CampaignsPage';
 import CampaignForm from './pages/campaigns/CampaignForm';
 import LeadsInbox from './pages/leads/LeadsInbox';
+import LeadCandidatesPage from './pages/leads/LeadCandidatesPage';
 import AiSettingsPage from './pages/ai/AiSettingsPage';
 import ProxiesPage from './pages/proxies/ProxiesPage';
 import KnowledgePage from './pages/knowledge/KnowledgePage';
@@ -40,6 +41,7 @@ const App: React.FC = () => (
       <Route path="campaigns/:id/edit" element={<CampaignForm />} />
       <Route path="proxies" element={<ProxiesPage />} />
       <Route path="leads" element={<LeadsInbox />} />
+      <Route path="lead-candidates" element={<LeadCandidatesPage />} />
       <Route path="knowledge" element={<KnowledgePage />} />
       <Route path="cs" element={<CsPage />} />
       <Route path="ai" element={<AiSettingsPage />} />

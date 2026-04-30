@@ -23,7 +23,10 @@ export async function bulkUpsertCandidates(
   try {
     const res = await fetch(`${API_BASE}/lead-candidates/bulk-upsert`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.AGENT_TOKEN ? { 'X-Agent-Token': process.env.AGENT_TOKEN } : {}),
+      },
       body: JSON.stringify({ tenantId, items }),
     });
     if (!res.ok) return null;
@@ -41,7 +44,10 @@ export async function markCandidateContacted(
   try {
     await fetch(`${API_BASE}/lead-candidates/${candidateId}/mark-contacted`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.AGENT_TOKEN ? { 'X-Agent-Token': process.env.AGENT_TOKEN } : {}),
+      },
       body: JSON.stringify({ contactedByAccountId, contactTaskId }),
     });
   } catch {
