@@ -115,12 +115,34 @@
 - [x] ChatScripts stub 模块（entity / dto / controller / service）
 
 ### 进行中 / 下一步（新 session 从这里接手）
-- [ ] **C1：Bot API 客服入口** — 多租户 Bot (@BotFather token per tenant)，cs 账号收消息走 AI/FAQ/Takeover
+
+#### 已完成（2026-04-30 当天）
+- [x] **C1：Bot API 客服入口** — `tenant_bots` 表 + BotGateway 长轮询（25s）+ AutoReplyDecider 分支
+- [x] **双层 AI Key 体系** — 租户自有 key（客户聊天）vs 平台兜底（FAQ 生成等内部任务）
+- [x] **三档回复模式** — off/faq/smart 真切换 + 确认弹窗 + AI key 验证
+- [x] **知识库重做（P2）** — KbSource + KbProtected + AI 生成 FAQ + 文件上传（txt/md/PDF/docx）
+- [x] **WAhubX 风格 UI 重构** — 顶部水平菜单 + 整体中文化 + Settings/Scheduler/Admin 页面骨架
+
+#### 待做（Wave 1 优先）
+- [ ] **任务调度后端** — 建 `tasks` entity + scheduler service，对齐前端 SchedulerPage 字段（in progress）
 - [ ] **C2：Takeover WebSocket 桥** — 实时人工 → Agent → TG 消息派发
 - [ ] **Lead 实际 TG 派发** — 目前只写 DB，需接通 GramJS sendMessage
+
+#### 待做（用户已决策但延后实施 — 2026-04-30 记）
+- [ ] **License 激活流程** — 客户首次登录在 `/activate` 页输入 license key 激活系统；后端 POST `/licenses/activate` 已建好骨架，前端需要打通
+- [ ] **VPS license 心跳** — VPS 后台定时（建议 30 分钟）调用 license 中心校验有效期；过期自动暂停服务并弹窗提示
+- [ ] **SaaS Admin 后端实装** — `/admin` 页面前端骨架已建（4 tab：租户管理/License 签发/全局 AI/系统监控），后端需要补：
+  - 租户 CRUD + 暂停/恢复 + 配额调整
+  - License 签发 API（生成 + 签名 + 关联 tenant）
+  - 全局默认 AI Key 管理（从 `.env` 迁移到可视化配置 + 使用量统计）
+  - 全局任务队列状态聚合
+  - **同一登录页**：根据用户 role（SUPER_ADMIN）自动放行 `/admin` 路由
+
+#### 工程化 / 生产前必做
 - [ ] **TypeORM migrations** — 取代 `synchronize: true`（生产前必做）
 - [ ] **JWT 路由守卫落地** — Wave 3 auth 建好了但守卫未 enforce
 - [ ] **多租户行级隔离** — schema-per-tenant 未实现，目前单 schema
+- [ ] **agent 端 AI 调用走 effectiveAiConfig** — 当前 BotGateway 已切，但 cs MTProto 账号走 agent 那条路还没切
 
 ### Phase 顺序（v2.0 已确认）
 ```

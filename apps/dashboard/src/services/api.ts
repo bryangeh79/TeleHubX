@@ -159,6 +159,19 @@ export const aiApi = {
   clearConversation: (chatId: string) => api.delete(`/ai/conversation/${chatId}`),
 };
 
+export const tasksApi = {
+  list: (params?: { status?: string; type?: string; tenantId?: string }) =>
+    api.get('/tasks', { params }),
+  get: (id: string) => api.get(`/tasks/${id}`),
+  create: (data: any) => api.post('/tasks', data),
+  update: (id: string, data: any) => api.patch(`/tasks/${id}`, data),
+  pause: (id: string) => api.post(`/tasks/${id}/pause`),
+  resume: (id: string) => api.post(`/tasks/${id}/resume`),
+  retry: (id: string) => api.post(`/tasks/${id}/retry`),
+  delete: (id: string) => api.delete(`/tasks/${id}`),
+  stats: (tenantId?: string) => api.get('/tasks/stats', { params: tenantId ? { tenantId } : {} }),
+};
+
 export const proxiesApi = {
   list: (params?: { status?: string }) => api.get('/proxies', { params }),
   get: (id: string) => api.get(`/proxies/${id}`),

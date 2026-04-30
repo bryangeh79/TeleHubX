@@ -17,6 +17,7 @@ import { AuthModule } from './auth/auth.module';
 import { RedisModule } from './redis/redis.module';
 import { LoggerModule } from './logger/logger.module';
 import { BotGatewayModule } from './bot-gateway/bot-gateway.module';
+import { TasksModule } from './tasks/tasks.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { BotGatewayModule } from './bot-gateway/bot-gateway.module';
     LicensesModule,
     AuthModule,
     BotGatewayModule,
+    TasksModule,
   ],
   controllers: [HealthController],
 })

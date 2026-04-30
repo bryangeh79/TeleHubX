@@ -1,11 +1,15 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   Button,
   Card,
   Col,
+  DatePicker,
   Empty,
+  Form,
+  Input,
   Modal,
+  Popconfirm,
   Row,
   Select,
   Space,
@@ -13,9 +17,11 @@ import {
   Table,
   Tag,
   Typography,
+  message as antdMessage,
 } from 'antd';
 import {
   ClockCircleOutlined,
+  DeleteOutlined,
   HistoryOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
@@ -24,42 +30,55 @@ import {
   ScheduleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import dayjs from 'dayjs';
+import { tasksApi } from '../../services/api';
 
 const { Title, Text } = Typography;
 
 type TaskStatus = 'pending' | 'running' | 'done' | 'failed' | 'paused';
+type TaskType =
+  | 'campaign_broadcast' | 'campaign_single'
+  | 'warmup_browse'      | 'warmup_post'
+  | 'chat_script'
+  | 'join_groups'        | 'join_channels'
+  | 'reaction_boost'
+  | 'idle_keepalive';
 
-interface MockTask {
+interface Task {
   id: string;
+  tenantId: string | null;
   name: string;
-  type: string;
+  type: TaskType;
   status: TaskStatus;
-  account: string;
+  accountId: string | null;
+  accountLabel: string | null;
+  payload: Record<string, unknown> | null;
   scheduledAt: string;
+  startedAt: string | null;
   finishedAt: string | null;
   progress: number;
+  errorMsg: string | null;
+  createdAt: string;
 }
 
-const MOCK_TASKS: MockTask[] = [
-  { id: '1', name: '产品 A 群发 (P3 阶段)',  type: 'campaign_broadcast', status: 'running',  account: '@cs_account_1', scheduledAt: '2026-04-30 10:00', finishedAt: null,                  progress: 42 },
-  { id: '2', name: 'P2 养号 - 浏览频道',      type: 'warmup_browse',     status: 'running',  account: '@ad_account_3', scheduledAt: '2026-04-30 10:30', finishedAt: null,                  progress: 78 },
-  { id: '3', name: 'ChatScript 群剧本 #12',   type: 'chat_script',       status: 'pending',  account: '@ad_account_2', scheduledAt: '2026-04-30 11:00', finishedAt: null,                  progress: 0 },
-  { id: '4', name: '加入目标群组（10 个）',    type: 'join_groups',       status: 'pending',  account: '@cs_account_2', scheduledAt: '2026-04-30 11:30', finishedAt: null,                  progress: 0 },
-  { id: '5', name: '产品 B 单发 (5 客户)',    type: 'campaign_single',   status: 'done',     account: '@cs_account_1', scheduledAt: '2026-04-30 09:00', finishedAt: '2026-04-30 09:14',     progress: 100 },
-  { id: '6', name: 'idle keepalive',         type: 'idle_keepalive',    status: 'done',     account: '@cs_account_1', scheduledAt: '2026-04-30 08:00', finishedAt: '2026-04-30 08:01',     progress: 100 },
-  { id: '7', name: '加 Reactions 到广告',     type: 'reaction_boost',    status: 'failed',   account: '@ad_account_1', scheduledAt: '2026-04-30 07:30', finishedAt: '2026-04-30 07:31',     progress: 33 },
-];
+interface Stats {
+  total: number;
+  pending: number;
+  running: number;
+  failed: number;
+  done: number;
+}
 
-const TASK_TYPE_LABELS: Record<string, { label: string; color: string }> = {
-  campaign_broadcast: { label: '广告群发',       color: 'blue' },
-  campaign_single:    { label: '单条消息',       color: 'cyan' },
-  warmup_browse:      { label: '养号·浏览',       color: 'orange' },
-  warmup_post:        { label: '养号·发帖',       color: 'orange' },
-  chat_script:        { label: '群剧本',         color: 'purple' },
-  join_groups:        { label: '加群',           color: 'green' },
-  join_channels:      { label: '加频道',         color: 'green' },
-  reaction_boost:     { label: '加 Reaction',    color: 'magenta' },
-  idle_keepalive:     { label: 'keepalive',     color: 'default' },
+const TASK_TYPE_LABELS: Record<TaskType, { label: string; color: string }> = {
+  campaign_broadcast: { label: '广告群发',     color: 'blue' },
+  campaign_single:    { label: '单条消息',     color: 'cyan' },
+  warmup_browse:      { label: '养号·浏览',     color: 'orange' },
+  warmup_post:        { label: '养号·发帖',     color: 'orange' },
+  chat_script:        { label: '群剧本',       color: 'purple' },
+  join_groups:        { label: '加群',         color: 'green' },
+  join_channels:      { label: '加频道',       color: 'green' },
+  reaction_boost:     { label: '加 Reaction',  color: 'magenta' },
+  idle_keepalive:     { label: 'keepalive',   color: 'default' },
 };
 
 const STATUS_META: Record<TaskStatus, { label: string; color: string }> = {
@@ -71,24 +90,92 @@ const STATUS_META: Record<TaskStatus, { label: string; color: string }> = {
 };
 
 export default function SchedulerPage() {
-  const [filterStatus, setFilterStatus] = useState<TaskStatus | 'all'>('all');
-  const [filterType, setFilterType] = useState<string>('all');
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [stats, setStats] = useState<Stats>({ total: 0, pending: 0, running: 0, failed: 0, done: 0 });
+  const [loading, setLoading] = useState(false);
+  const [filterStatus, setFilterStatus] = useState<TaskStatus | undefined>();
+  const [filterType, setFilterType] = useState<TaskType | undefined>();
+
   const [createOpen, setCreateOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [form] = Form.useForm();
 
-  const tasks = MOCK_TASKS.filter((t) => {
-    if (filterStatus !== 'all' && t.status !== filterStatus) return false;
-    if (filterType !== 'all' && t.type !== filterType) return false;
-    return true;
-  });
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [tasksRes, statsRes] = await Promise.all([
+        tasksApi.list({ status: filterStatus, type: filterType }),
+        tasksApi.stats(),
+      ]);
+      setTasks(Array.isArray(tasksRes.data) ? tasksRes.data : []);
+      setStats(statsRes.data ?? { total: 0, pending: 0, running: 0, failed: 0, done: 0 });
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '加载任务失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [filterStatus, filterType]);
 
-  const stats = {
-    total:   MOCK_TASKS.length,
-    running: MOCK_TASKS.filter((t) => t.status === 'running').length,
-    pending: MOCK_TASKS.filter((t) => t.status === 'pending').length,
-    failed:  MOCK_TASKS.filter((t) => t.status === 'failed').length,
+  useEffect(() => { void reload(); }, [reload]);
+
+  const handleCreate = async (values: any) => {
+    setSubmitting(true);
+    try {
+      await tasksApi.create({
+        name: values.name,
+        type: values.type,
+        accountLabel: values.accountLabel,
+        scheduledAt: values.scheduledAt.toISOString(),
+      });
+      antdMessage.success('任务已创建');
+      setCreateOpen(false);
+      form.resetFields();
+      void reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '创建失败');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const columns: ColumnsType<MockTask> = [
+  const handlePause = async (id: string) => {
+    try {
+      await tasksApi.pause(id);
+      void reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '暂停失败');
+    }
+  };
+
+  const handleResume = async (id: string) => {
+    try {
+      await tasksApi.resume(id);
+      void reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '恢复失败');
+    }
+  };
+
+  const handleRetry = async (id: string) => {
+    try {
+      await tasksApi.retry(id);
+      antdMessage.success('已重新排入队列');
+      void reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '重试失败');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await tasksApi.delete(id);
+      void reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '删除失败');
+    }
+  };
+
+  const columns: ColumnsType<Task> = [
     {
       title: '任务名称', dataIndex: 'name', key: 'name',
       render: (name: string, row) => (
@@ -101,7 +188,10 @@ export default function SchedulerPage() {
         </div>
       ),
     },
-    { title: '账号', dataIndex: 'account', key: 'account', width: 140 },
+    {
+      title: '账号', dataIndex: 'accountLabel', key: 'accountLabel', width: 160,
+      render: (label: string | null) => label || <Text type="secondary">—</Text>,
+    },
     {
       title: '状态', dataIndex: 'status', key: 'status', width: 100,
       render: (s: TaskStatus) => {
@@ -110,20 +200,25 @@ export default function SchedulerPage() {
       },
     },
     {
-      title: '进度', dataIndex: 'progress', key: 'progress', width: 100,
+      title: '进度', dataIndex: 'progress', key: 'progress', width: 80,
       render: (p: number, row) => (
         <Text type={row.status === 'failed' ? 'danger' : 'secondary'}>{p}%</Text>
       ),
     },
-    { title: '计划时间', dataIndex: 'scheduledAt', key: 'scheduledAt', width: 160 },
     {
-      title: '操作', key: 'ops', width: 130,
+      title: '计划时间', dataIndex: 'scheduledAt', key: 'scheduledAt', width: 160,
+      render: (ts: string) => dayjs(ts).format('YYYY-MM-DD HH:mm'),
+    },
+    {
+      title: '操作', key: 'ops', width: 200,
       render: (_, row) => (
         <Space>
-          {row.status === 'running' && <Button size="small" icon={<PauseCircleOutlined />}>暂停</Button>}
-          {row.status === 'paused' && <Button size="small" type="primary" icon={<PlayCircleOutlined />}>恢复</Button>}
-          {row.status === 'failed' && <Button size="small" icon={<ReloadOutlined />}>重试</Button>}
-          <Button size="small" type="text">详情</Button>
+          {row.status === 'running' && <Button size="small" icon={<PauseCircleOutlined />} onClick={() => handlePause(row.id)}>暂停</Button>}
+          {row.status === 'paused' && <Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={() => handleResume(row.id)}>恢复</Button>}
+          {row.status === 'failed' && <Button size="small" icon={<ReloadOutlined />} onClick={() => handleRetry(row.id)}>重试</Button>}
+          <Popconfirm title="确认删除？" onConfirm={() => handleDelete(row.id)}>
+            <Button size="small" danger icon={<DeleteOutlined />} />
+          </Popconfirm>
         </Space>
       ),
     },
@@ -149,8 +244,8 @@ export default function SchedulerPage() {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="前端骨架版（mock 数据）"
-        description="后端 task 表 + scheduler service 待立项。本页用于和你确认 UI/字段后再开工后端。"
+        message="任务执行器（worker）尚未启动"
+        description="数据库已通；新建任务会持久化但不会被自动执行。worker 进程待立项（建议复用 BullMQ + Redis）。"
       />
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
@@ -165,22 +260,20 @@ export default function SchedulerPage() {
           <Select
             value={filterStatus}
             onChange={(v) => setFilterStatus(v)}
+            allowClear
+            placeholder="全部状态"
             style={{ width: 140 }}
-            options={[
-              { value: 'all', label: '全部状态' },
-              ...Object.entries(STATUS_META).map(([k, m]) => ({ value: k, label: m.label })),
-            ]}
+            options={Object.entries(STATUS_META).map(([k, m]) => ({ value: k, label: m.label }))}
           />
           <Select
             value={filterType}
             onChange={(v) => setFilterType(v)}
+            allowClear
+            placeholder="全部类型"
             style={{ width: 160 }}
-            options={[
-              { value: 'all', label: '全部类型' },
-              ...Object.entries(TASK_TYPE_LABELS).map(([k, m]) => ({ value: k, label: m.label })),
-            ]}
+            options={Object.entries(TASK_TYPE_LABELS).map(([k, m]) => ({ value: k, label: m.label }))}
           />
-          <Button icon={<ReloadOutlined />}>刷新</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => void reload()}>刷新</Button>
         </Space>
 
         <Table
@@ -188,8 +281,9 @@ export default function SchedulerPage() {
           columns={columns}
           rowKey="id"
           size="small"
+          loading={loading}
           pagination={{ pageSize: 20, showSizeChanger: false }}
-          locale={{ emptyText: <Empty description="无符合条件的任务" /> }}
+          locale={{ emptyText: <Empty description="尚无任务" /> }}
         />
       </Card>
 
@@ -197,10 +291,34 @@ export default function SchedulerPage() {
         title="新建任务"
         open={createOpen}
         onCancel={() => setCreateOpen(false)}
-        footer={null}
-        width={640}
+        onOk={() => form.submit()}
+        confirmLoading={submitting}
+        destroyOnClose
+        width={560}
       >
-        <Empty description="任务表单待开发（先确认 UI，再实现后端 task scheduler）" style={{ padding: 40 }} />
+        <Form form={form} layout="vertical" onFinish={handleCreate} initialValues={{ scheduledAt: dayjs().add(5, 'minute') }}>
+          <Form.Item name="name" label="任务名称" rules={[{ required: true }]}>
+            <Input placeholder="如：产品 A 群发 (P3 阶段)" />
+          </Form.Item>
+          <Form.Item name="type" label="任务类型" rules={[{ required: true }]}>
+            <Select
+              placeholder="选择类型"
+              options={Object.entries(TASK_TYPE_LABELS).map(([k, m]) => ({ value: k, label: m.label }))}
+            />
+          </Form.Item>
+          <Form.Item name="accountLabel" label="账号标签（可选）">
+            <Input placeholder="如：@cs_account_1" />
+          </Form.Item>
+          <Form.Item name="scheduledAt" label="计划时间" rules={[{ required: true }]}>
+            <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: '100%' }} />
+          </Form.Item>
+          <Alert
+            type="warning"
+            showIcon
+            message="任务 worker 尚未启动 — 任务会保存但不会自动执行"
+            style={{ marginTop: 8 }}
+          />
+        </Form>
       </Modal>
     </div>
   );
