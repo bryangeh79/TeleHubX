@@ -184,7 +184,7 @@ export const executionGroupsApi = {
   reconcile: (count: number, tenantId?: string) =>
     api.post('/execution-groups/reconcile', { count }, { params: tenantId ? { tenantId } : {} }),
   autoSchedule: (tenantId?: string) =>
-    api.post('/execution-groups/auto-schedule', null, { params: tenantId ? { tenantId } : {} }),
+    api.post('/execution-groups/auto-schedule', {}, { params: tenantId ? { tenantId } : {} }),
 };
 
 export const proxiesApi = {

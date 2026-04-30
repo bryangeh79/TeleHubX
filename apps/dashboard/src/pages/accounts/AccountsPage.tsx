@@ -132,7 +132,7 @@ export default function AccountsPage() {
   const [roleFilter, setRoleFilter] = useState<Role | undefined>();
   const [statusFilter, setStatusFilter] = useState<AccountStatus | undefined>();
   const [slots, setSlots] = useState<ApiSlot[]>([]);
-  const [proxyMap, setProxyMap] = useState<Map<string, ApiProxy>>(new Map());
+  const [proxyMap, setProxyMap] = useState<Map<string, ApiProxy & { seq: number }>>(new Map());
   const [groupMap, setGroupMap] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(false);
   const [groupsDrawerOpen, setGroupsDrawerOpen] = useState(false);
@@ -148,7 +148,9 @@ export default function AccountsPage() {
       ]);
       setSlots(Array.isArray(slotsRes.data) ? slotsRes.data : []);
       const proxyList: ApiProxy[] = Array.isArray(proxiesRes.data) ? proxiesRes.data : [];
-      setProxyMap(new Map(proxyList.map((p) => [p.id, p])));
+      // Sort by id for deterministic numbering, then assign sequence #1..N
+      const sortedProxies = [...proxyList].sort((a, b) => a.id.localeCompare(b.id));
+      setProxyMap(new Map(sortedProxies.map((p, idx) => [p.id, { ...p, seq: idx + 1 }])));
 
       const groupList: Array<{ id: string; slotNum: number }> = Array.isArray(groupsRes.data) ? groupsRes.data : [];
       setGroupMap(new Map(groupList.map((g) => [g.id, g.slotNum])));
@@ -293,30 +295,35 @@ export default function AccountsPage() {
       },
     },
     {
-      title: 'VPN / IP',
+      title: 'VPN',
       key: 'proxy',
-      width: 200,
+      width: 95,
       render: (_, slot) => {
         if (!slot.account) return <Typography.Text type="secondary">—</Typography.Text>;
         const a = slot.account;
         const proxy = a.proxyId ? proxyMap.get(a.proxyId) : null;
-        const ip = a.boundIp;
-        if (!proxy && !ip) {
-          return <Tag color="orange">未绑定</Tag>;
+        if (proxy) {
+          return (
+            <Tooltip
+              title={
+                <div>
+                  <div><b>{proxy.name}</b></div>
+                  <div style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                    {proxy.type.toUpperCase()} · {proxy.host}:{proxy.port}
+                  </div>
+                  {proxy.country && <div>{proxy.country}</div>}
+                  {a.boundIp && <div style={{ fontFamily: 'monospace', fontSize: 11 }}>IP: {a.boundIp}</div>}
+                </div>
+              }
+            >
+              <Tag color="cyan" style={{ marginRight: 0, cursor: 'help' }}>VPN #{proxy.seq}</Tag>
+            </Tooltip>
+          );
         }
         return (
-          <Space direction="vertical" size={0}>
-            {proxy ? (
-              <Tooltip title={`${proxy.type.toUpperCase()} · ${proxy.host}:${proxy.port}${proxy.country ? ' · ' + proxy.country : ''}`}>
-                <Tag color="cyan" style={{ marginRight: 0 }}>{proxy.name}</Tag>
-              </Tooltip>
-            ) : null}
-            {ip ? (
-              <Typography.Text type="secondary" style={{ fontSize: 11, fontFamily: 'monospace' }}>
-                {ip}
-              </Typography.Text>
-            ) : null}
-          </Space>
+          <Tooltip title="使用宿主机系统默认 VPN（建议每号绑定专属代理避免共享 IP）">
+            <Tag style={{ marginRight: 0, cursor: 'help' }}>默认系统</Tag>
+          </Tooltip>
         );
       },
     },
