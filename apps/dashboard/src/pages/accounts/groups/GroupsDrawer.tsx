@@ -6,6 +6,7 @@ import {
   Card,
   Col,
   Drawer,
+  Dropdown,
   Empty,
   Modal,
   Row,
@@ -18,8 +19,8 @@ import {
 import {
   DeleteOutlined,
   PlusOutlined,
+  SwapOutlined,
   TeamOutlined,
-  UserAddOutlined,
 } from '@ant-design/icons';
 import { executionGroupsApi } from '../../../services/api';
 
@@ -135,36 +136,24 @@ export default function GroupsDrawer({ open, onClose, onChange }: GroupsDrawerPr
             />
 
             <Row gutter={[12, 12]}>
-              {groups.map((g) => (
-                <Col key={g.id} xs={24} sm={12} lg={8}>
-                  <Card
-                    size="small"
-                    title={
-                      <Space>
-                        <Tag color="blue" style={{ marginRight: 0 }}>组 {g.slotNum}</Tag>
-                        <Text strong>{g.name ?? `Group ${g.slotNum}`}</Text>
-                      </Space>
-                    }
-                    extra={
-                      <Tooltip title={g.members.length >= MAX_MEMBERS ? '组已满' : '添加成员'}>
-                        <Button
-                          size="small"
-                          type="primary"
-                          icon={<UserAddOutlined />}
-                          disabled={g.members.length >= MAX_MEMBERS}
-                          onClick={() => setPickerGroup(g)}
-                        >
+              {groups.map((g) => {
+                const isFull = g.members.length >= MAX_MEMBERS;
+                return (
+                  <Col key={g.id} xs={24} sm={12} lg={8}>
+                    <Card
+                      size="small"
+                      title={
+                        <Space>
+                          <Tag color="blue" style={{ marginRight: 0 }}>组 {g.slotNum}</Tag>
+                          <Text strong>{g.name ?? `Group ${g.slotNum}`}</Text>
+                        </Space>
+                      }
+                      extra={
+                        <Tag color={isFull ? 'orange' : g.members.length === 0 ? 'default' : 'green'}>
                           {g.members.length}/{MAX_MEMBERS}
-                        </Button>
-                      </Tooltip>
-                    }
-                  >
-                    {g.members.length === 0 ? (
-                      <Empty
-                        image={Empty.PRESENTED_IMAGE_SIMPLE}
-                        description={<Text type="secondary" style={{ fontSize: 12 }}>暂无成员</Text>}
-                      />
-                    ) : (
+                        </Tag>
+                      }
+                    >
                       <Space direction="vertical" size={4} style={{ width: '100%' }}>
                         {g.members.map((m) => (
                           <Row key={m.id} align="middle" justify="space-between" wrap={false}>
@@ -192,11 +181,40 @@ export default function GroupsDrawer({ open, onClose, onChange }: GroupsDrawerPr
                             </Col>
                           </Row>
                         ))}
+
+                        {/* 大的虚线 + 区域，点击打开选号 Modal */}
+                        {!isFull && (
+                          <div
+                            onClick={() => setPickerGroup(g)}
+                            style={{
+                              border: '1px dashed #91caff',
+                              borderRadius: 6,
+                              padding: '12px 8px',
+                              textAlign: 'center',
+                              cursor: 'pointer',
+                              background: '#f0f7ff',
+                              color: '#1677ff',
+                              fontSize: 13,
+                              transition: 'all .15s',
+                              marginTop: g.members.length > 0 ? 4 : 0,
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = '#e6f4ff'; e.currentTarget.style.borderColor = '#1677ff'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = '#f0f7ff'; e.currentTarget.style.borderColor = '#91caff'; }}
+                          >
+                            <PlusOutlined style={{ marginRight: 6 }} />
+                            添加成员
+                          </div>
+                        )}
+                        {isFull && (
+                          <div style={{ textAlign: 'center', padding: '8px 0', color: '#bfbfbf', fontSize: 12 }}>
+                            组已满 · 移出成员后才能加新号
+                          </div>
+                        )}
                       </Space>
-                    )}
-                  </Card>
-                </Col>
-              ))}
+                    </Card>
+                  </Col>
+                );
+              })}
             </Row>
 
             {ungrouped.length > 0 && (
@@ -206,21 +224,49 @@ export default function GroupsDrawer({ open, onClose, onChange }: GroupsDrawerPr
                 style={{ marginTop: 16, background: '#fafafa' }}
               >
                 <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                  {ungrouped.map((m) => (
-                    <Row key={m.id} align="middle" justify="space-between" wrap={false}>
-                      <Col flex={1}>
-                        <Space size={6}>
-                          <Avatar size={20} style={{ backgroundColor: '#bfbfbf' }}>
-                            {m.phoneNumber.slice(-2)}
-                          </Avatar>
-                          <Text style={{ fontFamily: SF_PRO_FONT, fontSize: 13 }}>{m.phoneNumber}</Text>
-                          <Tag color={ROLE_COLOR[m.role]} style={{ fontSize: 10 }}>
-                            {m.role.toUpperCase()}
-                          </Tag>
-                        </Space>
-                      </Col>
-                    </Row>
-                  ))}
+                  {ungrouped.map((m) => {
+                    const availableGroups = groups.filter((g) => g.members.length < MAX_MEMBERS);
+                    return (
+                      <Row key={m.id} align="middle" justify="space-between" wrap={false}>
+                        <Col flex={1}>
+                          <Space size={6}>
+                            <Avatar size={20} style={{ backgroundColor: '#bfbfbf' }}>
+                              {m.phoneNumber.slice(-2)}
+                            </Avatar>
+                            <Text style={{ fontFamily: SF_PRO_FONT, fontSize: 13 }}>{m.phoneNumber}</Text>
+                            <Tag color={ROLE_COLOR[m.role]} style={{ fontSize: 10 }}>
+                              {m.role.toUpperCase()}
+                            </Tag>
+                          </Space>
+                        </Col>
+                        <Col>
+                          <Dropdown
+                            disabled={availableGroups.length === 0}
+                            menu={{
+                              items: availableGroups.map((g) => ({
+                                key: g.id,
+                                label: `加入 → 组 ${g.slotNum} (${g.members.length}/${MAX_MEMBERS})`,
+                              })),
+                              onClick: async ({ key }) => {
+                                try {
+                                  await executionGroupsApi.assignAccount(m.id, key);
+                                  antdMessage.success('已加入组');
+                                  void reload();
+                                  onChange?.();
+                                } catch (err: any) {
+                                  antdMessage.error(err?.response?.data?.message ?? '添加失败');
+                                }
+                              },
+                            }}
+                          >
+                            <Button size="small" type="primary" icon={<SwapOutlined />}>
+                              加入到组
+                            </Button>
+                          </Dropdown>
+                        </Col>
+                      </Row>
+                    );
+                  })}
                 </Space>
               </Card>
             )}
@@ -236,9 +282,21 @@ export default function GroupsDrawer({ open, onClose, onChange }: GroupsDrawerPr
         footer={null}
       >
         {ungrouped.length === 0 ? (
-          <Empty description="所有账号都已分组" />
+          <Empty
+            description={
+              <div>
+                <Paragraph>所有账号都已分组</Paragraph>
+                <Paragraph type="secondary" style={{ fontSize: 12 }}>
+                  如果需要换组，请先在原组卡上点 × 移出，然后回到这里再加进新组。
+                </Paragraph>
+              </div>
+            }
+          />
         ) : (
           <Space direction="vertical" size={6} style={{ width: '100%' }}>
+            <Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
+              点击账号即加入到组 {pickerGroup?.slotNum}：
+            </Paragraph>
             {ungrouped.map((m) => (
               <Card
                 key={m.id}
