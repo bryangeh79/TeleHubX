@@ -25,7 +25,7 @@ async function bootstrap() {
   app.useGlobalFilters(new QueryFailedExceptionFilter());
   app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
 
-  const port = process.env.APP_PORT || 9600;
+  const port = process.env.APP_PORT || 9800;
   await app.listen(port);
   logger.log(`TeleHubX Server running on http://localhost:${port}/api/v1/health`, 'Bootstrap');
 

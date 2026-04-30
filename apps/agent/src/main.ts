@@ -50,7 +50,7 @@ interface ConnectedSlot {
   role: ApiAccount['role'];
 }
 
-const SERVER_URL = (process.env.SERVER_URL ?? 'http://localhost:9600').replace(/\/$/, '');
+const SERVER_URL = (process.env.SERVER_URL ?? 'http://localhost:9800').replace(/\/$/, '');
 const API_BASE = `${SERVER_URL}/api/v1`;
 const POLL_INTERVAL_MS = parseInt(process.env.AGENT_POLL_INTERVAL_MS ?? '30000', 10);
 const HEARTBEAT_TIMEOUT_MS = 5_000;

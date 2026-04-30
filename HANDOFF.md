@@ -26,14 +26,14 @@
 
 | 服务 | 端口 | 进程管理 | 状态 |
 |------|------|----------|------|
-| Backend (NestJS) | 9600 | pm2 (telehubx-server) | ✅ online |
+| Backend (NestJS) | 9800 | pm2 (telehubx-server) | ✅ online |
 | Dashboard (Vite) | 9601 | pm2 (telehubx-dashboard) | ✅ online |
 | PostgreSQL | 5436 | 本地服务 | ✅ connected |
 | Redis | 6386 | 本地服务 | ✅ connected |
 
 快速查看：`pm2 list`  
 实时日志：`pm2 logs telehubx-server`  
-健康检查：`http://localhost:9600/api/v1/health`
+健康检查：`http://localhost:9800/api/v1/health`
 
 ---
 
@@ -288,7 +288,7 @@ session string 已加密存进 `accounts.session_string`，**不会**通过响�
 
 ```
 NODE_ENV=development
-APP_PORT=9600
+APP_PORT=9800              # moved from 9600 (yielded to FAhubX)
 DB_HOST=localhost
 DB_PORT=5436              # moved from 5433 (FAhubX took it back)
 DB_USER=telehubx
@@ -361,7 +361,7 @@ AI_BASE_URL=                  # 全局覆盖 baseURL（不设则用 provider 标
 ### 优先级 2 — API 核心流
 ```powershell
 # 创建账号 → 开始暖号 → 创建活动 → 投放 → 创建线索 → 分配 → 添加备注
-Invoke-RestMethod http://localhost:9600/api/v1/health
+Invoke-RestMethod http://localhost:9800/api/v1/health
 ```
 
 ### 优先级 3 — 边界测试

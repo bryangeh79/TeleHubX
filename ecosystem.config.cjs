@@ -6,7 +6,7 @@ module.exports = {
       "script": "dist/main.js",
       "env": {
         "NODE_ENV": "production",
-        "APP_PORT": 9600,
+        "APP_PORT": 9800,
         "DB_HOST": "localhost",
         "DB_PORT": "5436",
         "DB_USER": "telehubx",
