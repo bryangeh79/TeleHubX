@@ -202,6 +202,76 @@ export default function CsPage() {
     setRegisterVisible(true);
   };
 
+  const handleDiagnose = async (bot: TenantBot) => {
+    if (!tenant) return;
+    try {
+      const res = await tenantsApi.webhookInfo(tenant.id, bot.id);
+      const info = res.data;
+      const hasWebhook = !!info.url;
+      Modal.confirm({
+        icon: hasWebhook ? <WarningOutlined style={{ color: '#fa8c16' }} /> : <CheckCircleFilled style={{ color: '#52c41a' }} />,
+        title: hasWebhook ? '检测到 webhook 占用！' : 'Bot 状态正常',
+        content: (
+          <div style={{ marginTop: 12 }}>
+            {hasWebhook ? (
+              <div>
+                <Paragraph>
+                  当前有第三方 webhook 在拦截消息，所以 TeleHubX 的 long-polling 拿不到客户消息。
+                </Paragraph>
+                <Paragraph>
+                  <Text strong>Webhook URL：</Text>
+                  <br />
+                  <Text code style={{ wordBreak: 'break-all', fontSize: 11 }}>{info.url}</Text>
+                </Paragraph>
+                <Paragraph type="secondary" style={{ fontSize: 12 }}>
+                  积压消息：{info.pendingUpdateCount} 条
+                  {info.lastErrorMessage && <><br />最后错误：{info.lastErrorMessage}</>}
+                </Paragraph>
+                <Alert
+                  type="info"
+                  showIcon
+                  message="点「清除 Webhook」后，所有消息会立即流向 TeleHubX，「人工接管」页就能实时收到对话。"
+                />
+              </div>
+            ) : (
+              <div>
+                <Paragraph>没有 webhook 占用，long-polling 应该正常工作。</Paragraph>
+                <Paragraph type="secondary" style={{ fontSize: 12 }}>
+                  如果客户发消息后「人工接管」页仍然没动静，请检查：
+                  <ul style={{ marginTop: 6 }}>
+                    <li>客户是否真的在和这个 Bot（@{bot.botUsername}）聊天</li>
+                    <li>Bot 是否处于 isActive=true 状态（看上方 tag）</li>
+                    <li>Server 日志：<Text code>pm2 logs telehubx-server</Text></li>
+                  </ul>
+                </Paragraph>
+              </div>
+            )}
+          </div>
+        ),
+        okText: hasWebhook ? '清除 Webhook' : '关闭',
+        cancelText: hasWebhook ? '取消' : undefined,
+        cancelButtonProps: { style: { display: hasWebhook ? undefined : 'none' } },
+        onOk: hasWebhook
+          ? async () => {
+              try {
+                const r = await tenantsApi.clearWebhook(tenant.id, bot.id);
+                if (r.data?.ok) {
+                  antdMessage.success('Webhook 已清除，TeleHubX 现在独占消息流');
+                  void load();
+                } else {
+                  antdMessage.error(`清除失败: ${r.data?.description ?? 'unknown'}`);
+                }
+              } catch (err: any) {
+                antdMessage.error(err?.response?.data?.message ?? '清除失败');
+              }
+            }
+          : undefined,
+      });
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '诊断失败');
+    }
+  };
+
   const performModeChange = async (mode: ReplyMode) => {
     if (!tenant) return;
     setSavingMode(true);
@@ -363,6 +433,11 @@ export default function CsPage() {
                 >
                   {activeBot.isActive ? '停止轮询' : '启动轮询'}
                 </Button>
+                <Tooltip title="检查 webhook 是否被其他系统占用，并可一键清除">
+                  <Button icon={<WarningOutlined />} onClick={() => handleDiagnose(activeBot)}>
+                    诊断
+                  </Button>
+                </Tooltip>
                 <Tooltip title="切换到不同的 Bot（删除当前记录，注册新 Bot 的 Token）">
                   <Button icon={<SwapOutlined />} onClick={() => openReplace(activeBot)}>
                     切换 Bot

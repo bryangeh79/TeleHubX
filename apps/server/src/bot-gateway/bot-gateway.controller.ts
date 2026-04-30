@@ -76,4 +76,31 @@ export class BotGatewayController {
     await this.tenants.setBotActive(botId, false);
     return { ok: true };
   }
+
+  /**
+   * 诊断：查询 bot 当前的 webhook 状态。
+   * 如果 url 非空 → 消息被发到那个 webhook，我们的 long-polling 拿不到。
+   * pendingUpdateCount > 0 → 有一批积压消息（webhook 解锁后会爆灌过来）。
+   */
+  @Get(':botId/webhook-info')
+  async webhookInfo(
+    @Param('id', ParseUUIDPipe) _tenantId: string,
+    @Param('botId', ParseUUIDPipe) botId: string,
+  ) {
+    const bot = await this.tenants.findBotWithToken(botId);
+    return this.botReply.getWebhookInfo(bot.rawToken);
+  }
+
+  /**
+   * 清除 webhook + 丢弃积压。我们的 long-polling 立即独占消息流。
+   * 一键修复"bot 不响应到 dashboard"问题。
+   */
+  @Post(':botId/clear-webhook')
+  async clearWebhook(
+    @Param('id', ParseUUIDPipe) _tenantId: string,
+    @Param('botId', ParseUUIDPipe) botId: string,
+  ) {
+    const bot = await this.tenants.findBotWithToken(botId);
+    return this.botReply.deleteWebhook(bot.rawToken);
+  }
 }

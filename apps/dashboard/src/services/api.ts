@@ -106,6 +106,10 @@ export const tenantsApi = {
     api.post(`/tenants/${tenantId}/bots/${botId}/start`),
   stopBot: (tenantId: string, botId: string) =>
     api.post(`/tenants/${tenantId}/bots/${botId}/stop`),
+  webhookInfo: (tenantId: string, botId: string) =>
+    api.get(`/tenants/${tenantId}/bots/${botId}/webhook-info`),
+  clearWebhook: (tenantId: string, botId: string) =>
+    api.post(`/tenants/${tenantId}/bots/${botId}/clear-webhook`),
   getSettings: (tenantId: string) => api.get(`/tenants/${tenantId}/settings`),
   updateSettings: (tenantId: string, data: any) =>
     api.patch(`/tenants/${tenantId}/settings`, data),
