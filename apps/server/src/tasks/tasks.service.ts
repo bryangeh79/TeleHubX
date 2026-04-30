@@ -73,6 +73,26 @@ export class TasksService {
     return this.repo.save(t);
   }
 
+  /**
+   * 复用：基于现有任务 clone 一个新任务并立即执行。
+   * 不影响原任务，原任务保留作为历史。
+   */
+  async cloneAndRunNow(id: string): Promise<Task> {
+    const orig = await this.findOne(id);
+    const clone = this.repo.create({
+      tenantId: orig.tenantId,
+      name: orig.name,
+      type: orig.type,
+      accountId: orig.accountId,
+      accountLabel: orig.accountLabel,
+      payload: orig.payload,
+      scheduledAt: new Date(),
+      status: TaskStatus.PENDING,
+      progress: 0,
+    });
+    return this.repo.save(clone);
+  }
+
   async remove(id: string): Promise<void> {
     const t = await this.findOne(id);
     await this.repo.remove(t);

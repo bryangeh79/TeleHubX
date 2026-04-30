@@ -72,6 +72,12 @@ export class TasksController {
     return this.service.retry(id);
   }
 
+  /** 复用任务：clone 一份立即排队执行，原任务不动。 */
+  @Post(':id/run-now')
+  runNow(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.cloneAndRunNow(id);
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id', ParseUUIDPipe) id: string) {

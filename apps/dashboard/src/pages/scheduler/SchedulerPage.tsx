@@ -39,7 +39,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { accountsApi, tasksApi } from '../../services/api';
+import { accountsApi, slotsApi, tasksApi } from '../../services/api';
 
 const { Title, Text } = Typography;
 
@@ -166,6 +166,8 @@ export default function SchedulerPage() {
 
   // 账号选项 (供新建任务时下拉选择)
   const [accountOptions, setAccountOptions] = useState<Array<{ value: string; label: React.ReactNode; phone: string }>>([]);
+  // accountId -> slotNo 映射 (任务表 "目标" 列用)
+  const [accountSlotMap, setAccountSlotMap] = useState<Map<string, number>>(new Map());
 
   // 「立即执行」开关
   const [runNow, setRunNow] = useState(true);
@@ -178,24 +180,33 @@ export default function SchedulerPage() {
 
   const loadAccounts = useCallback(async () => {
     try {
-      const res = await accountsApi.list();
-      const accounts: any[] = Array.isArray(res.data) ? res.data : [];
-      const opts = accounts.map((a) => ({
-        value: a.id,
-        phone: a.phoneNumber,
-        label: (
-          <Space size={6}>
-            <Text strong>{a.phoneNumber}</Text>
-            <Tag color={a.role === 'cs' ? 'blue' : a.role === 'ad' ? 'green' : 'orange'} style={{ fontSize: 10 }}>
-              {a.role.toUpperCase()}
-            </Tag>
-            <Tag color={a.status === 'online' ? 'green' : 'default'} style={{ fontSize: 10 }}>
-              {a.status === 'online' ? '在线' : a.status}
-            </Tag>
-          </Space>
-        ),
-      }));
+      const slotsRes = await slotsApi.list();
+      const slots: any[] = Array.isArray(slotsRes.data) ? slotsRes.data : [];
+      const slotMap = new Map<string, number>();
+      const opts: any[] = [];
+      for (const s of slots) {
+        if (s.status === 'occupied' && s.account) {
+          slotMap.set(s.account.id, s.no);
+          opts.push({
+            value: s.account.id,
+            phone: s.account.phoneNumber,
+            label: (
+              <Space size={6}>
+                <Text strong>#{String(s.no).padStart(2, '0')}</Text>
+                <Text>{s.account.phoneNumber}</Text>
+                <Tag color={s.account.role === 'cs' ? 'blue' : s.account.role === 'ad' ? 'green' : 'orange'} style={{ fontSize: 10 }}>
+                  {s.account.role.toUpperCase()}
+                </Tag>
+                <Tag color={s.account.status === 'online' ? 'green' : 'default'} style={{ fontSize: 10 }}>
+                  {s.account.status === 'online' ? '在线' : s.account.status}
+                </Tag>
+              </Space>
+            ),
+          });
+        }
+      }
       setAccountOptions(opts);
+      setAccountSlotMap(slotMap);
     } catch {
       // ignore
     }
@@ -296,6 +307,16 @@ export default function SchedulerPage() {
     }
   };
 
+  const handleRunNow = async (id: string) => {
+    try {
+      await tasksApi.runNow(id);
+      antdMessage.success('已克隆任务并立即排队执行');
+      void reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '执行失败');
+    }
+  };
+
   const handleDelete = async (id: string) => {
     try {
       await tasksApi.delete(id);
@@ -307,23 +328,37 @@ export default function SchedulerPage() {
 
   const columns: ColumnsType<Task> = [
     {
-      title: '任务名称', dataIndex: 'name', key: 'name',
-      render: (name: string, row) => (
-        <div>
-          <Text strong>{name}</Text>
-          <br />
-          <Tag color={TASK_TYPE_LABELS[row.type]?.color ?? 'default'} style={{ fontSize: 11, marginTop: 2 }}>
-            {TASK_TYPE_LABELS[row.type]?.icon ?? ''} {TASK_TYPE_LABELS[row.type]?.label ?? row.type}
-          </Tag>
-        </div>
+      title: '任务 ID', key: 'shortId', width: 90,
+      render: (_, row) => (
+        <Text code style={{ fontSize: 12 }}>#{row.id.slice(0, 6)}</Text>
       ),
     },
     {
-      title: '账号', dataIndex: 'accountLabel', key: 'accountLabel', width: 160,
-      render: (label: string | null) => label || <Text type="secondary">—</Text>,
+      title: '任务类型', key: 'type', width: 200,
+      render: (_, row) => {
+        const m = TASK_TYPE_LABELS[row.type];
+        return (
+          <Tag color={m?.color ?? 'default'} style={{ fontSize: 12, padding: '2px 8px' }}>
+            {m?.icon ?? ''} {m?.label ?? row.type}
+          </Tag>
+        );
+      },
     },
     {
-      title: '进度 / 状态', key: 'progress', width: 130,
+      title: '目标', key: 'target', width: 200,
+      render: (_, row) => {
+        if (!row.accountId) return <Text type="secondary">—</Text>;
+        const slotNo = accountSlotMap.get(row.accountId);
+        const phone = row.accountLabel ?? '';
+        return (
+          <Tag color="blue" style={{ fontSize: 12, padding: '2px 8px' }}>
+            {slotNo != null ? `#${String(slotNo).padStart(2, '0')} · ` : ''}{phone}
+          </Tag>
+        );
+      },
+    },
+    {
+      title: '状态', key: 'status', width: 140,
       render: (_, row) => {
         const m = STATUS_META[row.status];
         if (row.status === 'running' || row.status === 'paused') {
@@ -336,16 +371,8 @@ export default function SchedulerPage() {
             </div>
           );
         }
-        if (row.status === 'done') {
-          return (
-            <Tag color="success" icon={<CheckCircleFilled />} style={{ fontSize: 12 }}>已完成</Tag>
-          );
-        }
-        if (row.status === 'failed') {
-          return (
-            <Tag color="error" icon={<CloseCircleFilled />} style={{ fontSize: 12 }}>失败</Tag>
-          );
-        }
+        if (row.status === 'done') return <Tag color="success" icon={<CheckCircleFilled />}>已完成</Tag>;
+        if (row.status === 'failed') return <Tag color="error" icon={<CloseCircleFilled />}>失败</Tag>;
         return <Tag color={m.color as any}>{m.label}</Tag>;
       },
     },
@@ -356,9 +383,18 @@ export default function SchedulerPage() {
       ),
     },
     {
-      title: '操作', key: 'ops', width: 220,
+      title: '操作', key: 'ops', width: 260,
       render: (_, row) => (
         <Space size={4}>
+          <Button
+            size="small"
+            type="primary"
+            icon={<ThunderboltOutlined />}
+            onClick={() => handleRunNow(row.id)}
+            title="克隆该任务并立即排队执行"
+          >
+            执行
+          </Button>
           <Button size="small" icon={<EyeOutlined />} onClick={() => setLogTask(row)}>日志</Button>
           {row.status === 'running' && <Button size="small" icon={<PauseCircleOutlined />} onClick={() => handlePause(row.id)} />}
           {row.status === 'paused' && <Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={() => handleResume(row.id)} />}
@@ -383,25 +419,29 @@ export default function SchedulerPage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
-          <Title level={4} style={{ margin: 0 }}>
-            <ScheduleOutlined style={{ marginRight: 8 }} />
-            任务调度
-          </Title>
-          <Text type="secondary">所有 Warmup / Campaign / ChatScript 任务的统一调度看板</Text>
+          <Space align="center" size={10}>
+            <Title level={4} style={{ margin: 0 }}>
+              <ScheduleOutlined style={{ marginRight: 8 }} />
+              任务调度
+            </Title>
+            <Tag
+              color="success"
+              style={{ fontSize: 12, margin: 0 }}
+              title="agent 每 15s 拉一次任务，按 BehaviorSimulator 模拟真人执行；FloodWait 自动隔离账号"
+            >
+              <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: '#52c41a', marginRight: 6, verticalAlign: 'middle' }} />
+              Worker 运行中
+            </Tag>
+          </Space>
+          <div>
+            <Text type="secondary">所有 Warmup / Campaign / ChatScript 任务的统一调度看板</Text>
+          </div>
         </div>
         <Space>
           <Button icon={<HistoryOutlined />}>历史记录</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新建任务</Button>
         </Space>
       </div>
-
-      <Alert
-        type="success"
-        showIcon
-        style={{ marginBottom: 16 }}
-        message="任务 Worker 运行中"
-        description="agent 每 15s 自动领取到期任务，按 BehaviorSimulator（Gaussian 间隔 / typing 指示器）模拟真人执行。FloodWait 自动隔离账号。已支持执行器：挂机保活、Follow 频道、浏览频道、加 Reaction、群内冒泡。"
-      />
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}><Card size="small"><Statistic title="总任务" value={stats.total} prefix={<ClockCircleOutlined />} /></Card></Col>

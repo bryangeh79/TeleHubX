@@ -213,6 +213,7 @@ export const tasksApi = {
   pause: (id: string) => api.post(`/tasks/${id}/pause`),
   resume: (id: string) => api.post(`/tasks/${id}/resume`),
   retry: (id: string) => api.post(`/tasks/${id}/retry`),
+  runNow: (id: string) => api.post(`/tasks/${id}/run-now`),
   delete: (id: string) => api.delete(`/tasks/${id}`),
   stats: (tenantId?: string) => api.get('/tasks/stats', { params: tenantId ? { tenantId } : {} }),
 };
