@@ -31,7 +31,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { tasksApi } from '../../services/api';
+import { accountsApi, tasksApi } from '../../services/api';
 
 const { Title, Text } = Typography;
 
@@ -155,6 +155,34 @@ export default function SchedulerPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // 账号选项 (供新建任务时下拉选择)
+  const [accountOptions, setAccountOptions] = useState<Array<{ value: string; label: React.ReactNode; phone: string }>>([]);
+
+  const loadAccounts = useCallback(async () => {
+    try {
+      const res = await accountsApi.list();
+      const accounts: any[] = Array.isArray(res.data) ? res.data : [];
+      const opts = accounts.map((a) => ({
+        value: a.id,
+        phone: a.phoneNumber,
+        label: (
+          <Space size={6}>
+            <Text strong>{a.phoneNumber}</Text>
+            <Tag color={a.role === 'cs' ? 'blue' : a.role === 'ad' ? 'green' : 'orange'} style={{ fontSize: 10 }}>
+              {a.role.toUpperCase()}
+            </Tag>
+            <Tag color={a.status === 'online' ? 'green' : 'default'} style={{ fontSize: 10 }}>
+              {a.status === 'online' ? '在线' : a.status}
+            </Tag>
+          </Space>
+        ),
+      }));
+      setAccountOptions(opts);
+    } catch {
+      // ignore
+    }
+  }, []);
   const [form] = Form.useForm();
 
   const reload = useCallback(async () => {
@@ -174,14 +202,18 @@ export default function SchedulerPage() {
   }, [filterStatus, filterType]);
 
   useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => { void loadAccounts(); }, [loadAccounts]);
 
   const handleCreate = async (values: any) => {
     setSubmitting(true);
     try {
+      // values.accountId 是 UUID; 找到对应电话号码作为 label 存进 accountLabel
+      const picked = accountOptions.find((o) => o.value === values.accountId);
       await tasksApi.create({
         name: values.name,
         type: values.type,
-        accountLabel: values.accountLabel,
+        accountId: values.accountId,
+        accountLabel: picked?.phone,
         scheduledAt: values.scheduledAt.toISOString(),
       });
       antdMessage.success('任务已创建');
@@ -298,11 +330,11 @@ export default function SchedulerPage() {
       </div>
 
       <Alert
-        type="info"
+        type="success"
         showIcon
         style={{ marginBottom: 16 }}
-        message="任务执行器（worker）尚未启动"
-        description="数据库已通；新建任务会持久化但不会被自动执行。worker 进程待立项（建议复用 BullMQ + Redis）。"
+        message="任务 Worker 运行中"
+        description="agent 每 15s 自动领取到期任务，按 BehaviorSimulator（Gaussian 间隔 / typing 指示器）模拟真人执行。FloodWait 自动隔离账号。已支持执行器：挂机保活、Follow 频道、浏览频道、加 Reaction、群内冒泡。"
       />
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
@@ -367,16 +399,25 @@ export default function SchedulerPage() {
               options={buildGroupedTaskOptions()}
             />
           </Form.Item>
-          <Form.Item name="accountLabel" label="账号标签（可选）">
-            <Input placeholder="如：@cs_account_1" />
+          <Form.Item name="accountId" label="执行账号" rules={[{ required: true, message: '请选择执行账号' }]}
+            extra={accountOptions.length === 0 ? '尚未添加任何账号 — 请先到「账号」页绑定一个号' : undefined}>
+            <Select
+              placeholder={accountOptions.length === 0 ? '没有可用账号' : '选择账号'}
+              showSearch
+              optionFilterProp="phone"
+              filterOption={(input, option) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
+              options={accountOptions}
+              disabled={accountOptions.length === 0}
+            />
           </Form.Item>
           <Form.Item name="scheduledAt" label="计划时间" rules={[{ required: true }]}>
             <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: '100%' }} />
           </Form.Item>
           <Alert
-            type="warning"
+            type="success"
             showIcon
-            message="任务 worker 尚未启动 — 任务会保存但不会自动执行"
+            message="任务 worker 已上线 — agent 每 15 秒拉一次任务自动执行"
+            description="计划时间到达后, agent 会按 BehaviorSimulator (Gaussian 间隔 / typing 指示器) 模拟真人执行"
             style={{ marginTop: 8 }}
           />
         </Form>
