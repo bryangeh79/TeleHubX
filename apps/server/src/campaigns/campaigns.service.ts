@@ -30,7 +30,7 @@ export class CampaignsService {
 
   /** 列出某 campaign 派发出来的所有子任务（用于日志查看） */
   async listTasks(campaignId: string): Promise<{
-    summary: { total: number; pending: number; running: number; done: number; failed: number; canceled: number };
+    summary: { total: number; pending: number; running: number; done: number; failed: number; paused: number };
     tasks: Array<{
       id: string; seq: number | null; status: string;
       accountLabel: string | null; target: string | null;
@@ -44,7 +44,7 @@ export class CampaignsService {
       .orderBy('t.scheduledAt', 'ASC')
       .getMany();
 
-    const summary = { total: tasks.length, pending: 0, running: 0, done: 0, failed: 0, canceled: 0 };
+    const summary = { total: tasks.length, pending: 0, running: 0, done: 0, failed: 0, paused: 0 };
     for (const t of tasks) {
       const s = t.status as string;
       if (s in summary) (summary as any)[s]++;
@@ -113,6 +113,8 @@ export class CampaignsService {
     const c = await this.findOne(id);
     c.sentCount = (c.sentCount ?? 0) + delta;
     await this.repo.save(c);
+    // 异步检查完成状态（不阻塞回写）
+    this.checkCompletion(id).catch(() => {});
     return c;
   }
 
@@ -123,13 +125,46 @@ export class CampaignsService {
     return c;
   }
 
-  async markCompletedIfDone(id: string, totalTasks: number): Promise<void> {
+  /**
+   * 检查 campaign 是否所有派发出来的任务都已结束（done/failed/canceled）。
+   * 是 → 状态切 completed。
+   */
+  async checkCompletion(id: string): Promise<void> {
     const c = await this.findOne(id);
-    if (c.status === CampaignStatus.RUNNING && c.sentCount >= totalTasks) {
+    if (c.status !== CampaignStatus.RUNNING) return;
+
+    // 统计该 campaign 下所有任务
+    const stats = await this.taskRepo
+      .createQueryBuilder('t')
+      .select('t.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .where(`t.payload->>'campaignId' = :id`, { id })
+      .groupBy('t.status')
+      .getRawMany();
+
+    if (!stats.length) return; // 没任何任务，可能 dispatch 还没跑
+
+    let total = 0;
+    let finished = 0;
+    for (const s of stats) {
+      const n = parseInt(s.count, 10);
+      total += n;
+      if (['done', 'failed'].includes(s.status)) {
+        finished += n;
+      }
+    }
+
+    if (total > 0 && finished >= total) {
       c.status = CampaignStatus.COMPLETED;
       c.completedAt = new Date();
       await this.repo.save(c);
     }
+  }
+
+  /** 公开方法：强制重新检测某个 campaign 完成状态 (前端可手动触发) */
+  async markCompletedIfDone(id: string): Promise<Campaign> {
+    await this.checkCompletion(id);
+    return this.findOne(id);
   }
 
   /**

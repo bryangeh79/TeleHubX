@@ -1,12 +1,13 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
-  Table, Button, Tag, Progress, Space, Typography,
+  Table, Button, Tag, Progress, Space, Typography, Card, Col, Row, Statistic,
   Popconfirm, Badge, Dropdown, message as antdMessage,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, SendOutlined,
   ReloadOutlined, TeamOutlined, FileTextOutlined, DownOutlined,
-  HistoryOutlined,
+  HistoryOutlined, ClockCircleOutlined, ThunderboltOutlined,
+  CheckCircleFilled, CloseCircleFilled, SyncOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -66,6 +67,21 @@ export default function CampaignsPage() {
   const [greetingDrawerOpen, setGreetingDrawerOpen] = useState(false);
   const [groupsDrawerOpen, setGroupsDrawerOpen] = useState(false);
   const [logCampaign, setLogCampaign] = useState<{ id: string; name: string } | null>(null);
+  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // 统计
+  const stats = useMemo(() => {
+    return {
+      total: campaigns.length,
+      running: campaigns.filter(c => c.status === 'running').length,
+      completed: campaigns.filter(c => c.status === 'completed').length,
+      draft: campaigns.filter(c => c.status === 'draft').length,
+      totalSent: campaigns.reduce((s, c) => s + (c.sentCount ?? 0), 0),
+      totalReplies: campaigns.reduce((s, c) => s + (c.replyCount ?? 0), 0),
+    };
+  }, [campaigns]);
+
+  const hasRunning = useMemo(() => campaigns.some(c => c.status === 'running'), [campaigns]);
   const [tenantId, setTenantId] = useState<string>('');
 
   useEffect(() => {
@@ -87,6 +103,15 @@ export default function CampaignsPage() {
   }, []);
 
   useEffect(() => { void reload(); }, [reload]);
+
+  // 自动刷新：有运行中 campaign 时每 5s 刷一次
+  useEffect(() => {
+    if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
+    if (hasRunning) {
+      autoRefreshRef.current = setInterval(() => void reload(), 5000);
+    }
+    return () => { if (autoRefreshRef.current) clearInterval(autoRefreshRef.current); };
+  }, [hasRunning, reload]);
 
   const handleDelete = async (c: ApiCampaign) => {
     try {
@@ -225,29 +250,29 @@ export default function CampaignsPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>
-          广告投放{' '}
-          <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>({campaigns.length})</Text>
-        </Title>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <SendOutlined style={{ fontSize: 22, color: '#52c41a' }} />
+            <Title level={4} style={{ margin: 0 }}>广告投放</Title>
+            {hasRunning && (
+              <Tag color="processing" icon={<SyncOutlined spin />} style={{ marginLeft: 4 }}>
+                自动刷新中 (5s)
+              </Tag>
+            )}
+          </div>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            广告投放任务、节奏与执行状态
+          </Text>
+        </div>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading} />
           <Button icon={<TeamOutlined />} onClick={() => setGroupsDrawerOpen(true)}>客户群管理</Button>
           <Dropdown
             menu={{
               items: [
-                {
-                  key: 'ad',
-                  label: '广告文案',
-                  icon: <FileTextOutlined />,
-                  onClick: () => setAdDrawerOpen(true),
-                },
-                {
-                  key: 'greeting',
-                  label: '开场白',
-                  icon: <FileTextOutlined />,
-                  onClick: () => setGreetingDrawerOpen(true),
-                },
+                { key: 'ad',       label: '广告文案', icon: <FileTextOutlined />, onClick: () => setAdDrawerOpen(true) },
+                { key: 'greeting', label: '开场白',   icon: <FileTextOutlined />, onClick: () => setGreetingDrawerOpen(true) },
               ],
             }}
           >
@@ -255,16 +280,42 @@ export default function CampaignsPage() {
               文案 <DownOutlined style={{ fontSize: 10 }} />
             </Button>
           </Dropdown>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={openNew}
-            style={{ background: '#52c41a', borderColor: '#52c41a' }}
-          >
-            + 新建投放
+          <Button type="primary" icon={<PlusOutlined />} onClick={openNew}
+            style={{ background: '#52c41a', borderColor: '#52c41a' }}>
+            新建投放
           </Button>
         </Space>
       </div>
+
+      {/* Stats cards */}
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Col span={6}>
+          <Card size="small">
+            <Statistic title="全部投放" value={stats.total} prefix={<ClockCircleOutlined />} />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card size="small">
+            <Statistic title="运行中" value={stats.running}
+              prefix={<ThunderboltOutlined />}
+              valueStyle={{ color: '#1677ff' }} />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card size="small">
+            <Statistic title="已完成" value={stats.completed}
+              prefix={<CheckCircleFilled style={{ color: '#52c41a' }} />}
+              valueStyle={{ color: '#52c41a' }} />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card size="small">
+            <Statistic title="累计已发" value={stats.totalSent}
+              suffix={stats.totalReplies > 0 ? <span style={{ fontSize: 12, color: '#8c8c8c' }}> · {stats.totalReplies} 回复</span> : undefined}
+              valueStyle={{ color: '#fa8c16' }} />
+          </Card>
+        </Col>
+      </Row>
 
       <Table
         columns={columns}
