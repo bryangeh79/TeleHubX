@@ -551,20 +551,36 @@ export default function SchedulerPage() {
       },
     },
     {
-      title: '状态', key: 'status', width: 140,
+      title: '状态', key: 'status', width: 150,
       render: (_, row) => {
         const m = STATUS_META[row.status];
-        if (row.status === 'running' || row.status === 'paused') {
+        // 多天父任务: preset_* / keyword_lead_hunt — 永远显示进度条 (即使 0%)
+        const isOrchestrator = (row.type as string).startsWith('preset_') || row.type === 'keyword_lead_hunt';
+
+        if (row.status === 'running' || row.status === 'paused' || (isOrchestrator && row.status === 'pending')) {
           return (
             <div>
-              <Progress percent={row.progress} size="small" status={row.status === 'paused' ? 'normal' : 'active'} />
+              <Progress percent={row.progress ?? 0} size="small"
+                status={row.status === 'paused' ? 'normal' : row.status === 'pending' ? 'normal' : 'active'} />
               <Tag color={m.color as any} style={{ fontSize: 10, marginTop: 2 }}>
                 {row.status === 'running' ? <LoadingOutlined /> : null} {m.label}
+                {isOrchestrator && row.status === 'pending' && ' (已排期)'}
               </Tag>
             </div>
           );
         }
-        if (row.status === 'done') return <Tag color="success" icon={<CheckCircleFilled />}>已完成</Tag>;
+        if (row.status === 'done') {
+          // 多天任务完成显示满进度条 (视觉一致)
+          if (isOrchestrator) {
+            return (
+              <div>
+                <Progress percent={100} size="small" status="success" />
+                <Tag color="success" icon={<CheckCircleFilled />} style={{ fontSize: 10, marginTop: 2 }}>已完成</Tag>
+              </div>
+            );
+          }
+          return <Tag color="success" icon={<CheckCircleFilled />}>已完成</Tag>;
+        }
         if (row.status === 'failed') return <Tag color="error" icon={<CloseCircleFilled />}>失败</Tag>;
         return <Tag color={m.color as any}>{m.label}</Tag>;
       },
