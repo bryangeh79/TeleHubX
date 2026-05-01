@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -10,7 +11,10 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ChatScriptStatus, ChatScriptType } from './chat-script.entity';
 import { ChatScriptsService } from './chat-scripts.service';
 import { CreateChatScriptDto } from './dto/create-chat-script.dto';
@@ -31,6 +35,36 @@ export class ChatScriptsController {
     @Query('status') status?: ChatScriptStatus,
   ) {
     return this.service.findAll(type, status);
+  }
+
+  /** 列出所有剧本包（供 dashboard 剧本管理页面）。 */
+  @Get('packs')
+  listPacks() {
+    return this.service.listPacks();
+  }
+
+  /** 删除整个剧本包（包括所有剧本）。 */
+  @Delete('packs/:packId')
+  @HttpCode(HttpStatus.OK)
+  deletePack(@Param('packId') packId: string) {
+    return this.service.deletePack(packId);
+  }
+
+  /**
+   * 上传剧本包 JSON 文件。文件格式参考 WAhubX 的 scripts_pack_*.json:
+   *   { pack_id / pack_ref, scripts: [{ id, name, sessions: [{turns: [...]}] }] }
+   */
+  @Post('packs/upload')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  async uploadPack(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    let blob: any;
+    try {
+      blob = JSON.parse(file.buffer.toString('utf-8'));
+    } catch (e) {
+      throw new BadRequestException('JSON parse failed: ' + (e as Error).message);
+    }
+    return this.service.importPackBlob(blob);
   }
 
   /** Agent 端 chat_script_* 任务调用：随机抽一个 active 剧本（含 rawScript）。 */

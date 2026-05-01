@@ -51,6 +51,7 @@ const App: React.FC = () => (
       <Route path="admin" element={<AdminPage />} />
       <Route path="assets" element={<AssetsPage />} />
       <Route path="groups" element={<GroupsPage />} />
+      {/* /chat-scripts now lives as a tab inside /assets — kept as alias for back-compat */}
       <Route path="chat-scripts" element={<ChatScriptsPage />} />
     </Route>
   </Routes>

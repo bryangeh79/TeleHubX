@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Col,
   DatePicker,
   Descriptions,
@@ -39,7 +40,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { accountsApi, slotsApi, tasksApi } from '../../services/api';
+import { accountsApi, chatScriptsApi, slotsApi, tasksApi } from '../../services/api';
 
 const { Title, Text } = Typography;
 
@@ -178,6 +179,10 @@ export default function SchedulerPage() {
   // 自动刷新计时器
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // 剧本列表（仅在创建 chat_script 类任务时加载）
+  const [scriptOptions, setScriptOptions] = useState<Array<{ value: string; label: string; type: string; category: string | null }>>([]);
+  const [scriptPacks, setScriptPacks] = useState<Array<{ packId: string; count: number }>>([]);
+
   const loadAccounts = useCallback(async () => {
     try {
       const slotsRes = await slotsApi.list();
@@ -232,6 +237,29 @@ export default function SchedulerPage() {
   useEffect(() => { void reload(); }, [reload]);
   useEffect(() => { void loadAccounts(); }, [loadAccounts]);
 
+  // 打开新建 modal 时懒加载剧本列表
+  useEffect(() => {
+    if (!createOpen) return;
+    (async () => {
+      try {
+        const [scriptsRes, packsRes] = await Promise.all([
+          chatScriptsApi.list({ status: 'active' }),
+          chatScriptsApi.listPacks(),
+        ]);
+        const arr = Array.isArray(scriptsRes.data) ? scriptsRes.data : [];
+        setScriptOptions(arr.map((s: any) => ({
+          value: s.id,
+          label: `${s.name} (${s.type}, ${s.maxRound}回合)`,
+          type: s.type,
+          category: s.category,
+        })));
+        setScriptPacks(Array.isArray(packsRes.data) ? packsRes.data : []);
+      } catch {
+        // ignore
+      }
+    })();
+  }, [createOpen]);
+
   // 自动刷新：有 running/pending 任务时每 5s 刷一次列表
   useEffect(() => {
     const hasActive = tasks.some((t) => t.status === 'running' || t.status === 'pending');
@@ -258,16 +286,44 @@ export default function SchedulerPage() {
   const handleCreate = async (values: any) => {
     setSubmitting(true);
     try {
-      const picked = accountOptions.find((o) => o.value === values.accountId);
       const scheduledAt = runNow ? new Date().toISOString() : values.scheduledAt.toISOString();
-      await tasksApi.create({
-        name: values.name,
-        type: values.type,
-        accountId: values.accountId,
-        accountLabel: picked?.phone,
-        scheduledAt,
-      });
-      antdMessage.success(runNow ? '任务已创建并立即排队执行' : '任务已创建');
+
+      // chat_script_ab / chat_script_4p：服务端会自动拆 N 个子任务
+      if (values.type === 'chat_script_ab' || values.type === 'chat_script_4p') {
+        const payload: any = {
+          tgChatId: values.tgChatId,
+          accountAId: values.accountAId,
+          accountBId: values.accountBId,
+          aiOptimize: values.aiOptimize ?? false,
+        };
+        if (values.type === 'chat_script_4p') {
+          payload.accountCId = values.accountCId;
+          payload.accountDId = values.accountDId;
+        }
+        if (values.scriptId) payload.scriptId = values.scriptId;
+        else if (values.packId) payload.packId = values.packId;
+
+        // accountId 字段对 chat_script 不重要（每个子任务自己 set），用 A 占位
+        await tasksApi.create({
+          name: values.name,
+          type: values.type,
+          accountId: values.accountAId,
+          accountLabel: accountOptions.find((o) => o.value === values.accountAId)?.phone,
+          scheduledAt,
+          payload,
+        } as any);
+        antdMessage.success(`已创建剧本任务（${values.type === 'chat_script_4p' ? '4 个' : '2 个'}子任务并行排队）`);
+      } else {
+        const picked = accountOptions.find((o) => o.value === values.accountId);
+        await tasksApi.create({
+          name: values.name,
+          type: values.type,
+          accountId: values.accountId,
+          accountLabel: picked?.phone,
+          scheduledAt,
+        });
+        antdMessage.success(runNow ? '任务已创建并立即排队执行' : '任务已创建');
+      }
       setCreateOpen(false);
       form.resetFields();
       setRunNow(true);
@@ -604,16 +660,110 @@ export default function SchedulerPage() {
               options={buildGroupedTaskOptions()}
             />
           </Form.Item>
-          <Form.Item name="accountId" label="执行账号" rules={[{ required: true, message: '请选择执行账号' }]}
-            extra={accountOptions.length === 0 ? '尚未添加任何账号 — 请先到「账号」页绑定一个号' : undefined}>
-            <Select
-              placeholder={accountOptions.length === 0 ? '没有可用账号' : '选择账号'}
-              showSearch
-              optionFilterProp="phone"
-              filterOption={(input, option) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
-              options={accountOptions}
-              disabled={accountOptions.length === 0}
-            />
+
+          <Form.Item shouldUpdate={(p, c) => p.type !== c.type} noStyle>
+            {({ getFieldValue }) => {
+              const t = getFieldValue('type');
+              const isAB = t === 'chat_script_ab';
+              const is4P = t === 'chat_script_4p';
+              const isChatScript = isAB || is4P;
+
+              if (!isChatScript) {
+                return (
+                  <Form.Item name="accountId" label="执行账号" rules={[{ required: true, message: '请选择执行账号' }]}
+                    extra={accountOptions.length === 0 ? '尚未添加任何账号 — 请先到「账号」页绑定一个号' : undefined}>
+                    <Select
+                      placeholder={accountOptions.length === 0 ? '没有可用账号' : '选择账号'}
+                      showSearch
+                      optionFilterProp="phone"
+                      filterOption={(input, option) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
+                      options={accountOptions}
+                      disabled={accountOptions.length === 0}
+                    />
+                  </Form.Item>
+                );
+              }
+
+              // chat_script_ab / 4p — 多账号 + 剧本选择 + AI 优化
+              const filteredScripts = scriptOptions.filter((s) => s.type === (isAB ? 'A+B' : 'A+B+C+D'));
+              return (
+                <>
+                  <Card size="small" style={{ marginBottom: 12, background: '#f0f7ff' }} title={
+                    <Space size={6}>
+                      <Text strong>💬 聊天账号设置 ({isAB ? 'A ⇄ B' : 'A + B + C + D'} 角色扮演)</Text>
+                    </Space>
+                  }>
+                    <Row gutter={12}>
+                      <Col span={12}>
+                        <Form.Item name="accountAId" label="账号 A (发起方)" rules={[{ required: true }]}>
+                          <Select placeholder="选择扮演 A 角色的账号" showSearch optionFilterProp="phone"
+                            filterOption={(input, option) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
+                            options={accountOptions} />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item name="accountBId" label="账号 B (回应方)" rules={[{ required: true }]}>
+                          <Select placeholder="选择扮演 B 角色的账号" showSearch optionFilterProp="phone"
+                            filterOption={(input, option) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
+                            options={accountOptions} />
+                        </Form.Item>
+                      </Col>
+                      {is4P && (
+                        <>
+                          <Col span={12}>
+                            <Form.Item name="accountCId" label="账号 C" rules={[{ required: true }]}>
+                              <Select placeholder="选择扮演 C 角色的账号" showSearch optionFilterProp="phone"
+                                filterOption={(input, option) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
+                                options={accountOptions} />
+                            </Form.Item>
+                          </Col>
+                          <Col span={12}>
+                            <Form.Item name="accountDId" label="账号 D" rules={[{ required: true }]}>
+                              <Select placeholder="选择扮演 D 角色的账号" showSearch optionFilterProp="phone"
+                                filterOption={(input, option) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
+                                options={accountOptions} />
+                            </Form.Item>
+                          </Col>
+                        </>
+                      )}
+                    </Row>
+                  </Card>
+
+                  <Form.Item name="tgChatId" label="目标群 (tgChatId)" rules={[{ required: true, message: '请输入要在哪个群跑剧本' }]}
+                    extra="格式：-100xxxxxxxxxx 或 @groupname。建议在自有群跑，不要在公开群里被发现是 bot 对话">
+                    <Input placeholder="-1001234567890 或 @mytestgroup" />
+                  </Form.Item>
+
+                  <Card size="small" style={{ marginBottom: 12 }} title={
+                    <Space>
+                      <Text strong>📜 选择剧本 (共 {filteredScripts.length} 个 {isAB ? 'A+B' : '4P'})</Text>
+                    </Space>
+                  }>
+                    <Form.Item name="packId" label="按剧本包随机抽" extra="留空 = 从所有同类型剧本随机抽">
+                      <Select allowClear placeholder="不限剧本包"
+                        options={scriptPacks.map((p) => ({ value: p.packId, label: `${p.packId} (${p.count} 个)` }))}
+                      />
+                    </Form.Item>
+                    <Form.Item name="scriptId" label="或：指定具体剧本（可选）" extra="选定后将固定跑这一个剧本，content_pool 仍会随机抽变体">
+                      <Select allowClear showSearch placeholder="不指定 = 随机抽" optionFilterProp="label"
+                        options={filteredScripts}
+                      />
+                    </Form.Item>
+                  </Card>
+
+                  <Form.Item name="aiOptimize" valuePropName="checked">
+                    <Checkbox>
+                      <Space size={6}>
+                        <Text>✨ 启用 AI 优化对话内容</Text>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          每条消息走 AI rewrite，不同轮次生成不同文案，更像真人 (会消耗 AI 配额)
+                        </Text>
+                      </Space>
+                    </Checkbox>
+                  </Form.Item>
+                </>
+              );
+            }}
           </Form.Item>
 
           <Form.Item label="执行时间">

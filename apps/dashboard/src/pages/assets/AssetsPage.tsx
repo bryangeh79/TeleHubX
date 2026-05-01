@@ -34,7 +34,9 @@ import {
   VideoCameraOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import { MessageOutlined } from '@ant-design/icons';
 import { assetsApi } from '../../services/api';
+import ChatScriptsPage from '../chat-scripts/ChatScriptsPage';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -74,6 +76,31 @@ const fmtBytes = (n: number) => {
 };
 
 export default function AssetsPage() {
+  const [outerTab, setOuterTab] = useState<'media' | 'scripts'>('media');
+  return (
+    <div>
+      <div style={{ marginBottom: 16 }}>
+        <Title level={4} style={{ margin: 0 }}>
+          <DatabaseOutlined style={{ marginRight: 8 }} />
+          素材库
+        </Title>
+        <Text type="secondary">
+          统一管理 媒体素材 (图片/视频/语音/文档/文本) + 聊天剧本包。任务执行时按 pool / packId 随机抽取。
+        </Text>
+      </div>
+      <Tabs
+        activeKey={outerTab}
+        onChange={(k) => setOuterTab(k as any)}
+        items={[
+          { key: 'media',   label: <Space size={4}><DatabaseOutlined />媒体素材</Space>, children: <MediaSection /> },
+          { key: 'scripts', label: <Space size={4}><MessageOutlined />聊天剧本</Space>, children: <ChatScriptsPage embedded /> },
+        ]}
+      />
+    </div>
+  );
+}
+
+function MediaSection() {
   const [activeCat, setActiveCat] = useState<Category>('photo');
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('tenant');
   const [poolFilter, setPoolFilter] = useState<string | undefined>();
@@ -212,17 +239,6 @@ export default function AssetsPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 20 }}>
-        <Title level={4} style={{ margin: 0 }}>
-          <DatabaseOutlined style={{ marginRight: 8 }} />
-          素材库
-        </Title>
-        <Text type="secondary">
-          为 MEDIA_PHOTO / MEDIA_VIDEO / MEDIA_VOICE 任务提供素材池，执行时随机抽取。
-          也可存"文本片段"作为开场白模板。
-        </Text>
-      </div>
-
       <Card>
         <Tabs
           activeKey={activeCat}

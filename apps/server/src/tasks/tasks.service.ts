@@ -10,7 +10,18 @@ export class TasksService {
     @InjectRepository(Task) private readonly repo: Repository<Task>,
   ) {}
 
-  create(dto: CreateTaskDto, tenantId?: string): Promise<Task> {
+  async create(dto: CreateTaskDto, tenantId?: string): Promise<Task | Task[]> {
+    // chat_script_ab / chat_script_4p 多账号编排：
+    // 当 payload 里有 accountAId/accountBId(/C/D) 时拆成 N 个子任务，
+    // 每个子任务跑自己 myRole 的 turns。共享 packId/scriptId 和 tgChatId。
+    if (
+      (dto.type === TaskType.CHAT_SCRIPT_AB || dto.type === TaskType.CHAT_SCRIPT_4P)
+      && dto.payload
+      && (dto.payload as any).accountAId
+    ) {
+      return this.splitChatScriptTask(dto, tenantId);
+    }
+
     const task = this.repo.create({
       ...dto,
       scheduledAt: new Date(dto.scheduledAt),
@@ -19,6 +30,44 @@ export class TasksService {
       progress: 0,
     });
     return this.repo.save(task);
+  }
+
+  private async splitChatScriptTask(dto: CreateTaskDto, tenantId?: string): Promise<Task[]> {
+    const p = dto.payload as any;
+    const isAB = dto.type === TaskType.CHAT_SCRIPT_AB;
+    const roleAccounts: Array<{ role: 'A' | 'B' | 'C' | 'D'; accountId: string }> = [];
+    if (p.accountAId) roleAccounts.push({ role: 'A', accountId: p.accountAId });
+    if (p.accountBId) roleAccounts.push({ role: 'B', accountId: p.accountBId });
+    if (!isAB) {
+      if (p.accountCId) roleAccounts.push({ role: 'C', accountId: p.accountCId });
+      if (p.accountDId) roleAccounts.push({ role: 'D', accountId: p.accountDId });
+    }
+    if (roleAccounts.length < 2) {
+      throw new Error('chat_script 任务至少需要 2 个账号 (accountAId + accountBId)');
+    }
+
+    const baseScheduledAt = new Date(dto.scheduledAt);
+    const created: Task[] = [];
+    for (const ra of roleAccounts) {
+      const subPayload = {
+        ...p,
+        myRole: ra.role,
+        // 保留全部 accountIds 给执行器调试看
+      };
+      const sub = this.repo.create({
+        name: `${dto.name} [${ra.role}]`,
+        type: dto.type,
+        accountId: ra.accountId,
+        accountLabel: dto.accountLabel ?? null,
+        payload: subPayload,
+        scheduledAt: baseScheduledAt,
+        tenantId: tenantId ?? null,
+        status: TaskStatus.PENDING,
+        progress: 0,
+      });
+      created.push(await this.repo.save(sub));
+    }
+    return created;
   }
 
   findAll(filters: { status?: TaskStatus; type?: TaskType; tenantId?: string } = {}): Promise<Task[]> {

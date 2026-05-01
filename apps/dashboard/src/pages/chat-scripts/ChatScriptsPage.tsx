@@ -6,21 +6,25 @@ import {
   Drawer,
   Empty,
   Input,
+  Popconfirm,
   Row,
   Select,
   Space,
   Statistic,
   Tag,
   Typography,
+  Upload,
   message as antdMessage,
 } from 'antd';
 import {
   AudioOutlined,
+  DeleteOutlined,
   FileImageOutlined,
   MessageOutlined,
   PlayCircleOutlined,
   ReloadOutlined,
   SearchOutlined,
+  UploadOutlined,
   UserOutlined,
   VideoCameraOutlined,
 } from '@ant-design/icons';
@@ -77,8 +81,21 @@ function turnIcon(type?: string) {
   return <MessageOutlined />;
 }
 
-export default function ChatScriptsPage() {
+interface PackInfo {
+  packId: string;
+  count: number;
+  types: string[];
+  categories: string[];
+}
+
+interface Props {
+  /** 嵌入到其他页面（如 AssetsPage tab）时设为 true，去掉顶部 Title。 */
+  embedded?: boolean;
+}
+
+export default function ChatScriptsPage({ embedded = false }: Props) {
   const [scripts, setScripts] = useState<ChatScript[]>([]);
+  const [packs, setPacks] = useState<PackInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [filterType, setFilterType] = useState<string | undefined>();
   const [filterCategory, setFilterCategory] = useState<string | undefined>();
@@ -88,8 +105,12 @@ export default function ChatScriptsPage() {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await chatScriptsApi.list({ type: filterType });
-      setScripts(Array.isArray(res.data) ? res.data : []);
+      const [scriptsRes, packsRes] = await Promise.all([
+        chatScriptsApi.list({ type: filterType }),
+        chatScriptsApi.listPacks(),
+      ]);
+      setScripts(Array.isArray(scriptsRes.data) ? scriptsRes.data : []);
+      setPacks(Array.isArray(packsRes.data) ? packsRes.data : []);
     } catch (err: any) {
       antdMessage.error(err?.response?.data?.message ?? '加载剧本失败');
     } finally {
@@ -98,6 +119,27 @@ export default function ChatScriptsPage() {
   }, [filterType]);
 
   useEffect(() => { void reload(); }, [reload]);
+
+  const handleUploadPack = async (file: File) => {
+    try {
+      const res = await chatScriptsApi.uploadPack(file);
+      const { packId, inserted, skipped } = res.data;
+      antdMessage.success(`已导入 ${inserted} 个剧本到 ${packId}（跳过 ${skipped} 个重复）`);
+      void reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '上传失败');
+    }
+  };
+
+  const handleDeletePack = async (packId: string) => {
+    try {
+      const res = await chatScriptsApi.deletePack(packId);
+      antdMessage.success(`已删除 ${res.data.deleted} 个剧本`);
+      void reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '删除失败');
+    }
+  };
 
   const categories = useMemo(() => {
     const set = new Set<string>();
@@ -123,16 +165,66 @@ export default function ChatScriptsPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 20 }}>
-        <Title level={4} style={{ margin: 0 }}>
-          <MessageOutlined style={{ marginRight: 8 }} />
-          聊天剧本库
-        </Title>
-        <Text type="secondary">
-          chat_script_ab / chat_script_4p 任务从这里随机抽取剧本。
-          每个剧本的 content_pool 在执行时随机抽变体（一脚本 N 种执行）。
-        </Text>
-      </div>
+      {!embedded && (
+        <div style={{ marginBottom: 20 }}>
+          <Title level={4} style={{ margin: 0 }}>
+            <MessageOutlined style={{ marginRight: 8 }} />
+            聊天剧本库
+          </Title>
+          <Text type="secondary">
+            chat_script_ab / chat_script_4p 任务从这里随机抽取剧本。
+            每个剧本的 content_pool 在执行时随机抽变体（一脚本 N 种执行）。
+          </Text>
+        </div>
+      )}
+
+      <Card
+        size="small"
+        style={{ marginBottom: 16 }}
+        title={<Space><Text strong>📦 剧本包管理</Text></Space>}
+        extra={
+          <Upload
+            showUploadList={false}
+            accept=".json"
+            beforeUpload={(file) => { void handleUploadPack(file as File); return false; }}
+          >
+            <Button type="primary" icon={<UploadOutlined />} size="small">上传剧本包 (JSON)</Button>
+          </Upload>
+        }
+      >
+        {packs.length === 0 ? (
+          <Empty description="尚无剧本包 — 上传符合 WAhubX 格式的 JSON" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        ) : (
+          <Row gutter={[8, 8]}>
+            {packs.map((p) => (
+              <Col key={p.packId} xs={24} md={12} lg={8}>
+                <Card size="small" styles={{ body: { padding: 10 } }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <Text strong style={{ fontSize: 13 }}>{p.packId}</Text>
+                      <div>
+                        <Space size={4} style={{ marginTop: 4 }}>
+                          <Tag color="blue">{p.count} 剧本</Tag>
+                          {p.types.map((t) => (
+                            <Tag key={t} color={t === 'A+B' ? 'cyan' : 'magenta'} style={{ fontSize: 10 }}>{t}</Tag>
+                          ))}
+                        </Space>
+                      </div>
+                    </div>
+                    {p.packId !== '(自建)' && (
+                      <Popconfirm title={`确认删除整个剧本包"${p.packId}"？`}
+                        description={`将删除 ${p.count} 个剧本`}
+                        onConfirm={() => handleDeletePack(p.packId)}>
+                        <Button danger size="small" icon={<DeleteOutlined />} />
+                      </Popconfirm>
+                    )}
+                  </div>
+                </Card>
+              </Col>
+            ))}
+          </Row>
+        )}
+      </Card>
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}><Card size="small"><Statistic title="总剧本" value={stats.total} /></Card></Col>

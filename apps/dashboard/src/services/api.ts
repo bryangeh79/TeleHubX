@@ -223,6 +223,16 @@ export const chatScriptsApi = {
   pickRandom: (params?: { packId?: string; category?: string; type?: string }) =>
     api.get('/chat-scripts/random', { params }),
   delete: (id: string) => api.delete(`/chat-scripts/${id}`),
+  listPacks: () => api.get('/chat-scripts/packs'),
+  deletePack: (packId: string) => api.delete(`/chat-scripts/packs/${packId}`),
+  uploadPack: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post('/chat-scripts/packs/upload', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
+    });
+  },
 };
 
 export const testGroupsApi = {

@@ -104,6 +104,103 @@ export class ChatScriptsService {
     return list[Math.floor(Math.random() * list.length)];
   }
 
+  /** 列出所有剧本包（按 packId group），带计数 + 类型 + 语种。 */
+  async listPacks(): Promise<Array<{ packId: string; count: number; types: string[]; categories: string[] }>> {
+    const all = await this.repo.find({ where: {} });
+    const map = new Map<string, { count: number; types: Set<string>; categories: Set<string> }>();
+    for (const s of all) {
+      const key = s.packId ?? '(自建)';
+      if (!map.has(key)) map.set(key, { count: 0, types: new Set(), categories: new Set() });
+      const e = map.get(key)!;
+      e.count++;
+      e.types.add(s.type);
+      if (s.category) e.categories.add(s.category);
+    }
+    return Array.from(map.entries())
+      .map(([packId, v]) => ({
+        packId,
+        count: v.count,
+        types: Array.from(v.types),
+        categories: Array.from(v.categories),
+      }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  /** 删除整个 pack 的所有剧本。 */
+  async deletePack(packId: string): Promise<{ deleted: number }> {
+    const res = await this.repo.delete({ packId });
+    return { deleted: res.affected ?? 0 };
+  }
+
+  /**
+   * 上传单个 pack JSON 文件并导入。幂等：同 packId+name 跳过。
+   * 复用 scripts/import-script-packs.js 的解析逻辑（这里是 inline 简版）。
+   */
+  async importPackBlob(blob: any): Promise<{ packId: string; inserted: number; skipped: number }> {
+    if (!blob?.scripts || !Array.isArray(blob.scripts)) {
+      throw new Error('JSON 缺少 scripts[] 字段');
+    }
+    const packId = blob.pack_id || blob.pack_ref;
+    if (!packId) throw new Error('JSON 必须含 pack_id 或 pack_ref');
+
+    const flatten = (sessions: any[]): ScriptLine[] => {
+      const lines: ScriptLine[] = [];
+      for (const sess of sessions) {
+        for (const t of sess.turns ?? []) {
+          let text = '';
+          if (t.content_pool?.length) text = t.content_pool[0];
+          else if (t.caption_pool?.length) text = t.caption_pool[0];
+          else if (t.caption_fallback) text = t.caption_fallback;
+          else if (t.asset_pool) text = `[${t.type}: ${t.asset_pool}]`;
+          else text = '...';
+          const sd = t.send_delay_sec ?? [30, 90];
+          lines.push({
+            roleLabel: t.role,
+            text,
+            allowEmoji: true,
+            delayAfterMs: Math.round(((sd[0] + sd[1]) / 2) * 1000),
+            delayStdDevMs: Math.round(((sd[1] - sd[0]) / 4) * 1000),
+          });
+        }
+      }
+      return lines;
+    };
+
+    const detectType = (scripts: any[]): ChatScriptType => {
+      const roles = new Set<string>();
+      for (const s of scripts.slice(0, 1)) {
+        for (const sess of s.sessions) for (const t of sess.turns) roles.add(t.role);
+      }
+      return roles.size > 2 ? ChatScriptType.ABCD : ChatScriptType.AB;
+    };
+
+    const packType = detectType(blob.scripts);
+    let inserted = 0, skipped = 0;
+    for (const s of blob.scripts) {
+      const existing = await this.repo.findOne({ where: { packId, name: s.name } });
+      if (existing) { skipped++; continue; }
+      const lines = flatten(s.sessions);
+      const totalTurns = s.total_turns ?? lines.length;
+      const rec = this.repo.create({
+        tenantId: null as any,
+        name: s.name,
+        type: packType,
+        minRound: Math.max(2, Math.floor(totalTurns * 0.7)),
+        maxRound: totalTurns,
+        groupIds: [],
+        accountIds: [],
+        lines,
+        packId,
+        category: s.category ?? null,
+        rawScript: s,
+        status: ChatScriptStatus.ACTIVE,
+      });
+      await this.repo.save(rec);
+      inserted++;
+    }
+    return { packId, inserted, skipped };
+  }
+
   async findOne(id: string): Promise<ChatScript> {
     const script = await this.repo.findOneBy({ id });
     if (!script) throw new NotFoundException(`ChatScript ${id} not found`);
