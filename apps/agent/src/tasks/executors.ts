@@ -620,6 +620,31 @@ async function chatScriptImpl(
     throw new Error(`剧本 ${script.id} 没有 rawScript.sessions[]`);
   }
 
+  // 私聊前置：自动把对方手机号 import 为联系人。
+  // - 已经是联系人 / 对方已被添加：TG 直接当 no-op，不报错
+  // - 对方手机号隐私设为「无人可见」：ImportContacts 返回空 users[]，下面
+  //   getEntity 会抛 PEER_ID_INVALID，executor 会被外层标记 failed 并清晰报错
+  if (targetPhoneNumber && !tgChatId) {
+    try {
+      await ctx.client.invoke(
+        new Api.contacts.ImportContacts({
+          contacts: [
+            new Api.InputPhoneContact({
+              clientId: BigInt(Date.now()) as any,
+              phone: targetPhoneNumber,
+              firstName: 'TeleHubX',
+              lastName: 'Peer',
+            }),
+          ],
+        }),
+      );
+      // 给 TG 服务器一点时间把 contact 同步进来
+      await sleep(gaussianDelayMs(2_000, 5_000));
+    } catch {
+      // FloodWait / 隐私限制 / 已存在 — 都不阻塞，让下面 getEntity 决定
+    }
+  }
+
   const entity = await ctx.client.getEntity(target);
   const allTurns: any[] = [];
   for (const sess of raw.sessions) {
