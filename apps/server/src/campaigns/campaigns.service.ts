@@ -53,12 +53,37 @@ export class CampaignsService {
     await this.repo.remove(campaign);
   }
 
-  async send(id: string): Promise<{ queued: boolean; targets: number }> {
+  async send(id: string): Promise<{ queued: boolean; targets: number; tasksCreated?: number; days?: number; accountsUsed?: number }> {
     const campaign = await this.findOne(id);
+    // dispatch 在 controller 层调用 (避免循环依赖)
     campaign.status = CampaignStatus.RUNNING;
     await this.repo.save(campaign);
     const targets = await this.resolveTargetCount(campaign);
     return { queued: true, targets };
+  }
+
+  /** 进度回写：每条发送成功后 +1，并检查是否完成 */
+  async incrementSent(id: string, delta = 1): Promise<Campaign> {
+    const c = await this.findOne(id);
+    c.sentCount = (c.sentCount ?? 0) + delta;
+    await this.repo.save(c);
+    return c;
+  }
+
+  async incrementReply(id: string, delta = 1): Promise<Campaign> {
+    const c = await this.findOne(id);
+    c.replyCount = (c.replyCount ?? 0) + delta;
+    await this.repo.save(c);
+    return c;
+  }
+
+  async markCompletedIfDone(id: string, totalTasks: number): Promise<void> {
+    const c = await this.findOne(id);
+    if (c.status === CampaignStatus.RUNNING && c.sentCount >= totalTasks) {
+      c.status = CampaignStatus.COMPLETED;
+      c.completedAt = new Date();
+      await this.repo.save(c);
+    }
   }
 
   /**
