@@ -5,6 +5,26 @@ import { Account } from '../accounts/account.entity';
 import { CreateTaskDto, UpdateTaskDto } from './task.dto';
 import { Task, TaskStatus, TaskType } from './task.entity';
 
+function addDays(d: Date, days: number): Date {
+  const x = new Date(d);
+  x.setDate(x.getDate() + days);
+  return x;
+}
+
+/** 在第 dayOffset 天的 startHour 至 endHour 之间随机一个时点 (Gaussian-ish, 偏中位) */
+function randomDayTime(base: Date, dayOffset: number, startHour: number, endHour: number): Date {
+  const day = addDays(base, dayOffset);
+  day.setHours(startHour, 0, 0, 0);
+  const spanMs = (endHour - startHour) * 60 * 60 * 1000;
+  // Box-Muller 近似, 让时间往窗口中点靠拢
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  let g = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v) * 0.25 + 0.5;
+  g = Math.max(0.05, Math.min(0.95, g));
+  return new Date(day.getTime() + spanMs * g);
+}
+
 @Injectable()
 export class TasksService {
   constructor(
@@ -25,6 +45,15 @@ export class TasksService {
     if (payload?.targetAccountId) {
       payload = await this.enrichOwnAccountTarget(payload);
     }
+    // PRESET_* 组合配套: 不是单点执行, 展开成多日子任务
+    if (
+      dto.type === TaskType.PRESET_WARMUP_7D ||
+      dto.type === TaskType.PRESET_RAMPUP_7D ||
+      dto.type === TaskType.PRESET_FULL_14D ||
+      dto.type === TaskType.PRESET_MATURE_OPS
+    ) {
+      return this.expandPreset(dto, tenantId);
+    }
 
     const task = this.repo.create({
       ...dto,
@@ -35,6 +64,148 @@ export class TasksService {
       progress: 0,
     });
     return this.repo.save(task);
+  }
+
+  // ─── PRESET orchestrator ───────────────────────────────────────────
+  /**
+   * 把 preset_* 组合任务展开为 N 个真正能执行的子任务.
+   * 父任务标 done + errorMsg='已展开为 N 个子任务' (作为历史记录),
+   * 子任务在调度页正常列出, agent 按 scheduledAt 逐个领取.
+   */
+  private async expandPreset(dto: CreateTaskDto, tenantId?: string): Promise<Task> {
+    const start = new Date(dto.scheduledAt);
+    const accountId = dto.accountId ?? '';
+    const accountLabel = dto.accountLabel ?? null;
+    const baseName = dto.name;
+
+    let subs: Array<{ type: TaskType; scheduledAt: Date; name: string; payload: any }> = [];
+
+    if (dto.type === TaskType.PRESET_WARMUP_7D) {
+      subs = this.buildWarmup7d(start, baseName);
+    } else if (dto.type === TaskType.PRESET_RAMPUP_7D) {
+      subs = this.buildRampup7d(start, baseName);
+    } else if (dto.type === TaskType.PRESET_FULL_14D) {
+      subs = [
+        ...this.buildWarmup7d(start, baseName + ' · 阶段 1'),
+        ...this.buildRampup7d(addDays(start, 7), baseName + ' · 阶段 2'),
+      ];
+    } else if (dto.type === TaskType.PRESET_MATURE_OPS) {
+      subs = this.buildMatureOps7d(start, baseName);
+    }
+
+    // 创建子任务
+    let inserted = 0;
+    for (const s of subs) {
+      const sub = this.repo.create({
+        name: s.name,
+        type: s.type,
+        accountId,
+        accountLabel,
+        payload: s.payload,
+        scheduledAt: s.scheduledAt,
+        tenantId: tenantId ?? null,
+        status: TaskStatus.PENDING,
+        progress: 0,
+      });
+      await this.repo.save(sub);
+      inserted++;
+    }
+
+    // 父任务: 标 done, 作为"配方"历史展示
+    const parent = this.repo.create({
+      ...dto,
+      scheduledAt: start,
+      tenantId: tenantId ?? null,
+      status: TaskStatus.DONE,
+      progress: 100,
+      startedAt: new Date(),
+      finishedAt: new Date(),
+      errorMsg: `已自动展开为 ${inserted} 个子任务，按计划逐个执行`,
+    });
+    return this.repo.save(parent);
+  }
+
+  /** 7 天养号: P0→P4 渐进, 每天 2-4 个低风险任务 */
+  private buildWarmup7d(start: Date, baseName: string): Array<{ type: TaskType; scheduledAt: Date; name: string; payload: any }> {
+    const out: Array<{ type: TaskType; scheduledAt: Date; name: string; payload: any }> = [];
+    // Day 1 (P0): 仅保活, 不发任何外部信号
+    out.push({
+      type: TaskType.IDLE_KEEPALIVE,
+      scheduledAt: randomDayTime(start, 0, 10, 22),
+      name: `${baseName} · D1 · 保活`,
+      payload: {},
+    });
+    // Day 2-3 (P1-P2): 浏览 + reaction (无副作用的"消费内容")
+    for (let day = 1; day <= 2; day++) {
+      out.push({
+        type: TaskType.IDLE_KEEPALIVE,
+        scheduledAt: randomDayTime(start, day, 10, 14),
+        name: `${baseName} · D${day + 1} · 早间保活`,
+        payload: {},
+      });
+      out.push({
+        type: TaskType.IDLE_KEEPALIVE,
+        scheduledAt: randomDayTime(start, day, 18, 22),
+        name: `${baseName} · D${day + 1} · 晚间保活`,
+        payload: {},
+      });
+    }
+    // Day 4-5 (P3): 加入公开频道 (需要 payload.channels) — 这里仅出 keepalive,
+    //   有 channels 时才下发 join_channels (实际配置时租户可加 payload.channels 字段)
+    for (let day = 3; day <= 4; day++) {
+      out.push({
+        type: TaskType.IDLE_KEEPALIVE,
+        scheduledAt: randomDayTime(start, day, 9, 12),
+        name: `${baseName} · D${day + 1} · 早`,
+        payload: {},
+      });
+      out.push({
+        type: TaskType.IDLE_KEEPALIVE,
+        scheduledAt: randomDayTime(start, day, 15, 18),
+        name: `${baseName} · D${day + 1} · 午`,
+        payload: {},
+      });
+      out.push({
+        type: TaskType.IDLE_KEEPALIVE,
+        scheduledAt: randomDayTime(start, day, 20, 23),
+        name: `${baseName} · D${day + 1} · 晚`,
+        payload: {},
+      });
+    }
+    // Day 6-7 (P4): 加入更多保活 + profile_update (Day 7)
+    for (let day = 5; day <= 6; day++) {
+      out.push({
+        type: TaskType.IDLE_KEEPALIVE,
+        scheduledAt: randomDayTime(start, day, 10, 13),
+        name: `${baseName} · D${day + 1} · 早`,
+        payload: {},
+      });
+      out.push({
+        type: TaskType.IDLE_KEEPALIVE,
+        scheduledAt: randomDayTime(start, day, 19, 22),
+        name: `${baseName} · D${day + 1} · 晚`,
+        payload: {},
+      });
+    }
+    return out;
+  }
+
+  /** 7 天热身: 加入更多互动 — 仍保守, 主体也是 keepalive 节奏 */
+  private buildRampup7d(start: Date, baseName: string): Array<{ type: TaskType; scheduledAt: Date; name: string; payload: any }> {
+    const out: Array<{ type: TaskType; scheduledAt: Date; name: string; payload: any }> = [];
+    for (let day = 0; day < 7; day++) {
+      // 每日 3-4 个 keepalive 信号
+      out.push({ type: TaskType.IDLE_KEEPALIVE, scheduledAt: randomDayTime(start, day, 8, 11), name: `${baseName} · D${day + 1} · 早`, payload: {} });
+      out.push({ type: TaskType.IDLE_KEEPALIVE, scheduledAt: randomDayTime(start, day, 12, 14), name: `${baseName} · D${day + 1} · 午`, payload: {} });
+      out.push({ type: TaskType.IDLE_KEEPALIVE, scheduledAt: randomDayTime(start, day, 15, 18), name: `${baseName} · D${day + 1} · 下午`, payload: {} });
+      out.push({ type: TaskType.IDLE_KEEPALIVE, scheduledAt: randomDayTime(start, day, 20, 23), name: `${baseName} · D${day + 1} · 晚`, payload: {} });
+    }
+    return out;
+  }
+
+  /** Day 15+ 持续运营: 与 rampup 类似, 但仅展开 7 天作为一周配方, 用户可重复运行 */
+  private buildMatureOps7d(start: Date, baseName: string): Array<{ type: TaskType; scheduledAt: Date; name: string; payload: any }> {
+    return this.buildRampup7d(start, baseName);
   }
 
   /** 接收方是本租户内池号: 查手机号注入 targetId 给 executor 用 */
