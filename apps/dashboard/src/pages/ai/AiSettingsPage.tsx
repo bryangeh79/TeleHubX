@@ -186,10 +186,12 @@ function PlatformProviderModal({
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [savedId, setSavedId] = useState<string | null>(null);
   const isEdit = !!editRecord;
+  const testableId = editRecord?.id ?? savedId;
 
   useEffect(() => {
-    if (!open) { form.resetFields(); setTestResult(null); return; }
+    if (!open) { form.resetFields(); setTestResult(null); setSavedId(null); return; }
     if (editRecord) {
       form.setFieldsValue({
         provider: editRecord.provider,
@@ -199,6 +201,9 @@ function PlatformProviderModal({
         isDefault: editRecord.isDefault,
         apiKey: '',
       });
+    } else {
+      // 新增时默认选 DeepSeek + 设为默认
+      form.setFieldsValue({ provider: 'deepseek', isDefault: true });
     }
   }, [open, editRecord, form]);
 
@@ -212,17 +217,20 @@ function PlatformProviderModal({
         name: values.name || values.provider,
         model: values.model || undefined,
         baseUrl: values.baseUrl || undefined,
-        isDefault: values.isDefault ?? false,
+        isDefault: values.isDefault ?? true,
       };
       if (values.apiKey?.trim()) payload.apiKey = values.apiKey.trim();
       if (isEdit) {
         await platformConfigApi.updateAiProvider(editRecord.id, payload);
+        antdMessage.success('已更新，可点「测试连接」验证');
+        onSuccess();
       } else {
-        if (!payload.apiKey) { antdMessage.error('首次添加必须填写 API Key'); return; }
-        await platformConfigApi.createAiProvider(payload);
+        if (!payload.apiKey) { antdMessage.error('首次添加必须填写 API Key'); setSaving(false); return; }
+        const res = await platformConfigApi.createAiProvider(payload);
+        setSavedId(res.data?.id ?? null);
+        antdMessage.success('已保存，点「测试连接」验证是否正常');
+        onSuccess();
       }
-      antdMessage.success(isEdit ? '已更新' : '已添加');
-      onSuccess();
     } catch (err: any) {
       antdMessage.error(err?.response?.data?.message ?? '保存失败');
     } finally {
@@ -231,11 +239,11 @@ function PlatformProviderModal({
   };
 
   const handleTest = async () => {
-    if (!editRecord?.id) { antdMessage.warning('请先保存后再测试'); return; }
+    if (!testableId) { antdMessage.warning('请先保存后再测试'); return; }
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await platformConfigApi.testAiProvider(editRecord.id);
+      const res = await platformConfigApi.testAiProvider(testableId);
       setTestResult({ ok: res.data.ok, msg: res.data.message });
     } catch (err: any) {
       setTestResult({ ok: false, msg: err?.response?.data?.message ?? '测试失败' });
@@ -252,7 +260,9 @@ function PlatformProviderModal({
       width={560}
       footer={
         <Space style={{ justifyContent: 'flex-end', width: '100%' }}>
-          {isEdit && <Button loading={testing} onClick={handleTest}>测试连接</Button>}
+          <Button loading={testing} onClick={handleTest} disabled={!testableId}>
+            {testableId ? '测试连接' : '保存后可测试'}
+          </Button>
           <Button onClick={onClose}>取消</Button>
           <Button type="primary" loading={saving} onClick={handleSave} icon={<SaveOutlined />}>保存</Button>
         </Space>
@@ -302,8 +312,9 @@ function PlatformProviderModal({
             </Form.Item>
           </Col>
         </Row>
-        <Form.Item name="isDefault" valuePropName="checked">
-          <Switch /> <Text style={{ marginLeft: 8 }}>设为默认平台 Key（其他 Key 自动取消默认）</Text>
+        <Form.Item name="isDefault" valuePropName="checked" label="设为默认平台 Key"
+          extra="打开后，广告变体生成 / 开场白评分等内部任务会优先使用这个 Key">
+          <Switch />
         </Form.Item>
       </Form>
       {testResult && (

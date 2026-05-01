@@ -81,7 +81,11 @@ function AdTemplateModal({
     setUploading(true);
     setUploadPct(0);
     try {
-      const res = await assetsApi.upload(file, { category: 'ad_media', description: file.name });
+      const mime = file.type;
+      const category = mime.startsWith('video') ? 'video'
+        : mime.startsWith('audio') ? 'voice'
+        : 'photo'; // default image/document → photo
+      const res = await assetsApi.upload(file, { category, description: file.name });
       const asset = res.data;
       setMediaAssetId(asset.id ?? '');
       setMediaFileName(file.name);
