@@ -80,32 +80,56 @@ export class AdTemplatesService {
   async generateVariants(id: string, count = 10): Promise<AdTemplate> {
     const t = await this.findOne(id);
 
-    const prompt = `你是一个专业的广告文案优化师。
-原始广告文案如下：
+    const prompt = `你是专业广告文案优化师。
+原始文案：
 ---
 ${t.content}
 ---
-请生成 ${count} 条变体版本，要求：
-1. 保持核心卖点不变，但在句式、emoji 使用、标点符号、段落格式上做出明显差异
-2. 每条变体与原文相似度 < 70%（系统会检测重复内容）
-3. 语言风格与原文保持一致（中文/英文/马来文等）
-4. 每条变体独立成章，不要编号前缀，不要解释说明
-5. 用 |||SPLIT||| 分隔每条变体
+请生成 ${count} 条变体，要求：
+1. 保持核心卖点不变，在句式、emoji、标点、段落格式上明显不同
+2. 每条与原文相似度 < 70%
+3. 语言与原文一致（中文/英文/马来文）
+4. 保留原文所有联系方式（链接/电话/账号）不改变
+5. 不加编号或前缀
 
-直接输出变体内容，不要其他文字：`;
+以 JSON 数组格式输出，只输出纯 JSON，不要任何解释或 markdown：
+["变体1内容", "变体2内容", ..., "变体${count}内容"]`;
 
     const raw = await this.callPlatformAi(
-      '你是广告文案生成助手，只输出变体内容，用 |||SPLIT||| 分隔，不输出任何解释。',
+      '你是广告文案生成助手。只输出纯 JSON 数组，格式：["变体1", "变体2", ...]，不输出任何其他内容。',
       prompt,
+      4000,
     );
 
-    const rawVariants = raw
-      .split('|||SPLIT|||')
-      .map(v => v.trim())
-      .filter(v => v.length > 10);
+    let rawVariants: string[] = [];
+    try {
+      // 找到第一个 [ 到最后一个 ] 提取 JSON
+      const start = raw.indexOf('[');
+      const end = raw.lastIndexOf(']');
+      if (start !== -1 && end > start) {
+        const jsonStr = raw.slice(start, end + 1);
+        const parsed = JSON.parse(jsonStr);
+        if (Array.isArray(parsed)) {
+          rawVariants = parsed
+            .map((v: any) => String(v).trim())
+            .filter(v => v.length > 10);
+        }
+      }
+    } catch {
+      // JSON 解析失败，回退到换行拆分
+      rawVariants = raw
+        .split(/\n{2,}/)
+        .map(v => v.trim())
+        .filter(v => v.length > 20 && !v.startsWith('[') && !v.startsWith('"'));
+    }
+
+    if (!rawVariants.length) {
+      throw new ServiceUnavailableException('AI 返回格式异常，请重试');
+    }
 
     t.variants = rawVariants.slice(0, count).map(text => ({ text }));
     t.aiVariantEnabled = true;
+    this.logger.log(`Generated ${t.variants.length} variants for AdTemplate ${id}`);
     return this.repo.save(t);
   }
 }
