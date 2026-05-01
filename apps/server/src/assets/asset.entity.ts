@@ -29,14 +29,45 @@ export enum AssetCategory {
  *   - 一旦上传到 TG bot/account，TG 会回 file_id；我们缓存这个 id 之后直接复用
  *     (avoid 反复重新上传同一文件)
  */
+export enum AssetSource {
+  /** 内置素材库（随安装包分发，所有租户共享） */
+  BUILTIN = 'builtin',
+  /** 租户上传 */
+  UPLOAD = 'upload',
+  /** AI 生成（M7 阶段） */
+  GENERATED = 'generated',
+}
+
 @Entity('assets')
 @Index(['tenantId', 'category'])
+@Index(['poolName'])
+@Index(['source', 'category'])
 export class Asset {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'uuid' })
-  tenantId: string;
+  /** builtin 资源 tenantId 为 null（共享池）。 */
+  @Column({ type: 'uuid', nullable: true })
+  tenantId: string | null;
+
+  @Column({ type: 'enum', enum: AssetSource, default: AssetSource.UPLOAD })
+  source: AssetSource;
+
+  /**
+   * 子池名称，对齐目录层级。
+   * 例: '_builtin_images_food' / '_builtin_voices_zh' / 'tenant_xx_promo_2026q2'
+   * 任务可以按 poolName 精准抽取（如剧本要求 voices_casual_laugh）。
+   */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  poolName: string | null;
+
+  /**
+   * 相对路径（相对项目根 data/ 目录）。
+   * builtin 资源一律用此字段；upload 类小文件可省略走 content bytea。
+   * 例: 'assets/images/food_general/food_001.jpg'
+   */
+  @Column({ type: 'varchar', length: 512, nullable: true })
+  relativePath: string | null;
 
   @Column({ type: 'enum', enum: AssetCategory })
   category: AssetCategory;

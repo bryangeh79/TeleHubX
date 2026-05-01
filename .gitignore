@@ -6,6 +6,8 @@ dist/
 *.log
 logs/
 data/contexts/
+data/assets/
+data/script-packs/
 *.exe
 *.iss
 !installer.iss
