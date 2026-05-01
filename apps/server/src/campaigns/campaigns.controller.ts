@@ -45,6 +45,12 @@ export class CampaignsController {
     return this.service.findOne(id);
   }
 
+  /** 列出 campaign 派发出来的所有子任务（执行日志） */
+  @Get(':id/tasks')
+  listTasks(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.listTasks(id);
+  }
+
   @Patch(':id')
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateCampaignDto) {
     return this.service.update(id, dto);

@@ -69,6 +69,7 @@ export const campaignsApi = {
   update: (id: string, data: any) => api.patch(`/campaigns/${id}`, data),
   delete: (id: string) => api.delete(`/campaigns/${id}`),
   send: (id: string) => api.post(`/campaigns/${id}/send`),
+  listTasks: (id: string) => api.get(`/campaigns/${id}/tasks`),
   capacityCheck: (params: {
     targetCount?: number;
     pacePreset?: string;

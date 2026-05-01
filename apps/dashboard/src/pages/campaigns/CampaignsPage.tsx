@@ -6,6 +6,7 @@ import {
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, SendOutlined,
   ReloadOutlined, TeamOutlined, FileTextOutlined, DownOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -14,6 +15,7 @@ import CampaignWizard from './CampaignWizard';
 import AdTemplateDrawer from './AdTemplateDrawer';
 import GreetingDrawer from './GreetingDrawer';
 import CustomerGroupDrawer from './CustomerGroupDrawer';
+import CampaignLogDrawer from './CampaignLogDrawer';
 
 const { Title, Text } = Typography;
 
@@ -63,6 +65,7 @@ export default function CampaignsPage() {
   const [adDrawerOpen, setAdDrawerOpen] = useState(false);
   const [greetingDrawerOpen, setGreetingDrawerOpen] = useState(false);
   const [groupsDrawerOpen, setGroupsDrawerOpen] = useState(false);
+  const [logCampaign, setLogCampaign] = useState<{ id: string; name: string } | null>(null);
   const [tenantId, setTenantId] = useState<string>('');
 
   useEffect(() => {
@@ -191,11 +194,19 @@ export default function CampaignsPage() {
       width: 160,
       render: (_, record) => {
         const canSend = record.status === 'draft' || record.status === 'scheduled' || record.status === 'paused';
+        const hasTargets = (record.targets?.length ?? 0) > 0 || (record.customerGroupIds?.length ?? 0) > 0;
+        const isRunningOrDone = record.status === 'running' || record.status === 'completed';
         return (
           <Space size={4}>
-            {canSend && (record.targets?.length ?? 0) > 0 && (
+            {canSend && hasTargets && (
               <Button size="small" type="primary" icon={<SendOutlined />} onClick={() => handleSend(record)}>
                 发送
+              </Button>
+            )}
+            {isRunningOrDone && (
+              <Button size="small" icon={<HistoryOutlined />}
+                onClick={() => setLogCampaign({ id: record.id, name: record.name })}>
+                日志
               </Button>
             )}
             <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record.id)} />
@@ -287,6 +298,13 @@ export default function CampaignsPage() {
         open={groupsDrawerOpen}
         onClose={() => setGroupsDrawerOpen(false)}
         tenantId={tenantId}
+      />
+
+      <CampaignLogDrawer
+        open={!!logCampaign}
+        campaignId={logCampaign?.id ?? null}
+        campaignName={logCampaign?.name}
+        onClose={() => setLogCampaign(null)}
       />
     </div>
   );

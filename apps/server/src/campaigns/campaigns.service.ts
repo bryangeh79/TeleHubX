@@ -11,6 +11,7 @@ import {
 } from './campaign.entity';
 import { Account, AccountRole } from '../accounts/account.entity';
 import { CustomerGroup } from '../customer-groups/customer-group.entity';
+import { Task } from '../tasks/task.entity';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
 import { UpdateCampaignDto } from './dto/update-campaign.dto';
 
@@ -23,7 +24,52 @@ export class CampaignsService {
     private readonly accountRepo: Repository<Account>,
     @InjectRepository(CustomerGroup)
     private readonly groupRepo: Repository<CustomerGroup>,
+    @InjectRepository(Task)
+    private readonly taskRepo: Repository<Task>,
   ) {}
+
+  /** 列出某 campaign 派发出来的所有子任务（用于日志查看） */
+  async listTasks(campaignId: string): Promise<{
+    summary: { total: number; pending: number; running: number; done: number; failed: number; canceled: number };
+    tasks: Array<{
+      id: string; seq: number | null; status: string;
+      accountLabel: string | null; target: string | null;
+      scheduledAt: Date; startedAt: Date | null; finishedAt: Date | null;
+      errorMsg: string | null;
+    }>;
+  }> {
+    const tasks = await this.taskRepo
+      .createQueryBuilder('t')
+      .where(`t.payload->>'campaignId' = :id`, { id: campaignId })
+      .orderBy('t.scheduledAt', 'ASC')
+      .getMany();
+
+    const summary = { total: tasks.length, pending: 0, running: 0, done: 0, failed: 0, canceled: 0 };
+    for (const t of tasks) {
+      const s = t.status as string;
+      if (s in summary) (summary as any)[s]++;
+    }
+
+    const items = tasks.map(t => {
+      const targets = (t.payload?.targets as any[]) ?? [];
+      const target = targets.length === 1
+        ? (typeof targets[0] === 'string' ? targets[0] : targets[0]?.value ?? targets[0]?.username ?? null)
+        : null;
+      return {
+        id: t.id,
+        seq: t.seq,
+        status: t.status,
+        accountLabel: t.accountLabel,
+        target,
+        scheduledAt: t.scheduledAt,
+        startedAt: t.startedAt,
+        finishedAt: t.finishedAt,
+        errorMsg: t.errorMsg,
+      };
+    });
+
+    return { summary, tasks: items };
+  }
 
   create(dto: CreateCampaignDto): Promise<Campaign> {
     const campaign = this.repo.create(dto as Partial<Campaign>);
