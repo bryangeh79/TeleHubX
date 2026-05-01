@@ -462,7 +462,10 @@ export class TasksService {
   }
 
   async remove(id: string): Promise<void> {
-    const t = await this.findOne(id);
+    const t = await this.repo.findOneBy({ id });
+    if (!t) return;  // 幂等: 任务不存在视为已删除, 不抛 404
+    // 级联: 删父任务 → 同时删所有子任务 (preset_* 展开的)
+    await this.repo.delete({ parentTaskId: id });
     await this.repo.remove(t);
   }
 
