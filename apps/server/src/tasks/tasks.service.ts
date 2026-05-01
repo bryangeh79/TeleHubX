@@ -50,7 +50,8 @@ export class TasksService {
       dto.type === TaskType.PRESET_WARMUP_7D ||
       dto.type === TaskType.PRESET_RAMPUP_7D ||
       dto.type === TaskType.PRESET_FULL_14D ||
-      dto.type === TaskType.PRESET_MATURE_OPS
+      dto.type === TaskType.PRESET_MATURE_OPS ||
+      dto.type === TaskType.KEYWORD_LEAD_HUNT
     ) {
       return this.expandPreset(dto, tenantId);
     }
@@ -90,6 +91,8 @@ export class TasksService {
       ];
     } else if (dto.type === TaskType.PRESET_MATURE_OPS) {
       subs = this.buildMatureOps7d(start, baseName, payloadHint);
+    } else if (dto.type === TaskType.KEYWORD_LEAD_HUNT) {
+      subs = this.buildKeywordLeadHunt(start, baseName, payloadHint);
     }
 
     // 先创建父任务 (待运行状态作为"主任务"展示, 子任务进度反推父任务进度)
@@ -277,6 +280,93 @@ export class TasksService {
       out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, 6, 11, 16), name: `${baseName} · D14 · 浏览 (mild 模式不发 campaign)`, payload: { channels: channels.slice(0, 3), readDurationSec: [40, 100] } });
     }
     out.push({ type: TaskType.IDLE_KEEPALIVE, scheduledAt: randomDayTime(start, 6, 20, 23), name: `${baseName} · D14 · 晚间保活`, payload: {} });
+
+    return out;
+  }
+
+  /**
+   * 关键词智能引流 — 4 阶段 pipeline (PDF 设计原貌):
+   *   阶段 1 (D1-7):   JOIN_GROUPS_BY_KEYWORD 关键词搜群+加, 每天 1-2 个
+   *   阶段 2 (D8-9):   沉淀 (IDLE_KEEPALIVE), 让账号在群里"自然"待几天
+   *   阶段 3 (D10-25): GROUP_SCRAPE 爬最近加的群成员 → lead_candidates 表
+   *   阶段 4 (D26-30): CONTACT_ADD 触达爬到的候选人 (每日上限)
+   *
+   * payload:
+   *   - keywords: string[] (必填)
+   *   - maxGroupsPerDay: 每天最多加几个群 (默认 2, ≤3 安全)
+   *   - scrapeDelayHours: 加群后等多久再爬 (默认 48h)
+   *   - maxOutreachPerDay: 每天触达陌生人上限 (默认 5)
+   *   - durationDays: 总天数 (默认 30, 7-90)
+   *
+   * 注意: 阶段 3/4 的子任务在创建时不知道具体目标 (group/lead 还没爬到),
+   * payload 用 sentinel 值: tgChatIds=[], targets=[] 让 executor 在运行时
+   * 动态查 (从该账号最近 N 天加入的群 / 该 lead_hunt 流水产生的候选人池).
+   * 当前 executor 还不支持 sentinel resolution, 任务会失败但不会卡死.
+   * 后续在 group_scrape / contact_add executor 加 dynamic-target fallback.
+   */
+  private buildKeywordLeadHunt(start: Date, baseName: string, payloadHint: any = {}): Array<{ type: TaskType; scheduledAt: Date; name: string; payload: any }> {
+    const out: Array<{ type: TaskType; scheduledAt: Date; name: string; payload: any }> = [];
+    const keywords: string[] = Array.isArray(payloadHint.keywords) && payloadHint.keywords.length
+      ? payloadHint.keywords : ['外汇']; // 默认兜底, 否则任务无意义
+    const maxGroupsPerDay: number = payloadHint.maxGroupsPerDay ?? 2;
+    const scrapeDelayHours: number = payloadHint.scrapeDelayHours ?? 48;
+    const maxOutreachPerDay: number = payloadHint.maxOutreachPerDay ?? 5;
+    const durationDays: number = Math.min(90, Math.max(7, payloadHint.durationDays ?? 30));
+
+    // 计算阶段边界
+    const stage1End = 7;                                                                  // D1-7
+    const stage2End = stage1End + Math.ceil(scrapeDelayHours / 24);                        // 默认 D9
+    const stage3End = Math.max(stage2End + 5, durationDays - 4);                           // 给阶段 4 留 5 天
+    const stage4End = durationDays;
+
+    // ── 阶段 1 (D1-7): 关键词搜群+加 (每天 1 个 task, 内部 maxPerDay 控制) ───
+    for (let day = 0; day < stage1End; day++) {
+      out.push({
+        type: TaskType.JOIN_GROUPS_BY_KEYWORD,
+        scheduledAt: randomDayTime(start, day, 10, 16),
+        name: `${baseName} · 阶段1 D${day + 1} · 搜群加群`,
+        payload: { keywords, minMembers: 100, maxPerDay: maxGroupsPerDay },
+      });
+    }
+
+    // ── 阶段 2 (D8 ~ D8+scrapeDelayHours/24): 沉淀, 仅保活 ───
+    for (let day = stage1End; day < stage2End; day++) {
+      out.push({
+        type: TaskType.IDLE_KEEPALIVE,
+        scheduledAt: randomDayTime(start, day, 11, 19),
+        name: `${baseName} · 阶段2 D${day + 1} · 沉淀保活`,
+        payload: {},
+      });
+    }
+
+    // ── 阶段 3 (沉淀后 ~ stage3End): 爬群成员 (隔天爬一次, 每次空 tgChatIds 让 executor 动态选最近群) ───
+    for (let day = stage2End; day < stage3End; day += 2) {
+      out.push({
+        type: TaskType.GROUP_SCRAPE,
+        scheduledAt: randomDayTime(start, day, 12, 18),
+        name: `${baseName} · 阶段3 D${day + 1} · 爬群成员`,
+        payload: {
+          tgChatIds: [],   // sentinel: 空数组 = executor 运行时查最近加的群 (未来支持)
+          maxScrapePerGroup: 50,
+          dynamicSource: 'recent_joins',  // 标记给 executor 看
+        },
+      });
+    }
+
+    // ── 阶段 4 (stage3End ~ durationDays): 触达爬到的候选人 ───
+    for (let day = stage3End; day < stage4End; day++) {
+      out.push({
+        type: TaskType.CONTACT_ADD,
+        scheduledAt: randomDayTime(start, day, 11, 17),
+        name: `${baseName} · 阶段4 D${day + 1} · 触达陌生人`,
+        payload: {
+          mode: 'username',
+          targets: [],   // sentinel: 空 = executor 运行时从 lead_candidates 抽 status=pending
+          maxPerDay: maxOutreachPerDay,
+          dynamicSource: 'recent_candidates',
+        },
+      });
+    }
 
     return out;
   }
