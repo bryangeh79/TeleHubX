@@ -1259,6 +1259,7 @@ function buildPayloadForTaskType(taskType: string, v: any): any {
   if (t === 'keyword_lead_hunt') {
     return {
       keywords: linesToArr(v.huntKeywords),
+      seedGroups: linesToArr(v.huntSeedGroups),
       targetCandidates: v.huntTargetCandidates ?? 300,
       durationDays: v.huntDurationDays ?? 10,
     };
@@ -1497,8 +1498,12 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
           </Text>
         </Form.Item>
         <Form.Item name="huntKeywords" label="关键词 (一行一个)" rules={[{ required: true }]}
-          extra="例: 外汇 / 加密货币 / 区块链 — 系统按这些词搜公开群">
+          extra="例: 外汇 / 加密货币 / 区块链 — 系统按这些词搜公开群作为补充">
           <Input.TextArea rows={2} placeholder="外汇" />
+        </Form.Item>
+        <Form.Item name="huntSeedGroups" label="🎯 指定群 (可选, 一行一个)"
+          extra="格式: -1001234567890 / @groupname / https://t.me/+xxx — 系统优先在这些群拉; 不够再用关键词搜公开群补足">
+          <Input.TextArea rows={2} placeholder="-1001234567890&#10;@my_target_chat" />
         </Form.Item>
         <Form.Item name="huntTargetCandidates" label="目标候选人数 (累计)" rules={[{ required: true }]} initialValue={300}>
           <InputNumber min={10} max={5000} style={{ width: 160 }} />
@@ -1507,33 +1512,69 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
           extra="3-90 天. 系统按 (目标人数 / 天数) 自动算每天加群速度">
           <InputNumber min={3} max={90} style={{ width: 160 }} />
         </Form.Item>
-        <Form.Item shouldUpdate={(p, c) => p.huntTargetCandidates !== c.huntTargetCandidates || p.huntDurationDays !== c.huntDurationDays} noStyle>
+        <Form.Item shouldUpdate noStyle>
           {({ getFieldValue }) => {
             const target = getFieldValue('huntTargetCandidates') || 300;
             const days = getFieldValue('huntDurationDays') || 10;
+            const seedGroupsText = getFieldValue('huntSeedGroups') ?? '';
+            const seedGroups = linesToArr(seedGroupsText);
             const AVG = 30;
             const SAFE_MAX = 2;
-            const needGroups = Math.ceil(target / AVG);
-            const joinDays = Math.max(1, days - 1);
-            let groupsPerDay = Math.max(1, Math.ceil(needGroups / joinDays));
+            const seedYield = seedGroups.length * AVG;
+            const enoughFromSeed = seedYield >= target;
+            const remaining = Math.max(0, target - seedYield);
+            const needGroups = Math.ceil(remaining / AVG);
+            const seedDays = seedGroups.length > 0 ? 2 : 0;  // D1 加 + D2 爬
+            const remainingDays = Math.max(1, days - seedDays);
+            const joinDays = Math.max(1, remainingDays - 1);
+            let groupsPerDay = needGroups > 0 ? Math.max(1, Math.ceil(needGroups / joinDays)) : 0;
             const capped = groupsPerDay > SAFE_MAX;
             if (capped) groupsPerDay = SAFE_MAX;
-            const realCanCollect = groupsPerDay * joinDays * AVG;
+            const realKwCollect = groupsPerDay * joinDays * AVG;
+            const totalEstimate = seedYield + realKwCollect;
+            const shortage = totalEstimate < target;
+
             return (
               <Alert
-                type={capped ? 'warning' : 'info'}
+                type={capped || shortage ? 'warning' : 'info'}
                 showIcon
                 style={{ marginBottom: 12 }}
                 message="⚙️ 自动节奏预览"
                 description={
                   <div style={{ fontSize: 12 }}>
-                    <div>• 估算需加 <b>{needGroups} 个群</b> (每群约 {AVG} 候选人)</div>
-                    <div>• D1 - D{joinDays} 每天加 <b>{groupsPerDay} 群</b>（{capped ? `⚠️ TG 安全线 ≤ ${SAFE_MAX} 群/天，已限速` : '在 TG 安全线内'}）</div>
-                    <div>• D2 - D{days} 每天爬一次群成员</div>
-                    <div>• 累计达 {target} 人 → 提前完成；天数到期 → 自然结束</div>
-                    {capped && <div style={{ color: '#fa8c16', marginTop: 4 }}>
-                      ⚠️ 当前节奏 {days} 天最多收集 ~{realCanCollect} 人 ({'<'}{target}). 建议延长天数到 ≥ {Math.ceil(target / (SAFE_MAX * AVG)) + 1} 天.
-                    </div>}
+                    {seedGroups.length > 0 ? (
+                      <>
+                        <div><b>阶段 A · 指定群优先</b> ({seedGroups.length} 个群, 估 ~{seedYield} 候选)</div>
+                        <div>• D1 加入指定群 → D2 爬指定群</div>
+                        {enoughFromSeed ? (
+                          <div style={{ color: '#52c41a' }}>• 估算 ~{seedYield} 人 已 ≥ 目标 {target}, D3-D{days} 反复复爬指定群补充新成员</div>
+                        ) : (
+                          <>
+                            <div style={{ marginTop: 6 }}><b>阶段 B · 关键词补足</b> (估算还差 {remaining} 人)</div>
+                            <div>• D{seedDays + 1} - D{seedDays + joinDays} 每天关键词加 {groupsPerDay} 群 (估 +{realKwCollect} 人)</div>
+                            <div>• D{seedDays + 2} - D{days} 每天爬一次新加的群</div>
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div>• 全程靠关键词搜公开群</div>
+                        <div>• 估算需加 <b>{needGroups} 群</b> (每群约 {AVG} 候选)</div>
+                        <div>• D1 - D{joinDays} 每天加 {groupsPerDay} 群</div>
+                        <div>• D2 - D{days} 每天爬一次最近加的群</div>
+                      </>
+                    )}
+                    <div style={{ marginTop: 4 }}>• 累计达 {target} 人 → 提前完成; 天数到期 → 自然结束</div>
+                    {capped && (
+                      <div style={{ color: '#fa8c16', marginTop: 4 }}>
+                        ⚠️ TG 安全线 ≤ {SAFE_MAX} 群/天, 已限速. {days} 天最多 ~{totalEstimate} 人. 建议延长天数或多填指定群.
+                      </div>
+                    )}
+                    {shortage && !capped && (
+                      <div style={{ color: '#fa8c16', marginTop: 4 }}>
+                        ⚠️ 估算最终 ~{totalEstimate} 人, 仍不足 {target}. 多填几个指定群 或 延长天数.
+                      </div>
+                    )}
                   </div>
                 }
               />

@@ -314,62 +314,100 @@ export class TasksService {
    */
   /**
    * 关键词智能引流 v2 — 纯候选人收集管线 (no outreach).
-   * 触达由 CAMPAIGN_SINGLE / CONTACT_ADD 单独跑, 从 lead_candidates 池取人.
    *
-   * 用户输入只有 3 项:
-   *   - keywords: string[]
-   *   - targetCandidates: 目标人数 (例 300)
-   *   - durationDays: 总天数 (例 10)
+   * 用户输入:
+   *   - keywords: string[]           关键词
+   *   - seedGroups?: string[]        指定群 (可选, 优先来这里拉)
+   *   - targetCandidates: number     目标人数
+   *   - durationDays: number         总天数
    *
-   * 系统自动分配节奏:
-   *   AVG_PER_SCRAPE = 30 人/次 (经验值, 看群活跃度浮动)
-   *   needGroups = ceil(target / AVG_PER_SCRAPE)         // 10 群
-   *   groupsPerDay = max(1, round(needGroups / (duration - 1)))
-   *   - safeMaxPerDay = 2 (TG 风控线, 超了会强制降速)
-   *   sediment = 1 天 (D1 加群, D2 起开始爬)
-   *   scrape: D2 起每天 1 次 (利用所有已加的群)
+   * 调度策略 (优先级):
+   *   有 seedGroups → 先 JOIN seedGroups + 反复 SCRAPE seedGroups
+   *   预估 seedYield = len(seedGroups) × 30 候选人
+   *   if seedYield >= target → 全程仅靠 seedGroups (周期内反复爬)
+   *   else → seed 阶段后, 用关键词搜更多群补足缺口
    */
   private buildKeywordLeadHunt(start: Date, baseName: string, payloadHint: any = {}): Array<{ type: TaskType; scheduledAt: Date; name: string; payload: any }> {
     const out: Array<{ type: TaskType; scheduledAt: Date; name: string; payload: any }> = [];
     const keywords: string[] = Array.isArray(payloadHint.keywords) && payloadHint.keywords.length
       ? payloadHint.keywords : ['外汇'];
+    const seedGroups: string[] = Array.isArray(payloadHint.seedGroups)
+      ? payloadHint.seedGroups.map((s: string) => s.trim()).filter(Boolean) : [];
     const targetCandidates: number = payloadHint.targetCandidates ?? 300;
     const durationDays: number = Math.min(90, Math.max(3, payloadHint.durationDays ?? 10));
 
     const AVG_PER_SCRAPE = 30;
     const SAFE_MAX_GROUPS_PER_DAY = 2;
-    const needGroups = Math.max(1, Math.ceil(targetCandidates / AVG_PER_SCRAPE));
+    const seedYield = seedGroups.length * AVG_PER_SCRAPE;
+    const remainingTarget = Math.max(0, targetCandidates - seedYield);
 
-    // 加群分布: 前 (duration - 1) 天均匀分加群 (留至少 1 天给最后爬)
-    const joinDays = Math.max(1, durationDays - 1);
-    let groupsPerDay = Math.max(1, Math.ceil(needGroups / joinDays));
-    if (groupsPerDay > SAFE_MAX_GROUPS_PER_DAY) groupsPerDay = SAFE_MAX_GROUPS_PER_DAY; // 风控降速
+    let dayOffset = 0;
 
-    // ── 加群任务: D1 ~ D(joinDays). 每天 1 个 JOIN_GROUPS_BY_KEYWORD task,
-    //    内部 maxPerDay = groupsPerDay 控制每次实际加几个 ──
-    for (let day = 0; day < joinDays; day++) {
+    // ── 阶段 A: seedGroups 优先 ──────────────────────────────
+    if (seedGroups.length > 0) {
+      // D1: 加入指定群 (idempotent — 已加过 TG 不报错)
       out.push({
-        type: TaskType.JOIN_GROUPS_BY_KEYWORD,
-        scheduledAt: randomDayTime(start, day, 10, 16),
-        name: `${baseName} · D${day + 1} · 搜词加群`,
-        payload: { keywords, minMembers: 100, maxPerDay: groupsPerDay },
+        type: TaskType.JOIN_GROUPS,
+        scheduledAt: randomDayTime(start, dayOffset, 10, 14),
+        name: `${baseName} · D${dayOffset + 1} · 加入指定群 (${seedGroups.length} 个)`,
+        payload: { chatIds: seedGroups, inviteIntervalSec: [60, 180] },
       });
-    }
+      dayOffset++;
 
-    // ── 爬群任务: D2 起每天 1 次, 直到 D(durationDays).
-    //    payload.tgChatIds=[] + dynamicSource='recent_joins' 让 executor
-    //    运行时从 client.getDialogs() 取本账号最近加的群 ──
-    for (let day = 1; day < durationDays; day++) {
+      // D2: 爬指定群
       out.push({
         type: TaskType.GROUP_SCRAPE,
-        scheduledAt: randomDayTime(start, day, 12, 22),
-        name: `${baseName} · D${day + 1} · 爬群成员`,
-        payload: {
-          tgChatIds: [],
-          maxScrapePerGroup: AVG_PER_SCRAPE,
-          dynamicSource: 'recent_joins',
-        },
+        scheduledAt: randomDayTime(start, dayOffset, 12, 18),
+        name: `${baseName} · D${dayOffset + 1} · 爬指定群`,
+        payload: { tgChatIds: seedGroups, maxScrapePerGroup: AVG_PER_SCRAPE },
       });
+      dayOffset++;
+    }
+
+    // ── 阶段 B: 不够 → 关键词补足 ────────────────────────────
+    if (remainingTarget > 0 && dayOffset < durationDays) {
+      const remainingDays = durationDays - dayOffset;
+      const needGroups = Math.max(1, Math.ceil(remainingTarget / AVG_PER_SCRAPE));
+      const joinDays = Math.max(1, remainingDays - 1);
+      let groupsPerDay = Math.max(1, Math.ceil(needGroups / joinDays));
+      if (groupsPerDay > SAFE_MAX_GROUPS_PER_DAY) groupsPerDay = SAFE_MAX_GROUPS_PER_DAY;
+
+      // 关键词加群: 接 dayOffset 起, 持续 joinDays 天
+      for (let i = 0; i < joinDays; i++) {
+        const day = dayOffset + i;
+        out.push({
+          type: TaskType.JOIN_GROUPS_BY_KEYWORD,
+          scheduledAt: randomDayTime(start, day, 10, 16),
+          name: `${baseName} · D${day + 1} · 搜词加群`,
+          payload: { keywords, minMembers: 100, maxPerDay: groupsPerDay },
+        });
+      }
+
+      // 爬群: 关键词阶段第 2 天起, 每天爬一次最近加的群
+      for (let i = 1; i < remainingDays; i++) {
+        const day = dayOffset + i;
+        out.push({
+          type: TaskType.GROUP_SCRAPE,
+          scheduledAt: randomDayTime(start, day, 12, 22),
+          name: `${baseName} · D${day + 1} · 爬群 (含指定+关键词加的群)`,
+          payload: {
+            tgChatIds: seedGroups,  // 把 seed 也带上, 反复爬可能补到新成员
+            maxScrapePerGroup: AVG_PER_SCRAPE,
+            dynamicSource: 'recent_joins',  // 同时也爬最近加的群
+          },
+        });
+      }
+    } else if (seedGroups.length > 0 && dayOffset < durationDays) {
+      // 仅 seedGroups 模式: seedYield 已够, 剩余天数继续反复爬 seedGroups
+      // (新人会陆续加群, 多次爬能拿到更多候选)
+      for (let day = dayOffset; day < durationDays; day += 2) {
+        out.push({
+          type: TaskType.GROUP_SCRAPE,
+          scheduledAt: randomDayTime(start, day, 12, 22),
+          name: `${baseName} · D${day + 1} · 复爬指定群`,
+          payload: { tgChatIds: seedGroups, maxScrapePerGroup: AVG_PER_SCRAPE },
+        });
+      }
     }
 
     return out;
