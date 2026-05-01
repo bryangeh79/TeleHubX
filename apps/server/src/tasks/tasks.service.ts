@@ -589,8 +589,8 @@ export class TasksService {
       .where('t.status = :s', { s: TaskStatus.PENDING })
       .andWhere('t."scheduledAt" <= :now', { now })
       .andWhere('t."accountId" IN (:...ids)', { ids: accountIds })
-      // 排除 preset_* 父任务: 它们是配方编排器, 不是 agent 执行的单点任务
-      .andWhere(`t.type::text NOT LIKE 'preset_%'`)
+      // 排除 preset_* / keyword_lead_hunt 父任务: 它们是配方编排器, 不是 agent 执行的单点任务
+      .andWhere(`t.type::text NOT LIKE 'preset_%' AND t.type::text != 'keyword_lead_hunt'`)
       .orderBy('t."scheduledAt"', 'ASC')
       .limit(limit)
       .getMany();
