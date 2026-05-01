@@ -826,7 +826,7 @@ export default function CampaignWizard({ open, editId, onClose, onSuccess }: Pro
     }
   };
 
-  const handleLaunch = async () => {
+  const doLaunch = async () => {
     setSubmitting(true);
     try {
       const payload = { ...buildPayload(), status: 'running' };
@@ -845,6 +845,29 @@ export default function CampaignWizard({ open, editId, onClose, onSuccess }: Pro
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleLaunch = () => {
+    if (capacity?.safetyLevel === 'risk') {
+      Modal.confirm({
+        title: '承载不足，是否仍要强制启动？',
+        content: (
+          <div>
+            <div style={{ marginBottom: 8 }}>{capacity?.message}</div>
+            <div style={{ fontSize: 12, color: '#999' }}>
+              强制启动后，系统会用现有账号投放，但封号风险较高。<br />
+              测试时可以用此选项验证流程，正式投放前建议养号 14 天以上。
+            </div>
+          </div>
+        ),
+        okText: '确认强制启动',
+        cancelText: '取消',
+        okButtonProps: { danger: true },
+        onOk: doLaunch,
+      });
+      return;
+    }
+    void doLaunch();
   };
 
   const handleClose = () => {
@@ -924,11 +947,10 @@ export default function CampaignWizard({ open, editId, onClose, onSuccess }: Pro
               <Button
                 type="primary"
                 loading={submitting}
-                disabled={capacity?.safetyLevel === 'risk'}
                 onClick={handleLaunch}
                 style={{ background: '#52c41a', borderColor: '#52c41a' }}
               >
-                开始投放
+                {capacity?.safetyLevel === 'risk' ? '强制启动 (承载不足)' : '开始投放'}
               </Button>
             </>
           )}
