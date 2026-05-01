@@ -98,7 +98,8 @@ export const adTemplatesApi = {
   create: (data: any) => api.post('/ad-templates', data),
   update: (id: string, data: any) => api.patch(`/ad-templates/${id}`, data),
   delete: (id: string) => api.delete(`/ad-templates/${id}`),
-  generateVariants: (id: string) => api.post(`/ad-templates/${id}/generate-variants`),
+  // AI 生成变体一般要 15-30 秒，给 90 秒缓冲
+  generateVariants: (id: string) => api.post(`/ad-templates/${id}/generate-variants`, {}, { timeout: 90000 }),
 };
 
 export const greetingTemplatesApi = {
@@ -107,7 +108,7 @@ export const greetingTemplatesApi = {
   create: (data: any) => api.post('/greeting-templates', data),
   update: (id: string, data: any) => api.patch(`/greeting-templates/${id}`, data),
   delete: (id: string) => api.delete(`/greeting-templates/${id}`),
-  score: (id: string) => api.post(`/greeting-templates/${id}/score`),
+  score: (id: string) => api.post(`/greeting-templates/${id}/score`, {}, { timeout: 30000 }),
 };
 
 export const takeoverApi = {
@@ -183,7 +184,7 @@ export const tenantsApi = {
   getSettings: (tenantId: string) => api.get(`/tenants/${tenantId}/settings`),
   updateSettings: (tenantId: string, data: any) =>
     api.patch(`/tenants/${tenantId}/settings`, data),
-  testAi: (tenantId: string) => api.post(`/tenants/${tenantId}/settings/test-ai`),
+  testAi: (tenantId: string) => api.post(`/tenants/${tenantId}/settings/test-ai`, {}, { timeout: 30000 }),
 };
 
 export const knowledgeApi = {
@@ -382,7 +383,7 @@ export const platformConfigApi = {
   createAiProvider: (data: any) => api.post('/platform-config/ai', data),
   updateAiProvider: (id: string, data: any) => api.patch(`/platform-config/ai/${id}`, data),
   deleteAiProvider: (id: string) => api.delete(`/platform-config/ai/${id}`),
-  testAiProvider: (id: string) => api.post(`/platform-config/ai/${id}/test`),
+  testAiProvider: (id: string) => api.post(`/platform-config/ai/${id}/test`, {}, { timeout: 30000 }),
 };
 
 export const statsApi = {
