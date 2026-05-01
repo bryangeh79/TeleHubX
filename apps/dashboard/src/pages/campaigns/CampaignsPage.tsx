@@ -147,6 +147,8 @@ export default function CampaignsPage() {
       title: '名称',
       dataIndex: 'name',
       key: 'name',
+      width: 220,
+      ellipsis: true,
       render: (v: string, r) => (
         <div>
           <Text strong>{v}</Text>
@@ -160,7 +162,7 @@ export default function CampaignsPage() {
       title: '类型',
       dataIndex: 'type',
       key: 'type',
-      width: 80,
+      width: 70,
       render: (t: CampaignType) => (
         <Tag color={t === 'broadcast' ? 'blue' : 'purple'}>{TYPE_TEXT[t] ?? t}</Tag>
       ),
@@ -169,14 +171,14 @@ export default function CampaignsPage() {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 100,
+      width: 90,
       render: (s: CampaignStatus) => <Badge status={STATUS_BADGE[s]} text={STATUS_TEXT[s] ?? s} />,
     },
     {
       title: '节奏',
       dataIndex: 'pacePreset',
       key: 'pacePreset',
-      width: 70,
+      width: 60,
       render: (v: string | null) => {
         const map: Record<string, string> = { conservative: '保守', balanced: '平衡', aggressive: '投放' };
         return v ? <Tag>{map[v] ?? v}</Tag> : '—';
@@ -185,13 +187,11 @@ export default function CampaignsPage() {
     {
       title: '进度',
       key: 'progress',
-      width: 180,
       render: (_, r) => {
         const manualTargets = r.targets?.length ?? 0;
         const groupCount = r.customerGroupIds?.length ?? 0;
         const hasAnyTarget = manualTargets > 0 || groupCount > 0;
         if (!hasAnyTarget) return <Tag>无目标</Tag>;
-        // 没有客户群成员数信息，先按手动号码算进度（有客户群时显示「群+号码」）
         const desc = groupCount > 0
           ? `${groupCount} 个群${manualTargets > 0 ? ` + ${manualTargets} 号` : ''}`
           : `${manualTargets} 号`;
@@ -201,7 +201,9 @@ export default function CampaignsPage() {
               <span>已发 {r.sentCount}</span><span>{desc}</span>
             </div>
             <Progress percent={r.sentCount > 0 ? Math.min(100, r.sentCount) : 0} size="small" showInfo={false} />
-            <Text type="secondary" style={{ fontSize: 11 }}>{r.replyCount} 条回复</Text>
+            {r.replyCount > 0 && (
+              <Text type="secondary" style={{ fontSize: 11 }}>{r.replyCount} 条回复</Text>
+            )}
           </div>
         );
       },

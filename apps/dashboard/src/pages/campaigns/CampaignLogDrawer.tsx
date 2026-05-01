@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Badge, Button, Col, Drawer, Empty, Row, Space, Statistic,
-  Table, Tag, Tooltip, Typography, message as antdMessage,
+  Badge, Button, Col, Empty, Modal, Row, Space, Statistic,
+  Table, Tooltip, Typography, message as antdMessage,
 } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { HistoryOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { campaignsApi } from '../../services/api';
 
@@ -26,6 +26,11 @@ interface TaskRow {
   startedAt: string | null;
   finishedAt: string | null;
   errorMsg: string | null;
+}
+
+interface SummaryShape {
+  total: number; pending: number; running: number;
+  done: number; failed: number; paused: number;
 }
 
 const STATUS_TEXT: Record<string, { label: string; color: string }> = {
@@ -56,7 +61,7 @@ function humanizeError(msg: string | null): string {
 
 export default function CampaignLogDrawer({ open, campaignId, campaignName, onClose }: Props) {
   const [data, setData] = useState<{
-    summary: { total: number; pending: number; running: number; done: number; failed: number; canceled: number };
+    summary: SummaryShape;
     tasks: TaskRow[];
   } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -134,19 +139,26 @@ export default function CampaignLogDrawer({ open, campaignId, campaignName, onCl
   ];
 
   return (
-    <Drawer
+    <Modal
       open={open}
-      onClose={onClose}
+      onCancel={onClose}
       title={
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Space>
+          <HistoryOutlined style={{ color: '#1677ff' }} />
           <span>执行日志 · {campaignName ?? '...'}</span>
-          <Button size="small" icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>
+        </Space>
+      }
+      width={1100}
+      centered
+      footer={
+        <Space style={{ justifyContent: 'space-between', width: '100%' }}>
+          <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>
             刷新
           </Button>
-        </div>
+          <Button type="primary" onClick={onClose}>关闭</Button>
+        </Space>
       }
-      width={1000}
-      bodyStyle={{ padding: 16 }}
+      styles={{ body: { padding: '16px 20px', maxHeight: '70vh', overflowY: 'auto' } }}
     >
       {!data ? (
         <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
@@ -178,7 +190,7 @@ export default function CampaignLogDrawer({ open, campaignId, campaignName, onCl
               <Statistic title="失败" value={data.summary.failed} valueStyle={{ fontSize: 18, color: '#ff4d4f' }} />
             </Col>
             <Col span={4}>
-              <Statistic title="已取消" value={data.summary.canceled} valueStyle={{ fontSize: 18, color: '#8c8c8c' }} />
+              <Statistic title="已暂停" value={data.summary.paused} valueStyle={{ fontSize: 18, color: '#8c8c8c' }} />
             </Col>
           </Row>
 
@@ -193,6 +205,6 @@ export default function CampaignLogDrawer({ open, campaignId, campaignName, onCl
           />
         </>
       )}
-    </Drawer>
+    </Modal>
   );
 }
