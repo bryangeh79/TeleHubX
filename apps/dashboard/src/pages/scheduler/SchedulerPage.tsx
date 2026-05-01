@@ -10,6 +10,7 @@ import {
   Empty,
   Form,
   Input,
+  InputNumber,
   Modal,
   Popconfirm,
   Progress,
@@ -391,14 +392,17 @@ export default function SchedulerPage() {
         } as any);
         antdMessage.success(runNow ? '任务已创建并立即排队执行' : '任务已创建');
       } else {
+        // 通用路径: 各种任务按类型构建 payload
         const picked = accountOptions.find((o) => o.value === values.accountId);
+        const payload = buildPayloadForTaskType(values.type, values);
         await tasksApi.create({
           name: values.name,
           type: values.type,
           accountId: values.accountId,
           accountLabel: picked?.phone,
           scheduledAt,
-        });
+          payload,
+        } as any);
         antdMessage.success(runNow ? '任务已创建并立即排队执行' : '任务已创建');
       }
       setCreateOpen(false);
@@ -858,19 +862,23 @@ export default function SchedulerPage() {
                 />;
               }
 
+              // 其他多种任务: 共用「执行账号」 + 类型特定字段
               if (!isChatScript) {
                 return (
-                  <Form.Item name="accountId" label="执行账号" rules={[{ required: true, message: '请选择执行账号' }]}
-                    extra={accountOptions.length === 0 ? '尚未添加任何账号 — 请先到「账号」页绑定一个号' : undefined}>
-                    <Select
-                      placeholder={accountOptions.length === 0 ? '没有可用账号' : '选择账号'}
-                      showSearch
-                      optionFilterProp="phone"
-                      filterOption={(input, option) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
-                      options={accountOptions}
-                      disabled={accountOptions.length === 0}
-                    />
-                  </Form.Item>
+                  <>
+                    <Form.Item name="accountId" label="执行账号" rules={[{ required: true, message: '请选择执行账号' }]}
+                      extra={accountOptions.length === 0 ? '尚未添加任何账号 — 请先到「账号」页绑定一个号' : undefined}>
+                      <Select
+                        placeholder={accountOptions.length === 0 ? '没有可用账号' : '选择账号'}
+                        showSearch
+                        optionFilterProp="phone"
+                        filterOption={(input, option) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
+                        options={accountOptions}
+                        disabled={accountOptions.length === 0}
+                      />
+                    </Form.Item>
+                    <TaskTypeFields taskType={t} accountOptions={accountOptions} />
+                  </>
                 );
               }
 
@@ -1122,6 +1130,475 @@ function renderPayloadAsKv(
   return items.map(([k, v], i) => (
     <Descriptions.Item key={i} label={k}>{v}</Descriptions.Item>
   ));
+}
+
+// ─── 各任务类型的细节配置字段 ──────────────────────────────────
+// 把多行文本框拆成数组 (一行一项, 忽略空行)
+function linesToArr(text?: string): string[] {
+  return (text ?? '').split('\n').map((s) => s.trim()).filter(Boolean);
+}
+
+/** 把表单 values 映射到任务 payload (按 task type) */
+function buildPayloadForTaskType(taskType: string, v: any): any {
+  const t = taskType;
+
+  // PRESET_*
+  if (t === 'preset_warmup_7d' || t === 'preset_rampup_7d' || t === 'preset_full_14d' || t === 'preset_mature_ops') {
+    const p: any = {};
+    const ch = linesToArr(v.presetChannels); if (ch.length) p.channels = ch;
+    const gr = linesToArr(v.presetGroups); if (gr.length) p.groups = gr;
+    if (t === 'preset_rampup_7d' || t === 'preset_full_14d') {
+      const kw = linesToArr(v.presetKeywords); if (kw.length) p.keywords = kw;
+      if (v.presetIntensity) p.intensity = v.presetIntensity;
+    }
+    if (t === 'preset_mature_ops') {
+      const og = linesToArr(v.presetOwnGroups); if (og.length) p.ownGroups = og;
+    }
+    return p;
+  }
+
+  if (t === 'join_groups') {
+    const all = linesToArr(v.joinGroupsList);
+    const inviteLinks = all.filter((x) => x.includes('joinchat') || x.includes('t.me/+'));
+    const chatIds = all.filter((x) => !inviteLinks.includes(x));
+    return {
+      inviteLinks,
+      chatIds,
+      inviteIntervalSec: [v.joinIntervalMin ?? 60, v.joinIntervalMax ?? 180],
+    };
+  }
+
+  if (t === 'join_groups_by_keyword') {
+    return {
+      keywords: linesToArr(v.searchKeywords),
+      minMembers: v.searchMinMembers ?? 100,
+      maxPerDay: v.searchMaxPerDay ?? 3,
+    };
+  }
+
+  if (t === 'join_channels') {
+    return { channels: linesToArr(v.channelsList) };
+  }
+
+  if (t === 'accept_invites') {
+    return { autoAcceptAll: true };
+  }
+
+  if (t === 'group_create') {
+    return {
+      title: v.groupTitle,
+      type: v.groupType ?? 'small',
+      initialMemberAccountIds: v.initialMembers ?? [],
+    };
+  }
+
+  if (t === 'group_invite_members') {
+    return {
+      tgChatId: v.inviteTgChatId,
+      targetAccountIds: v.inviteTargets ?? [],
+    };
+  }
+
+  if (t === 'group_bubble') {
+    const p: any = {
+      tgChatId: v.bubbleTgChatId,
+      count: [v.bubbleCountMin ?? 1, v.bubbleCountMax ?? 2],
+    };
+    const pool = linesToArr(v.bubbleTextPool);
+    if (pool.length) p.textPool = pool;
+    return p;
+  }
+
+  if (t === 'keyword_lead_hunt') {
+    return {
+      keywords: linesToArr(v.huntKeywords),
+      maxGroupsPerDay: v.huntMaxGroupsPerDay ?? 2,
+      scrapeDelayHours: v.huntScrapeDelayHours ?? 48,
+      maxOutreachPerDay: v.huntMaxOutreachPerDay ?? 5,
+      durationDays: v.huntDurationDays ?? 30,
+    };
+  }
+
+  if (t === 'group_scrape') {
+    return {
+      tgChatIds: linesToArr(v.scrapeTgChatIds),
+      maxScrapePerGroup: v.scrapeMaxPerGroup ?? 50,
+    };
+  }
+
+  if (t === 'contact_add') {
+    const targets = linesToArr(v.contactTargetsText).map((s) => {
+      // username: @x → {username:'x'}; phone: +60... → {phone:'+60...'}
+      if (s.startsWith('+')) return { phone: s };
+      return { username: s.replace(/^@/, '') };
+    });
+    const p: any = {
+      mode: v.contactMode ?? 'username',
+      targets,
+      maxPerDay: v.contactMaxPerDay ?? 5,
+    };
+    if (v.contactGreeting) p.greetingText = v.contactGreeting;
+    return p;
+  }
+
+  if (t === 'campaign_single') {
+    const targets = linesToArr(v.campTargetsText).map((s) => {
+      if (s.startsWith('+')) return { phone: s };
+      return { username: s.replace(/^@/, '') };
+    });
+    return {
+      targets,
+      variants: linesToArr(v.campVariantsText),
+      intervalSec: [v.campIntervalMin ?? 60, v.campIntervalMax ?? 300],
+    };
+  }
+
+  if (t === 'reaction_boost') {
+    const p: any = {
+      tgChatId: v.reactTgChatId,
+      count: [v.reactCountMin ?? 3, v.reactCountMax ?? 8],
+    };
+    const ep = linesToArr(v.reactEmojiPool);
+    if (ep.length) p.emojiPool = ep;
+    return p;
+  }
+
+  if (t === 'browse_channel') {
+    return {
+      channels: linesToArr(v.browseChannels),
+      readDurationSec: [v.browseDurMin ?? 20, v.browseDurMax ?? 90],
+    };
+  }
+
+  if (t === 'profile_update') {
+    const p: any = {};
+    if (v.profileFirstName) p.firstName = v.profileFirstName;
+    if (v.profileLastName) p.lastName = v.profileLastName;
+    if (v.profileBio) p.bio = v.profileBio;
+    return p;
+  }
+
+  // idle_keepalive 等无需 payload
+  return undefined;
+}
+
+interface TaskTypeFieldsProps {
+  taskType: string;
+  accountOptions: Array<{ value: string; label: React.ReactNode; phone: string }>;
+}
+
+function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
+  const t = taskType;
+
+  // ─── PRESET_* 组合配套 ────────────────────────────────────
+  if (t === 'preset_warmup_7d' || t === 'preset_rampup_7d' || t === 'preset_full_14d' || t === 'preset_mature_ops') {
+    return (
+      <>
+        <Form.Item name="presetChannels" label="浏览/Follow 频道 (可选, 一行一个)" extra="留空 = 用默认 @telegram / @durov / @trendingbot">
+          <Input.TextArea rows={2} placeholder="@telegram&#10;@durov" />
+        </Form.Item>
+        <Form.Item name="presetGroups" label="可加入讨论群 (可选, 一行一个)" extra="D4-D5 / D10-11 GROUP_BUBBLE 用; 没有 → 退化成 BROWSE">
+          <Input.TextArea rows={2} placeholder="-1001234567890&#10;@some_public_chat" />
+        </Form.Item>
+        {(t === 'preset_rampup_7d' || t === 'preset_full_14d') && (
+          <>
+            <Form.Item name="presetKeywords" label="关键词 (Rampup 搜群用, 可选, 一行一个)">
+              <Input.TextArea rows={2} placeholder="外汇&#10;加密货币" />
+            </Form.Item>
+            <Form.Item name="presetIntensity" label="强度 (Rampup 用)" initialValue="mild" extra="mild = 跳过 CONTACT_ADD / CAMPAIGN_SINGLE; aggressive = 启用">
+              <Radio.Group>
+                <Radio value="mild">🌱 mild (温和, 推荐)</Radio>
+                <Radio value="aggressive">🔥 aggressive (激进, 进 CAMPAIGN)</Radio>
+              </Radio.Group>
+            </Form.Item>
+          </>
+        )}
+        {t === 'preset_mature_ops' && (
+          <Form.Item name="presetOwnGroups" label="自有群 (晚间冒泡用, 可选, 一行一个)">
+            <Input.TextArea rows={2} placeholder="-1001234567890" />
+          </Form.Item>
+        )}
+      </>
+    );
+  }
+
+  // ─── JOIN_GROUPS ────────────────────────────────────────
+  if (t === 'join_groups') {
+    return (
+      <>
+        <Form.Item name="joinGroupsList" label="目标群 (一行一个)" rules={[{ required: true }]}
+          extra="支持邀请链接 https://t.me/+xxx 或 @groupname 或 -1001234567890">
+          <Input.TextArea rows={4} placeholder="https://t.me/+abc123&#10;@public_group&#10;-1001234567890" />
+        </Form.Item>
+        <Form.Item label="加群间隔 (秒)" extra="每加 1 个群之间随机间隔 (Gaussian 分布)">
+          <Space>
+            <Form.Item name="joinIntervalMin" initialValue={60} noStyle><InputNumber min={30} max={3600} /></Form.Item>
+            <span>—</span>
+            <Form.Item name="joinIntervalMax" initialValue={180} noStyle><InputNumber min={30} max={3600} /></Form.Item>
+          </Space>
+        </Form.Item>
+      </>
+    );
+  }
+
+  // ─── JOIN_GROUPS_BY_KEYWORD ─────────────────────────────
+  if (t === 'join_groups_by_keyword') {
+    return (
+      <>
+        <Form.Item name="searchKeywords" label="搜索关键词 (一行一个)" rules={[{ required: true }]}
+          extra="例: 外汇 / 加密货币 / 区块链">
+          <Input.TextArea rows={3} placeholder="外汇&#10;加密货币" />
+        </Form.Item>
+        <Form.Item name="searchMinMembers" label="最小成员数" initialValue={100} extra="过滤掉太小的群">
+          <InputNumber min={10} max={100000} />
+        </Form.Item>
+        <Form.Item name="searchMaxPerDay" label="今天最多加几个" initialValue={3} extra="≤3 安全, 防 TG 风控">
+          <InputNumber min={1} max={10} />
+        </Form.Item>
+      </>
+    );
+  }
+
+  // ─── JOIN_CHANNELS ──────────────────────────────────────
+  if (t === 'join_channels') {
+    return (
+      <Form.Item name="channelsList" label="频道列表 (一行一个)" rules={[{ required: true }]}
+        extra="@username 或 https://t.me/+invitelink">
+        <Input.TextArea rows={4} placeholder="@telegram&#10;@durov" />
+      </Form.Item>
+    );
+  }
+
+  // ─── ACCEPT_INVITES ─────────────────────────────────────
+  if (t === 'accept_invites') {
+    return (
+      <Form.Item label="说明">
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          自动接受所有 pending 群组邀请。无需配置 — 直接「确定」即可。
+        </Text>
+      </Form.Item>
+    );
+  }
+
+  // ─── GROUP_CREATE ───────────────────────────────────────
+  if (t === 'group_create') {
+    return (
+      <>
+        <Form.Item name="groupTitle" label="群名称" rules={[{ required: true }]}>
+          <Input placeholder="例: 内部测试群" maxLength={64} />
+        </Form.Item>
+        <Form.Item name="groupType" label="群类型" initialValue="small">
+          <Radio.Group>
+            <Radio value="small">普通群 (small, ≤200 人)</Radio>
+            <Radio value="mega">超级群 (mega, 大群)</Radio>
+          </Radio.Group>
+        </Form.Item>
+        <Form.Item name="initialMembers" label="初始成员 (本租户账号)">
+          <Select mode="multiple" placeholder="选 1-N 个本池号作为初始成员" showSearch optionFilterProp="phone"
+            filterOption={(input, option: any) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
+            options={accountOptions} />
+        </Form.Item>
+      </>
+    );
+  }
+
+  // ─── GROUP_INVITE_MEMBERS ───────────────────────────────
+  if (t === 'group_invite_members') {
+    return (
+      <>
+        <Form.Item name="inviteTgChatId" label="目标群 ID / 邀请链接" rules={[{ required: true }]}>
+          <Input placeholder="-1001234567890 或 @groupname 或 https://t.me/+xxx" />
+        </Form.Item>
+        <Form.Item name="inviteTargets" label="要邀请的本池账号" rules={[{ required: true }]}
+          extra="一次最多邀请 6 人, 防 TG too many invitations">
+          <Select mode="multiple" placeholder="选 1-6 个账号" showSearch optionFilterProp="phone"
+            filterOption={(input, option: any) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
+            options={accountOptions} />
+        </Form.Item>
+      </>
+    );
+  }
+
+  // ─── GROUP_BUBBLE ───────────────────────────────────────
+  if (t === 'group_bubble') {
+    return (
+      <>
+        <Form.Item name="bubbleTgChatId" label="目标群 ID" rules={[{ required: true }]}>
+          <Input placeholder="-1001234567890 或 @groupname" />
+        </Form.Item>
+        <Form.Item label="冒泡次数 (随机区间)">
+          <Space>
+            <Form.Item name="bubbleCountMin" initialValue={1} noStyle><InputNumber min={1} max={10} /></Form.Item>
+            <span>—</span>
+            <Form.Item name="bubbleCountMax" initialValue={2} noStyle><InputNumber min={1} max={10} /></Form.Item>
+          </Space>
+        </Form.Item>
+        <Form.Item name="bubbleTextPool" label="自定义短句 (可选, 一行一个)" extra="留空 = 用默认池 (👍/了解/收到/好的等)">
+          <Input.TextArea rows={3} placeholder="👍&#10;了解&#10;OK 收到" />
+        </Form.Item>
+      </>
+    );
+  }
+
+  // ─── KEYWORD_LEAD_HUNT ──────────────────────────────────
+  if (t === 'keyword_lead_hunt') {
+    return (
+      <>
+        <Form.Item name="huntKeywords" label="关键词 (一行一个)" rules={[{ required: true }]}
+          extra="例: 外汇 / 加密 / 区块链">
+          <Input.TextArea rows={3} placeholder="外汇&#10;加密货币" />
+        </Form.Item>
+        <Form.Item name="huntMaxGroupsPerDay" label="每天最多加群数" initialValue={2}>
+          <InputNumber min={1} max={5} />
+        </Form.Item>
+        <Form.Item name="huntScrapeDelayHours" label="加群后等多久再爬成员" initialValue={48} extra="48 小时让账号在群里沉淀, 显得自然">
+          <InputNumber min={6} max={168} />
+        </Form.Item>
+        <Form.Item name="huntMaxOutreachPerDay" label="每天最多触达陌生人" initialValue={5}>
+          <InputNumber min={0} max={20} />
+        </Form.Item>
+        <Form.Item name="huntDurationDays" label="任务总持续天数" initialValue={30}>
+          <InputNumber min={7} max={90} />
+        </Form.Item>
+      </>
+    );
+  }
+
+  // ─── GROUP_SCRAPE ───────────────────────────────────────
+  if (t === 'group_scrape') {
+    return (
+      <>
+        <Form.Item name="scrapeTgChatIds" label="目标群 ID 列表 (一行一个)" rules={[{ required: true }]}
+          extra="账号必须已加入这些群">
+          <Input.TextArea rows={4} placeholder="-1001234567890&#10;@some_public_chat" />
+        </Form.Item>
+        <Form.Item name="scrapeMaxPerGroup" label="每群最多爬几人" initialValue={50}>
+          <InputNumber min={10} max={200} />
+        </Form.Item>
+      </>
+    );
+  }
+
+  // ─── CONTACT_ADD ────────────────────────────────────────
+  if (t === 'contact_add') {
+    return (
+      <>
+        <Form.Item name="contactMode" label="目标类型" initialValue="username">
+          <Radio.Group>
+            <Radio value="username">@username</Radio>
+            <Radio value="phone">手机号</Radio>
+          </Radio.Group>
+        </Form.Item>
+        <Form.Item name="contactTargetsText" label="目标列表 (一行一个)" rules={[{ required: true }]}
+          extra="username 模式填 @xxx, phone 模式填 +60xxx">
+          <Input.TextArea rows={4} placeholder="@user1&#10;@user2&#10;@user3" />
+        </Form.Item>
+        <Form.Item name="contactMaxPerDay" label="今天最多加几个" initialValue={5} extra="≤5 安全 (TG 限制), 老号可加大">
+          <InputNumber min={1} max={20} />
+        </Form.Item>
+        <Form.Item name="contactGreeting" label="加完后立即发的开场白 (可选)">
+          <Input.TextArea rows={2} placeholder="您好,我是..." maxLength={500} />
+        </Form.Item>
+      </>
+    );
+  }
+
+  // ─── CAMPAIGN_SINGLE ────────────────────────────────────
+  if (t === 'campaign_single') {
+    return (
+      <>
+        <Form.Item name="campTargetsText" label="目标列表 (一行一个 username 或 +phone)" rules={[{ required: true }]}>
+          <Input.TextArea rows={3} placeholder="@user1&#10;@user2" />
+        </Form.Item>
+        <Form.Item name="campVariantsText" label="文案变体 (一行一条, 至少 3 条)" rules={[{ required: true }]}
+          extra="每条消息从这些变体中随机抽 1 条, 防止内容重复检测">
+          <Input.TextArea rows={4} placeholder="您好, 想跟你聊聊...&#10;Hi, 看到您的资料...&#10;请问您有兴趣..." />
+        </Form.Item>
+        <Form.Item label="每条消息间隔 (秒)">
+          <Space>
+            <Form.Item name="campIntervalMin" initialValue={60} noStyle><InputNumber min={30} max={3600} /></Form.Item>
+            <span>—</span>
+            <Form.Item name="campIntervalMax" initialValue={300} noStyle><InputNumber min={30} max={3600} /></Form.Item>
+          </Space>
+        </Form.Item>
+      </>
+    );
+  }
+
+  // ─── REACTION_BOOST ─────────────────────────────────────
+  if (t === 'reaction_boost') {
+    return (
+      <>
+        <Form.Item name="reactTgChatId" label="目标群/频道 ID" rules={[{ required: true }]}>
+          <Input placeholder="-1001234567890 或 @channel" />
+        </Form.Item>
+        <Form.Item label="点赞次数 (随机区间)">
+          <Space>
+            <Form.Item name="reactCountMin" initialValue={3} noStyle><InputNumber min={1} max={50} /></Form.Item>
+            <span>—</span>
+            <Form.Item name="reactCountMax" initialValue={8} noStyle><InputNumber min={1} max={50} /></Form.Item>
+          </Space>
+        </Form.Item>
+        <Form.Item name="reactEmojiPool" label="emoji 池 (留空用默认)" extra="一行一个 emoji">
+          <Input.TextArea rows={2} placeholder="👍&#10;❤️&#10;🔥" />
+        </Form.Item>
+      </>
+    );
+  }
+
+  // ─── BROWSE_CHANNEL ─────────────────────────────────────
+  if (t === 'browse_channel') {
+    return (
+      <>
+        <Form.Item name="browseChannels" label="频道列表 (一行一个)" rules={[{ required: true }]}>
+          <Input.TextArea rows={3} placeholder="@telegram&#10;@durov" />
+        </Form.Item>
+        <Form.Item label="每个频道停留 (秒, 模拟阅读)">
+          <Space>
+            <Form.Item name="browseDurMin" initialValue={20} noStyle><InputNumber min={5} max={600} /></Form.Item>
+            <span>—</span>
+            <Form.Item name="browseDurMax" initialValue={90} noStyle><InputNumber min={5} max={600} /></Form.Item>
+          </Space>
+        </Form.Item>
+      </>
+    );
+  }
+
+  // ─── PROFILE_UPDATE ─────────────────────────────────────
+  if (t === 'profile_update') {
+    return (
+      <>
+        <Form.Item label="说明">
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            填一项或多项 — 留空字段不会改动。一次只改一项更像真人。
+          </Text>
+        </Form.Item>
+        <Form.Item name="profileFirstName" label="新昵称 (姓)">
+          <Input maxLength={64} />
+        </Form.Item>
+        <Form.Item name="profileLastName" label="新昵称 (名)">
+          <Input maxLength={64} />
+        </Form.Item>
+        <Form.Item name="profileBio" label="新签名 (bio)">
+          <Input.TextArea rows={2} maxLength={70} placeholder="热爱生活 · 分享日常 ✨" />
+        </Form.Item>
+      </>
+    );
+  }
+
+  // ─── IDLE_KEEPALIVE ─────────────────────────────────────
+  if (t === 'idle_keepalive') {
+    return (
+      <Form.Item label="说明">
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          保活: 让账号在 TG 显示一次「最近活跃」状态。无需配置, 直接「确定」即可。
+        </Text>
+      </Form.Item>
+    );
+  }
+
+  // 默认: 不需要额外字段
+  return null;
 }
 
 // ─── 媒体任务表单 (media_*/post_channel) ────────────────────────
