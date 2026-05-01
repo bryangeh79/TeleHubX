@@ -467,7 +467,7 @@ export default function SchedulerPage() {
     {
       title: '任务 ID', key: 'shortId', width: 80,
       render: (_, row) => (
-        <Text code style={{ fontSize: 12 }}>#{row.seq ?? row.id.slice(0, 6)}</Text>
+        <Text code>#{row.seq ?? row.id.slice(0, 6)}</Text>
       ),
     },
     {

@@ -299,8 +299,14 @@ export async function postChannel(ctx: ExecutorCtx): Promise<void> {
   // 兼容两套字段名: targetId/content 或 channelId/text (历史)
   const targetId = (ctx.payload.targetId ?? ctx.payload.channelId) as string;
   const content = (ctx.payload.caption ?? ctx.payload.content ?? '') as string;
-  const { assetId, poolName } = ctx.payload as { assetId?: string; poolName?: string };
+  const { assetId, poolName, targetAccountId } = ctx.payload as { assetId?: string; poolName?: string; targetAccountId?: string };
   if (!targetId) throw new Error('payload.targetId / channelId 必填');
+
+  // 内池号接收: 先 import contact
+  const isPhoneTarget = targetAccountId && /^\+?\d{6,}$/.test(targetId);
+  if (isPhoneTarget) {
+    await tryImportContact(ctx.client, targetId);
+  }
 
   const entity = await ctx.client.getEntity(targetId);
   await ctx.reportProgress?.(20);
@@ -546,11 +552,18 @@ async function mediaSendImpl(
   ctx: ExecutorCtx,
   defaultCategory: 'photo' | 'video' | 'voice',
 ): Promise<void> {
-  const { targetId, poolName, caption, assetId } = ctx.payload as {
+  const { targetId, poolName, caption, assetId, targetAccountId } = ctx.payload as {
     targetId: string; poolName?: string; caption?: string; assetId?: string;
+    targetAccountId?: string;
   };
   const category = (ctx.payload.category as string) ?? defaultCategory;
   if (!targetId) throw new Error('payload.targetId 必填');
+
+  // 内池号接收 (server 注入了 phoneNumber 作为 targetId): 先 import contact, 否则 getEntity 会失败/超时
+  const isPhoneTarget = targetAccountId && /^\+?\d{6,}$/.test(targetId);
+  if (isPhoneTarget) {
+    await tryImportContact(ctx.client, targetId);
+  }
 
   // 优先 assetId (用户在前端指定了具体素材); 否则按 poolName/category 随机抽
   const asset = assetId
