@@ -70,6 +70,7 @@ function TenantAiModal({
   }, [open, tenantId, form]);
 
   const handleSave = async () => {
+    if (!tenantId) { antdMessage.error('租户 ID 未加载，请刷新页面'); return; }
     let values: any;
     try { values = await form.validateFields(); } catch { return; }
     setSaving(true);
@@ -93,6 +94,7 @@ function TenantAiModal({
   };
 
   const handleClear = async () => {
+    if (!tenantId) return;
     setSaving(true);
     try {
       await tenantsApi.updateSettings(tenantId, {
@@ -327,11 +329,11 @@ function MarketingPromptModal({
 export default function AiSettingsPage() {
   const user = getCurrentUser();
   const isSuperAdmin = user.role === 'SUPER_ADMIN';
-  const tenantId = localStorage.getItem('telehubx:tenantId') ?? 'default';
 
   const [info, setInfo] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [tenantAi, setTenantAi] = useState<any>(null);
+  const [tenantId, setTenantId] = useState<string>('');
 
   // Modals
   const [tenantModalOpen, setTenantModalOpen] = useState(false);
@@ -346,9 +348,16 @@ export default function AiSettingsPage() {
   const loadInfo = useCallback(async () => {
     setLoading(true);
     try {
+      // 先拿真实 tenant UUID，再并行加载 AI info + settings
+      const defaultTenant = await tenantsApi.getDefault();
+      const realTenantId: string = defaultTenant.data?.id ?? '';
+      if (realTenantId) setTenantId(realTenantId);
+
       const [infoRes, settingsRes] = await Promise.all([
         aiApi.info(),
-        tenantsApi.getSettings(tenantId).catch(() => ({ data: null })),
+        realTenantId
+          ? tenantsApi.getSettings(realTenantId).catch(() => ({ data: null }))
+          : Promise.resolve({ data: null }),
       ]);
       setInfo(infoRes.data ?? null);
       setTenantAi(settingsRes.data);
@@ -357,7 +366,7 @@ export default function AiSettingsPage() {
     } finally {
       setLoading(false);
     }
-  }, [tenantId]);
+  }, []);
 
   useEffect(() => { void loadInfo(); }, [loadInfo]);
 
