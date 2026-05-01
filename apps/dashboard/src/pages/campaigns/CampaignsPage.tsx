@@ -9,7 +9,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { campaignsApi } from '../../services/api';
+import { campaignsApi, tenantsApi } from '../../services/api';
 import CampaignWizard from './CampaignWizard';
 import AdTemplateDrawer from './AdTemplateDrawer';
 import GreetingDrawer from './GreetingDrawer';
@@ -61,7 +61,13 @@ export default function CampaignsPage() {
   const [editId, setEditId] = useState<string | undefined>();
   const [adDrawerOpen, setAdDrawerOpen] = useState(false);
   const [greetingDrawerOpen, setGreetingDrawerOpen] = useState(false);
-  const tenantId = localStorage.getItem('telehubx:tenantId') ?? 'default';
+  const [tenantId, setTenantId] = useState<string>('');
+
+  useEffect(() => {
+    tenantsApi.getDefault().then(r => {
+      if (r.data?.id) setTenantId(r.data.id);
+    }).catch(() => {});
+  }, []);
 
   const reload = useCallback(async () => {
     setLoading(true);

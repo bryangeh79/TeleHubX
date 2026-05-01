@@ -8,7 +8,7 @@ import {
   ThunderboltOutlined, PlusCircleOutlined, UploadOutlined, CloseCircleOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { adTemplatesApi, assetsApi } from '../../services/api';
+import { adTemplatesApi, assetsApi, tenantsApi } from '../../services/api';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
