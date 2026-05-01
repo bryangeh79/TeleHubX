@@ -66,13 +66,14 @@ type TaskType =
 
 interface Task {
   id: string;
+  seq?: number | string | null;
   tenantId: string | null;
   name: string;
   type: TaskType;
   status: TaskStatus;
   accountId: string | null;
   accountLabel: string | null;
-  payload: Record<string, unknown> | null;
+  payload: Record<string, any> | null;
   scheduledAt: string;
   startedAt: string | null;
   finishedAt: string | null;
@@ -464,9 +465,9 @@ export default function SchedulerPage() {
 
   const columns: ColumnsType<Task> = [
     {
-      title: '任务 ID', key: 'shortId', width: 90,
+      title: '任务 ID', key: 'shortId', width: 80,
       render: (_, row) => (
-        <Text code style={{ fontSize: 12 }}>#{row.id.slice(0, 6)}</Text>
+        <Text code style={{ fontSize: 12 }}>#{row.seq ?? row.id.slice(0, 6)}</Text>
       ),
     },
     {
@@ -723,8 +724,9 @@ export default function SchedulerPage() {
       >
         {logTask && (
           <Descriptions column={1} size="small" bordered>
+            <Descriptions.Item label="任务编号">#{logTask.seq ?? logTask.id.slice(0, 6)}</Descriptions.Item>
             <Descriptions.Item label="任务名">{logTask.name}</Descriptions.Item>
-            <Descriptions.Item label="类型">
+            <Descriptions.Item label="任务类型">
               <Tag color={TASK_TYPE_LABELS[logTask.type]?.color}>
                 {TASK_TYPE_LABELS[logTask.type]?.icon} {TASK_TYPE_LABELS[logTask.type]?.label}
               </Tag>
@@ -746,16 +748,12 @@ export default function SchedulerPage() {
               <Descriptions.Item label="结束时间">{dayjs(logTask.finishedAt).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
             )}
             {logTask.errorMsg && (
-              <Descriptions.Item label="错误">
-                <Text type="danger" style={{ fontSize: 12, fontFamily: 'monospace' }}>{logTask.errorMsg}</Text>
+              <Descriptions.Item label="错误信息">
+                <Text type="danger" style={{ fontSize: 13 }}>{humanizeError(logTask.errorMsg)}</Text>
               </Descriptions.Item>
             )}
             {logTask.payload && Object.keys(logTask.payload).length > 0 && (
-              <Descriptions.Item label="payload">
-                <pre style={{ margin: 0, fontSize: 11, background: '#fafafa', padding: 8, borderRadius: 4, maxHeight: 200, overflow: 'auto' }}>
-                  {JSON.stringify(logTask.payload, null, 2)}
-                </pre>
-              </Descriptions.Item>
+              renderPayloadAsKv(logTask.type, logTask.payload, accountSlotMap, accountOptions)
             )}
           </Descriptions>
         )}
@@ -947,6 +945,126 @@ export default function SchedulerPage() {
       </Modal>
     </div>
   );
+}
+
+// ─── 任务详情人话化辅助函数 ────────────────────────────────────
+
+/** 把后端常见技术错误翻译成人话 */
+function humanizeError(msg: string): string {
+  if (!msg) return '';
+  const m = msg.toLowerCase();
+  if (m.includes('cancelled by user')) return '租户主动取消';
+  if (m.includes('cancelled (bulk stop)')) return '一键终止时被取消';
+  if (m.includes('floodwait') || m.includes('a wait of')) {
+    const sec = /(\d+)\s*seconds/.exec(msg)?.[1];
+    return `Telegram 限流，需要等待 ${sec ?? '?'} 秒后才能再发`;
+  }
+  if (m.includes('peer_id_invalid')) return '找不到对方账号 — 可能没互加联系人或对方禁用了通过手机号查找';
+  if (m.includes('user_privacy_restricted')) return '对方设了隐私限制，无法添加为联系人';
+  if (m.includes('username_invalid') || m.includes('username_not_occupied')) return '用户名不存在或无效';
+  if (m.includes('chat_admin_required')) return '需要群管理员权限才能执行此操作';
+  if (m.includes('participants_forbidden')) return '群组禁止查看成员';
+  if (m.includes('flood')) return 'Telegram 短期限流';
+  return msg;  // 兜底返回原文
+}
+
+/** 角色映射: 'A' / 'B' / 'C' / 'D' → 用户能看懂的标签 */
+function lookupAccount(
+  accountId: string | undefined,
+  accountSlotMap: Map<string, number>,
+  accountOptions: Array<{ value: string; phone: string }>,
+): string {
+  if (!accountId) return '—';
+  const opt = accountOptions.find((o) => o.value === accountId);
+  const phone = opt?.phone ?? '未知账号';
+  const slot = accountSlotMap.get(accountId);
+  return slot != null ? `#${String(slot).padStart(2, '0')} · ${phone}` : phone;
+}
+
+/** 把 payload 渲染成多个 Descriptions.Item — 按 task type 分支说人话 */
+function renderPayloadAsKv(
+  type: string,
+  payload: any,
+  accountSlotMap: Map<string, number>,
+  accountOptions: Array<{ value: string; phone: string; label: React.ReactNode }>,
+): React.ReactNode {
+  const items: Array<[string, React.ReactNode]> = [];
+
+  // chat_script_ab / 4p
+  if (type === 'chat_script_ab' || type === 'chat_script_4p') {
+    if (payload.accountAId) items.push(['角色 A (发起方)', lookupAccount(payload.accountAId, accountSlotMap, accountOptions)]);
+    if (payload.accountBId) items.push(['角色 B (回应方)', lookupAccount(payload.accountBId, accountSlotMap, accountOptions)]);
+    if (payload.accountCId) items.push(['角色 C', lookupAccount(payload.accountCId, accountSlotMap, accountOptions)]);
+    if (payload.accountDId) items.push(['角色 D', lookupAccount(payload.accountDId, accountSlotMap, accountOptions)]);
+    if (payload.chatMode) {
+      items.push(['对话场景', payload.chatMode === 'group'
+        ? <Tag color="cyan">👥 群聊</Tag>
+        : <Tag color="green">💬 私聊</Tag>]);
+    }
+    if (payload.tgChatId) items.push(['目标群', <Text code>{payload.tgChatId}</Text>]);
+    if (payload.packId) items.push(['剧本包', <Tag color="purple">{payload.packId}</Tag>]);
+    if (payload.scriptId) items.push(['指定剧本 ID', <Text code>{String(payload.scriptId).slice(0, 8)}</Text>]);
+    if (payload.aiOptimize) items.push(['AI 优化', <Tag color="gold">✨ 已开启</Tag>]);
+  }
+  // media_*/post_channel
+  else if (type === 'media_photo' || type === 'media_video' || type === 'media_voice' || type === 'post_channel') {
+    if (payload.targetAccountId) {
+      items.push(['接收方', <span><Tag color="green">👤 内池号</Tag>{lookupAccount(payload.targetAccountId, accountSlotMap, accountOptions)}</span>]);
+    } else if (payload.targetId) {
+      items.push(['接收方', <span><Tag color="blue">🌐 外部</Tag><Text code>{payload.targetId}</Text></span>]);
+    }
+    if (payload.assetId) {
+      items.push(['素材', <Tag color="orange">📌 指定具体一条 (id: {String(payload.assetId).slice(0, 8)})</Tag>]);
+    } else if (payload.poolName) {
+      items.push(['素材', <Tag color="orange">🎲 从 pool {payload.poolName.replace('_builtin_', '')} 随机抽</Tag>]);
+    } else {
+      items.push(['素材', <Tag color="orange">🎲 完全随机抽 (按类别)</Tag>]);
+    }
+    if (payload.caption) items.push(['文案', <Text>{payload.caption}</Text>]);
+  }
+  // contact_add / campaign_single 简化
+  else if (type === 'contact_add' || type === 'campaign_single') {
+    if (Array.isArray(payload.targets)) items.push(['触达人数', <Tag>{payload.targets.length} 人</Tag>]);
+    if (payload.greetingText) items.push(['开场白', <Text italic>"{payload.greetingText}"</Text>]);
+    if (Array.isArray(payload.variants)) items.push(['文案变体数', <Tag>{payload.variants.length} 条</Tag>]);
+    if (Array.isArray(payload.intervalSec)) items.push(['每条间隔', `${payload.intervalSec[0]}–${payload.intervalSec[1]} 秒`]);
+  }
+  // group_scrape
+  else if (type === 'group_scrape') {
+    if (Array.isArray(payload.tgChatIds)) items.push(['爬取群数', <Tag>{payload.tgChatIds.length} 个</Tag>]);
+    if (payload.maxScrapePerGroup) items.push(['每群上限', `${payload.maxScrapePerGroup} 人`]);
+  }
+  // join_groups / join_channels
+  else if (type === 'join_groups' || type === 'join_channels') {
+    const all = [...(payload.inviteLinks ?? []), ...(payload.chatIds ?? []), ...(payload.channels ?? [])];
+    if (all.length) items.push(['加入目标', <Tag>{all.length} 个群/频道</Tag>]);
+  }
+  // browse_channel / reaction_boost / group_bubble
+  else if (type === 'browse_channel') {
+    if (Array.isArray(payload.channels)) items.push(['浏览频道数', <Tag>{payload.channels.length} 个</Tag>]);
+    if (Array.isArray(payload.readDurationSec)) items.push(['每个停留', `${payload.readDurationSec[0]}–${payload.readDurationSec[1]} 秒`]);
+  }
+  else if (type === 'reaction_boost' || type === 'group_bubble') {
+    if (payload.tgChatId) items.push(['目标群', <Text code>{payload.tgChatId}</Text>]);
+    if (Array.isArray(payload.count)) items.push(['次数', `${payload.count[0]}–${payload.count[1]} 次`]);
+  }
+  // profile_update
+  else if (type === 'profile_update') {
+    if (payload.firstName) items.push(['新昵称 (姓)', <Text>{payload.firstName}</Text>]);
+    if (payload.lastName) items.push(['新昵称 (名)', <Text>{payload.lastName}</Text>]);
+    if (payload.bio) items.push(['新签名', <Text>"{payload.bio}"</Text>]);
+    if (payload.photoPath) items.push(['新头像', <Text type="secondary">已设置</Text>]);
+  }
+  // 其他类型 — 没有专属人话渲染时，显示「无额外参数」
+  else {
+    if (Object.keys(payload).length > 0) {
+      items.push(['参数', <Text type="secondary">（此任务类型无额外可读参数）</Text>]);
+    }
+  }
+
+  return items.map(([k, v], i) => (
+    <Descriptions.Item key={i} label={k}>{v}</Descriptions.Item>
+  ));
 }
 
 // ─── 媒体任务表单 (media_*/post_channel) ────────────────────────

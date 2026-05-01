@@ -68,7 +68,7 @@ export class TasksService {
     if (filters.status) where.status = filters.status;
     if (filters.type) where.type = filters.type;
     if (filters.tenantId) where.tenantId = filters.tenantId;
-    return this.repo.find({ where, order: { scheduledAt: 'ASC' }, take: 500 });
+    return this.repo.find({ where, order: { createdAt: 'DESC' }, take: 500 });
   }
 
   async findOne(id: string): Promise<Task> {

@@ -95,6 +95,13 @@ export class Task {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  /**
+   * 短序号 #1 #2 #3 — 比 UUID slice 友好得多, 给用户看用.
+   * BIGSERIAL 自增 (PG sequence), 跨租户全局递增, 但只是展示用不参与业务唯一性.
+   */
+  @Column({ type: 'bigint', generated: 'increment', insert: false, update: false, nullable: true })
+  seq: number;
+
   @Column({ type: 'uuid', nullable: true })
   tenantId: string | null;
 
