@@ -11,7 +11,7 @@ import {
 import dayjs from 'dayjs';
 import {
   adTemplatesApi, campaignsApi, customerGroupsApi,
-  greetingTemplatesApi, slotsApi,
+  greetingTemplatesApi, slotsApi, tenantsApi,
 } from '../../services/api';
 
 const { Title, Text } = Typography;
@@ -688,15 +688,23 @@ export default function CampaignWizard({ open, editId, onClose, onSuccess }: Pro
   const [capacityLoading, setCapacityLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const tenantId = localStorage.getItem('telehubx:tenantId') ?? 'default';
+  const [tenantId, setTenantId] = useState<string>('');
 
   const onChange = useCallback((patch: Partial<WizardState>) => {
     setState(prev => ({ ...prev, ...patch }));
   }, []);
 
-  // Load reference data
+  // 加载真实 tenant UUID
   useEffect(() => {
     if (!open) return;
+    tenantsApi.getDefault()
+      .then(r => { if (r.data?.id) setTenantId(r.data.id); })
+      .catch(() => {});
+  }, [open]);
+
+  // Load reference data after tenantId is ready
+  useEffect(() => {
+    if (!open || !tenantId) return;
     Promise.all([
       customerGroupsApi.list(tenantId),
       adTemplatesApi.list(tenantId),
