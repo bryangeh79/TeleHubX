@@ -1,4 +1,13 @@
-import { IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import {
+  IsArray, IsBoolean, IsInt, IsOptional, IsString, IsUUID,
+  Max, Min, ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+
+class GreetingVariantDto {
+  @IsString()
+  text: string;
+}
 
 export class UpdateGreetingTemplateDto {
   @IsOptional()
@@ -18,4 +27,14 @@ export class UpdateGreetingTemplateDto {
   @Min(1)
   @Max(10)
   aiScore?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  aiVariantEnabled?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => GreetingVariantDto)
+  variants?: GreetingVariantDto[];
 }

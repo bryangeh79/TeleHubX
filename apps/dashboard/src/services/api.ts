@@ -109,6 +109,8 @@ export const greetingTemplatesApi = {
   update: (id: string, data: any) => api.patch(`/greeting-templates/${id}`, data),
   delete: (id: string) => api.delete(`/greeting-templates/${id}`),
   score: (id: string) => api.post(`/greeting-templates/${id}/score`, {}, { timeout: 30000 }),
+  generateVariants: (id: string) => api.post(`/greeting-templates/${id}/generate-variants`, {}, { timeout: 90000 }),
+  seedDefaults: (tenantId: string) => api.post(`/greeting-templates/seed-defaults`, {}, { params: { tenantId } }),
 };
 
 export const takeoverApi = {

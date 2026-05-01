@@ -32,4 +32,18 @@ export class GreetingTemplatesController {
   @Post(':id/score')
   @HttpCode(HttpStatus.OK)
   score(@Param('id', ParseUUIDPipe) id: string) { return this.service.scoreGreeting(id); }
+
+  /** 生成开场白变体 */
+  @Post(':id/generate-variants')
+  @HttpCode(HttpStatus.OK)
+  generateVariants(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.generateVariants(id);
+  }
+
+  /** 一键导入 18 条默认样本（6 类各 3 条） */
+  @Post('seed-defaults')
+  @HttpCode(HttpStatus.OK)
+  seedDefaults(@Query('tenantId', ParseUUIDPipe) tenantId: string) {
+    return this.service.seedDefaults(tenantId);
+  }
 }

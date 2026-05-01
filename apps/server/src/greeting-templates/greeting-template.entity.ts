@@ -29,6 +29,13 @@ export class GreetingTemplate {
   @Column({ type: 'int', default: 0 })
   aiVariantCount: number;
 
+  /** AI-generated variants: array of { text } */
+  @Column({ type: 'jsonb', nullable: true })
+  variants: Array<{ text: string }>;
+
+  @Column({ default: false })
+  aiVariantEnabled: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 
