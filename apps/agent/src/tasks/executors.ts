@@ -581,17 +581,15 @@ export async function joinGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
       );
       const chats = res.chats ?? [];
       for (const c of chats) {
-        // 过滤: 必须是 megagroup (channel.megagroup=true) 或 basic chat
+        // 过滤: 必须是 megagroup OR basic chat OR 公开 channel (broadcast 也可能有用)
         const isMega = c.megagroup === true;
         const isBasic = c.className === 'Chat';
-        if (!isMega && !isBasic) continue;
-        // 排除 frozen/deactivated
-        if (c.deactivated || c.kicked || c.left === false && (c as any).joinDate) {
-          // 如果已经在群里, 跳过
-          // 简化: 不严格判断 left 状态, 让 JoinChannel 自己处理 ALREADY_PARTICIPANT
-        }
-        const members = (c.participantsCount as number) ?? 0;
-        if (members < minMembers) continue;
+        const isBroadcast = c.broadcast === true;
+        if (!isMega && !isBasic && !isBroadcast) continue;
+        if (c.deactivated || c.kicked) continue;
+        // contacts.Search 经常不返回 participantsCount (未加入群拿不到), 默认放行
+        const members = (c.participantsCount as number) ?? -1;
+        if (members >= 0 && members < minMembers) continue;
         const username = (c.username as string | undefined)?.toLowerCase();
         if (username && skipUsernames.has(username)) continue;
         candidates.push({
@@ -612,10 +610,10 @@ export async function joinGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
   }
 
   if (!candidates.length) {
-    throw new Error(`关键词 [${keywords.join(', ')}] 没搜到 ≥ ${minMembers} 成员的群`);
+    throw new Error(`关键词 [${keywords.join(', ')}] 在 TG 公开搜索里没匹配的群. 建议: 试英文关键词 (forex/crypto), 或者直接在「指定群」字段填具体群 id`);
   }
 
-  // 按成员数降序, 取前 maxPerDay
+  // 按成员数降序 (未知 -1 排最后), 取前 maxPerDay
   candidates.sort((a, b) => b.members - a.members);
   const toJoin = candidates.slice(0, maxPerDay);
 

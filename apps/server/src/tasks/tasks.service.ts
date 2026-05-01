@@ -237,7 +237,7 @@ export class TasksService {
           type: TaskType.JOIN_GROUPS_BY_KEYWORD,
           scheduledAt: randomDayTime(start, day, 10, 14),
           name: `${baseName} · D${lbl} · 关键词搜群`,
-          payload: { keywords, minMembers: 100, maxPerDay: 1 },
+          payload: { keywords, minMembers: 50, maxPerDay: 1 },
         });
       } else {
         out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, day, 10, 14), name: `${baseName} · D${lbl} · 多频道浏览 (无 keywords)`, payload: { channels: channels.slice(0, 2), readDurationSec: [40, 120] } });
@@ -379,7 +379,7 @@ export class TasksService {
           type: TaskType.JOIN_GROUPS_BY_KEYWORD,
           scheduledAt: randomDayTime(start, day, 10, 16),
           name: `${baseName} · D${day + 1} · 搜词加群`,
-          payload: { keywords, minMembers: 100, maxPerDay: groupsPerDay },
+          payload: { keywords, minMembers: 50, maxPerDay: groupsPerDay },
         });
       }
 
