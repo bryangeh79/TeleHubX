@@ -33,6 +33,10 @@ export class CreateCampaignDto {
   @IsEnum(CampaignType)
   type?: CampaignType;
 
+  @IsOptional()
+  @IsString()
+  status?: string;
+
   // Targeting
   @IsOptional()
   @IsArray()

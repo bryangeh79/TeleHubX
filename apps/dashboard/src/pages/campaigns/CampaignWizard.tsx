@@ -811,7 +811,7 @@ export default function CampaignWizard({ open, editId, onClose, onSuccess }: Pro
   const handleSaveDraft = async () => {
     setSubmitting(true);
     try {
-      const payload = { ...buildPayload(), status: 'draft' };
+      const payload = buildPayload();
       if (editId) {
         await campaignsApi.update(editId, payload);
       } else {
@@ -829,7 +829,7 @@ export default function CampaignWizard({ open, editId, onClose, onSuccess }: Pro
   const doLaunch = async () => {
     setSubmitting(true);
     try {
-      const payload = { ...buildPayload(), status: 'running' };
+      const payload = buildPayload();
       let id = editId;
       if (id) {
         await campaignsApi.update(id, payload);
@@ -837,11 +837,22 @@ export default function CampaignWizard({ open, editId, onClose, onSuccess }: Pro
         const res = await campaignsApi.create(payload);
         id = res.data.id;
       }
-      if (id) await campaignsApi.send(id);
-      antdMessage.success('已开始投放！');
+      // /send 接口会自动把 status 改 running 并跑 dispatch
+      if (id) {
+        const sendRes = await campaignsApi.send(id);
+        const { tasksCreated, days, accountsUsed } = sendRes.data ?? {};
+        antdMessage.success(
+          `✓ 已开始投放！${tasksCreated ? ` 生成 ${tasksCreated} 个任务` : ''}` +
+          `${accountsUsed ? ` · ${accountsUsed} 个号` : ''}` +
+          `${days && days > 1 ? ` · 跨 ${days} 天` : ''}`,
+        );
+      } else {
+        antdMessage.success('已开始投放！');
+      }
       onSuccess();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '启动失败');
+      const msg = err?.response?.data?.message;
+      antdMessage.error(Array.isArray(msg) ? msg.join('; ') : msg ?? '启动失败');
     } finally {
       setSubmitting(false);
     }
