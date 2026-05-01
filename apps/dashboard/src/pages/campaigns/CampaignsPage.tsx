@@ -62,7 +62,7 @@ export default function CampaignsPage() {
       const res = await campaignsApi.list();
       setCampaigns(Array.isArray(res.data) ? res.data : []);
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? 'Failed to load campaigns');
+      antdMessage.error(err?.response?.data?.message ?? '加载失败');
     } finally {
       setLoading(false);
     }
@@ -75,10 +75,10 @@ export default function CampaignsPage() {
   const handleDelete = async (c: ApiCampaign) => {
     try {
       await campaignsApi.delete(c.id);
-      antdMessage.success(`Deleted "${c.name}"`);
+      antdMessage.success(`已删除「${c.name}」`);
       await reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? 'Delete failed');
+      antdMessage.error(err?.response?.data?.message ?? '删除失败');
     }
   };
 
@@ -86,17 +86,29 @@ export default function CampaignsPage() {
     try {
       const res = await campaignsApi.send(c.id);
       const targets = res.data?.targets ?? 0;
-      antdMessage.success(`Campaign queued — ${targets} target(s)`);
+      antdMessage.success(`已入队 — ${targets} 个目标`);
       await reload();
     } catch (err: any) {
       const msg = err?.response?.data?.message;
-      antdMessage.error(Array.isArray(msg) ? msg.join('; ') : msg ?? 'Send failed');
+      antdMessage.error(Array.isArray(msg) ? msg.join('; ') : msg ?? '发送失败');
     }
+  };
+
+  const STATUS_TEXT: Record<CampaignStatus, string> = {
+    draft:     '草稿',
+    scheduled: '已排期',
+    running:   '运行中',
+    paused:    '已暂停',
+    completed: '已完成',
+  };
+  const TYPE_TEXT: Record<CampaignType, string> = {
+    broadcast:  '群发',
+    sequential: '顺序',
   };
 
   const columns: ColumnsType<ApiCampaign> = [
     {
-      title: 'Name',
+      title: '名称',
       dataIndex: 'name',
       key: 'name',
       render: (v: string, r) => (
@@ -111,66 +123,66 @@ export default function CampaignsPage() {
       ),
     },
     {
-      title: 'Type',
+      title: '类型',
       dataIndex: 'type',
       key: 'type',
       width: 110,
       render: (t: CampaignType) => (
-        <Tag color={t === 'broadcast' ? 'blue' : 'purple'}>{t.toUpperCase()}</Tag>
+        <Tag color={t === 'broadcast' ? 'blue' : 'purple'}>{TYPE_TEXT[t] ?? t}</Tag>
       ),
     },
     {
-      title: 'Status',
+      title: '状态',
       dataIndex: 'status',
       key: 'status',
       width: 110,
-      render: (s: CampaignStatus) => <Badge status={STATUS_BADGE[s]} text={s} />,
+      render: (s: CampaignStatus) => <Badge status={STATUS_BADGE[s]} text={STATUS_TEXT[s] ?? s} />,
     },
     {
-      title: 'Targets',
+      title: '目标数',
       key: 'targets',
       width: 80,
       align: 'center',
       render: (_, r) => r.targets?.length ?? 0,
     },
     {
-      title: 'Variants',
+      title: '文案变体',
       key: 'variants',
       width: 80,
       align: 'center',
       render: (_, r) => r.messageVariants?.length ?? 0,
     },
     {
-      title: 'Progress',
+      title: '进度',
       key: 'progress',
       width: 180,
       render: (_, r) => {
         const total = r.targets?.length ?? 0;
-        if (total === 0) return <Tag>No targets</Tag>;
+        if (total === 0) return <Tag>无目标</Tag>;
         const pct = Math.round((r.sentCount / total) * 100);
         return (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
-              <span>{r.sentCount} sent</span>
-              <span>{total} target</span>
+              <span>已发 {r.sentCount}</span>
+              <span>共 {total}</span>
             </div>
             <Progress percent={pct} size="small" showInfo={false} />
             <Text type="secondary" style={{ fontSize: 11 }}>
-              {r.replyCount} replies
+              {r.replyCount} 条回复
             </Text>
           </div>
         );
       },
     },
     {
-      title: 'Created',
+      title: '创建时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 110,
       render: (v: string) => dayjs(v).format('YYYY-MM-DD'),
     },
     {
-      title: 'Actions',
+      title: '操作',
       key: 'actions',
       width: 200,
       render: (_, record) => {
@@ -178,14 +190,14 @@ export default function CampaignsPage() {
         return (
           <Space size={4}>
             {canSend && (record.targets?.length ?? 0) > 0 && (
-              <Tooltip title="Queue this campaign for dispatch">
+              <Tooltip title="把这条广告排进发送队列">
                 <Button
                   size="small"
                   type="primary"
                   icon={<SendOutlined />}
                   onClick={() => handleSend(record)}
                 >
-                  Send
+                  发送
                 </Button>
               </Tooltip>
             )}
@@ -195,9 +207,10 @@ export default function CampaignsPage() {
               onClick={() => navigate(`/campaigns/${record.id}/edit`)}
             />
             <Popconfirm
-              title={`Delete "${record.name}"?`}
+              title={`删除「${record.name}」?`}
               onConfirm={() => handleDelete(record)}
-              okText="Delete"
+              okText="删除"
+              cancelText="取消"
               okButtonProps={{ danger: true }}
             >
               <Button size="small" danger icon={<DeleteOutlined />} />
