@@ -720,19 +720,21 @@ async function chatScriptImpl(
 
 async function tryImportContact(client: TelegramClient, phone: string): Promise<void> {
   try {
+    // 用对方手机号自身作为 firstName, 避免污染联系人列表
+    // (之前用 "TeleHubX Peer" 造成 2 个号在 TG 联系人/聊天 header 显示 "TeleHubX Peer")
     await client.invoke(
       new Api.contacts.ImportContacts({
         contacts: [
           new Api.InputPhoneContact({
             clientId: BigInt(Date.now()) as any,
             phone,
-            firstName: 'TeleHubX',
-            lastName: 'Peer',
+            firstName: phone,
+            lastName: '',
           }),
         ],
       }),
     );
-    await sleep(gaussianDelayMs(2_000, 5_000));
+    await sleep(gaussianDelayMs(1_500, 3_500));
   } catch {
     // 已是联系人 / 隐私限制 / FloodWait — 都不阻塞，让下面 getEntity 决定
   }
