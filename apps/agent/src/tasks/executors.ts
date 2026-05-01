@@ -3,6 +3,7 @@ import { CustomFile } from 'telegram/client/uploads';
 import { gaussianDelayMs, sendMessageLikeHuman, simulateReading, sleep } from './behavior-simulator';
 import {
   bulkUpsertCandidates,
+  fetchAssetById,
   fetchAssetFile,
   markCandidateContacted,
   pickRandomAsset,
@@ -295,23 +296,35 @@ export async function profileUpdate(ctx: ExecutorCtx): Promise<void> {
  * payload: { channelId: string, content: string, mediaPath?: string }
  */
 export async function postChannel(ctx: ExecutorCtx): Promise<void> {
-  const { channelId, content, mediaPath } = ctx.payload as {
-    channelId: string; content: string; mediaPath?: string;
-  };
-  if (!channelId) throw new Error('payload.channelId 必填');
-  if (!content && !mediaPath) throw new Error('payload.content 或 mediaPath 至少一个');
+  // 兼容两套字段名: targetId/content 或 channelId/text (历史)
+  const targetId = (ctx.payload.targetId ?? ctx.payload.channelId) as string;
+  const content = (ctx.payload.caption ?? ctx.payload.content ?? '') as string;
+  const { assetId, poolName } = ctx.payload as { assetId?: string; poolName?: string };
+  if (!targetId) throw new Error('payload.targetId / channelId 必填');
 
-  const entity = await ctx.client.getEntity(channelId);
+  const entity = await ctx.client.getEntity(targetId);
   await ctx.reportProgress?.(20);
 
-  if (mediaPath) {
-    await ctx.client.sendFile(entity, {
-      file: mediaPath,
-      caption: content,
-      forceDocument: false,
-    });
-  } else {
+  // 如果指定了 assetId 或 poolName, 拉素材附带发出
+  let asset = null;
+  if (assetId) {
+    asset = await fetchAssetById(assetId);
+  } else if (poolName) {
+    asset = await pickRandomAsset({ poolName, tenantId: ctx.tenantId });
+  }
+
+  if (asset) {
+    const buf = await fetchAssetFile(asset.id);
+    if (buf) {
+      const file = new CustomFile(asset.fileName, buf.length, '', buf);
+      await ctx.client.sendFile(entity, { file, caption: content, forceDocument: false });
+    } else if (content) {
+      await sendMessageLikeHuman(ctx.client, entity, content);
+    }
+  } else if (content) {
     await sendMessageLikeHuman(ctx.client, entity, content);
+  } else {
+    throw new Error('payload.caption / content 或 assetId / poolName 至少一个');
   }
   await ctx.reportProgress?.(100);
 }
@@ -533,18 +546,17 @@ async function mediaSendImpl(
   ctx: ExecutorCtx,
   defaultCategory: 'photo' | 'video' | 'voice',
 ): Promise<void> {
-  const { targetId, poolName, caption } = ctx.payload as {
-    targetId: string; poolName?: string; caption?: string;
+  const { targetId, poolName, caption, assetId } = ctx.payload as {
+    targetId: string; poolName?: string; caption?: string; assetId?: string;
   };
   const category = (ctx.payload.category as string) ?? defaultCategory;
   if (!targetId) throw new Error('payload.targetId 必填');
 
-  const asset = await pickRandomAsset({
-    poolName,
-    category,
-    tenantId: ctx.tenantId,
-  });
-  if (!asset) throw new Error(`没有匹配的素材 (poolName=${poolName ?? '?'}, category=${category})`);
+  // 优先 assetId (用户在前端指定了具体素材); 否则按 poolName/category 随机抽
+  const asset = assetId
+    ? await fetchAssetById(assetId)
+    : await pickRandomAsset({ poolName, category, tenantId: ctx.tenantId });
+  if (!asset) throw new Error(`没有匹配的素材 (assetId=${assetId ?? '-'}, poolName=${poolName ?? '?'}, category=${category})`);
   await ctx.reportProgress?.(20);
 
   const buffer = await fetchAssetFile(asset.id);

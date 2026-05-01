@@ -13,15 +13,17 @@ export class TasksService {
   ) {}
 
   async create(dto: CreateTaskDto, tenantId?: string): Promise<Task> {
-    // chat_script_ab / chat_script_4p: 一条记录 (不拆子任务).
-    // executor 在 agent 端协调切换 client (单 agent 内全部 N 个号互发)
-    // 私聊模式: 把 accountA/B/C/D 的 phoneNumber 注入 payload, 让 agent 端 getEntity 用
     let payload = dto.payload as any;
+    // chat_script_ab/4p: 注入 A/B/C/D 手机号
     if (
       (dto.type === TaskType.CHAT_SCRIPT_AB || dto.type === TaskType.CHAT_SCRIPT_4P) &&
       payload?.accountAId
     ) {
       payload = await this.enrichChatScriptPayload(payload);
+    }
+    // media_*/post_channel/campaign_single: 接收方=内池号 → 查 phoneNumber 注入
+    if (payload?.targetAccountId) {
+      payload = await this.enrichOwnAccountTarget(payload);
     }
 
     const task = this.repo.create({
@@ -33,6 +35,14 @@ export class TasksService {
       progress: 0,
     });
     return this.repo.save(task);
+  }
+
+  /** 接收方是本租户内池号: 查手机号注入 targetId 给 executor 用 */
+  private async enrichOwnAccountTarget(p: any): Promise<any> {
+    if (!p.targetAccountId) return p;
+    const acc = await this.accountRepo.findOneBy({ id: p.targetAccountId });
+    if (!acc?.phoneNumber) return p;
+    return { ...p, targetId: p.targetId ?? acc.phoneNumber };
   }
 
   /** 私聊模式注入各角色 phoneNumber 到 payload, 让 agent executor getEntity 用 */

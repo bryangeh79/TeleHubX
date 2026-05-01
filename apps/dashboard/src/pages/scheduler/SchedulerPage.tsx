@@ -41,7 +41,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { accountsApi, chatScriptsApi, slotsApi, tasksApi } from '../../services/api';
+import { accountsApi, assetsApi, chatScriptsApi, slotsApi, tasksApi } from '../../services/api';
 
 const { Title, Text } = Typography;
 
@@ -184,6 +184,10 @@ export default function SchedulerPage() {
   const [scriptOptions, setScriptOptions] = useState<Array<{ value: string; label: string; type: string; category: string | null }>>([]);
   const [scriptPacks, setScriptPacks] = useState<Array<{ packId: string; count: number; types: string[] }>>([]);
 
+  // 素材列表 (媒体类任务用) — 按 category 加载, 含 builtin
+  const [assetPools, setAssetPools] = useState<Array<{ poolName: string; category: string; count: number }>>([]);
+  const [assetOptions, setAssetOptions] = useState<Array<{ value: string; label: string; category: string }>>([]);
+
   const loadAccounts = useCallback(async () => {
     try {
       const slotsRes = await slotsApi.list();
@@ -238,14 +242,15 @@ export default function SchedulerPage() {
   useEffect(() => { void reload(); }, [reload]);
   useEffect(() => { void loadAccounts(); }, [loadAccounts]);
 
-  // 打开新建 modal 时懒加载剧本列表
+  // 打开新建 modal 时懒加载剧本 + 素材池
   useEffect(() => {
     if (!createOpen) return;
     (async () => {
       try {
-        const [scriptsRes, packsRes] = await Promise.all([
+        const [scriptsRes, packsRes, poolsRes] = await Promise.all([
           chatScriptsApi.list({ status: 'active' }),
           chatScriptsApi.listPacks(),
+          assetsApi.pools(),
         ]);
         const arr = Array.isArray(scriptsRes.data) ? scriptsRes.data : [];
         setScriptOptions(arr.map((s: any) => ({
@@ -255,11 +260,34 @@ export default function SchedulerPage() {
           category: s.category,
         })));
         setScriptPacks(Array.isArray(packsRes.data) ? packsRes.data : []);
+        setAssetPools(Array.isArray(poolsRes.data) ? poolsRes.data : []);
       } catch {
         // ignore
       }
     })();
   }, [createOpen]);
+
+  // 按 category 加载素材列表 (用户选了"指定素材"时)
+  const loadAssetsByCategory = useCallback(async (category: string) => {
+    try {
+      // 同时拉 tenant 自己的 + builtin 共享池
+      const [tenantRes, builtinRes] = await Promise.all([
+        assetsApi.list({ category }),
+        assetsApi.list({ category, source: 'builtin' }),
+      ]);
+      const merged = [
+        ...(Array.isArray(tenantRes.data) ? tenantRes.data : []),
+        ...(Array.isArray(builtinRes.data) ? builtinRes.data : []),
+      ];
+      setAssetOptions(merged.map((a: any) => ({
+        value: a.id,
+        label: `${a.fileName}${a.poolName ? ` [${a.poolName.replace('_builtin_', '')}]` : ''}`,
+        category: a.category,
+      })));
+    } catch {
+      setAssetOptions([]);
+    }
+  }, []);
 
   // 自动刷新：有 running/pending 任务时每 5s 刷一次列表
   useEffect(() => {
@@ -316,6 +344,35 @@ export default function SchedulerPage() {
           payload,
         } as any);
         antdMessage.success(`已创建剧本任务（${values.type === 'chat_script_4p' ? '4 个' : '2 个'}子任务并行排队）`);
+      } else if (
+        values.type === 'media_photo' || values.type === 'media_video' ||
+        values.type === 'media_voice' || values.type === 'post_channel'
+      ) {
+        // 媒体类任务: 接收方 (内池号 / 外部) + 素材 (随机 / 指定) + caption
+        const picked = accountOptions.find((o) => o.value === values.accountId);
+        const payload: any = {};
+        if (values.targetMode === 'own') {
+          payload.targetAccountId = values.targetAccountId;
+          // server 自动注入 targetId = phoneNumber
+        } else {
+          payload.targetId = values.targetExternal;
+        }
+        if (values.assetMode === 'specific') {
+          payload.assetId = values.assetId;
+        } else {
+          if (values.poolName) payload.poolName = values.poolName;
+        }
+        if (values.caption) payload.caption = values.caption;
+
+        await tasksApi.create({
+          name: values.name,
+          type: values.type,
+          accountId: values.accountId,
+          accountLabel: picked?.phone,
+          scheduledAt,
+          payload,
+        } as any);
+        antdMessage.success(runNow ? '任务已创建并立即排队执行' : '任务已创建');
       } else {
         const picked = accountOptions.find((o) => o.value === values.accountId);
         await tasksApi.create({
@@ -732,6 +789,22 @@ export default function SchedulerPage() {
               const isAB = t === 'chat_script_ab';
               const is4P = t === 'chat_script_4p';
               const isChatScript = isAB || is4P;
+              const isMedia = t === 'media_photo' || t === 'media_video' || t === 'media_voice' || t === 'post_channel';
+              const mediaCategory = t === 'media_photo' ? 'photo'
+                : t === 'media_video' ? 'video'
+                : t === 'media_voice' ? 'voice'
+                : 'photo';  // post_channel 默认 photo
+
+              if (isMedia) {
+                return <MediaTaskFields
+                  taskType={t}
+                  category={mediaCategory}
+                  accountOptions={accountOptions}
+                  assetPools={assetPools}
+                  assetOptions={assetOptions}
+                  loadAssets={loadAssetsByCategory}
+                />;
+              }
 
               if (!isChatScript) {
                 return (
@@ -873,5 +946,102 @@ export default function SchedulerPage() {
         </Form>
       </Modal>
     </div>
+  );
+}
+
+// ─── 媒体任务表单 (media_*/post_channel) ────────────────────────
+interface MediaTaskFieldsProps {
+  taskType: string;
+  category: string;
+  accountOptions: Array<{ value: string; label: React.ReactNode; phone: string }>;
+  assetPools: Array<{ poolName: string; category: string; count: number }>;
+  assetOptions: Array<{ value: string; label: string; category: string }>;
+  loadAssets: (category: string) => Promise<void>;
+}
+
+function MediaTaskFields({ taskType, category, accountOptions, assetPools, assetOptions, loadAssets }: MediaTaskFieldsProps) {
+  const poolsForCat = assetPools.filter((p) => p.category === category);
+  const filteredAssetsByCat = assetOptions.filter((a) => a.category === category);
+
+  return (
+    <>
+      <Form.Item name="accountId" label="执行账号 (谁来发)" rules={[{ required: true }]}>
+        <Select
+          placeholder={accountOptions.length === 0 ? '没有可用账号' : '选择账号'}
+          showSearch optionFilterProp="phone"
+          filterOption={(input, option: any) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
+          options={accountOptions}
+        />
+      </Form.Item>
+
+      {/* 接收方 */}
+      <Card size="small" style={{ marginBottom: 12, background: '#f6ffed' }}
+        title={<Text strong>📤 接收方 (发到哪)</Text>}>
+        <Form.Item name="targetMode" initialValue="external" label={null} style={{ marginBottom: 8 }}>
+          <Radio.Group>
+            <Radio value="external">🌐 外部目标 (群 / 频道 / 用户名)</Radio>
+            <Radio value="own">👤 内池号 (本租户的账号)</Radio>
+          </Radio.Group>
+        </Form.Item>
+        <Form.Item shouldUpdate={(p, c) => p.targetMode !== c.targetMode} noStyle>
+          {({ getFieldValue }) => getFieldValue('targetMode') === 'own' ? (
+            <Form.Item name="targetAccountId" label={null} rules={[{ required: true, message: '请选内池接收账号' }]}
+              extra="任务发出去对方不会触发自动回复（自己人白名单已覆盖）">
+              <Select
+                placeholder="选择内池接收账号"
+                showSearch optionFilterProp="phone"
+                filterOption={(input, option: any) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
+                options={accountOptions}
+              />
+            </Form.Item>
+          ) : (
+            <Form.Item name="targetExternal" label={null} rules={[{ required: true, message: '请填外部目标' }]}
+              extra="格式：-1001234567890 / @groupname / @username / +60xxx 或频道 id">
+              <Input placeholder="例：@my_channel / -1001234567890" />
+            </Form.Item>
+          )}
+        </Form.Item>
+      </Card>
+
+      {/* 素材选择 */}
+      <Card size="small" style={{ marginBottom: 12, background: '#fff7e6' }}
+        title={<Text strong>🎨 素材 (从素材库随机抽 或 指定具体)</Text>}>
+        <Form.Item name="assetMode" initialValue="random" label={null} style={{ marginBottom: 8 }}>
+          <Radio.Group onChange={() => loadAssets(category)}>
+            <Radio value="random">🎲 随机抽 (按 pool / category)</Radio>
+            <Radio value="specific">📌 指定具体素材</Radio>
+          </Radio.Group>
+        </Form.Item>
+        <Form.Item shouldUpdate={(p, c) => p.assetMode !== c.assetMode} noStyle>
+          {({ getFieldValue }) => getFieldValue('assetMode') === 'specific' ? (
+            <Form.Item name="assetId" label={null} rules={[{ required: true, message: '请选具体素材' }]}>
+              <Select
+                placeholder={filteredAssetsByCat.length === 0 ? `加载中或无 ${category} 素材` : '搜索 / 选择具体素材'}
+                showSearch optionFilterProp="label" allowClear
+                options={filteredAssetsByCat}
+                onFocus={() => loadAssets(category)}
+              />
+            </Form.Item>
+          ) : (
+            <Form.Item name="poolName" label={null} extra={`留空 = 从所有 ${category} 素材随机抽`}>
+              <Select
+                placeholder={`不限 pool (从 ${category} 池随机抽)`}
+                allowClear
+                options={poolsForCat.map((p) => ({
+                  value: p.poolName,
+                  label: `${p.poolName.replace('_builtin_', '')} (${p.count} 件)`,
+                }))}
+              />
+            </Form.Item>
+          )}
+        </Form.Item>
+      </Card>
+
+      {(taskType === 'media_photo' || taskType === 'media_video' || taskType === 'post_channel') && (
+        <Form.Item name="caption" label="文案 (可选)" extra="发送时附带的文字说明">
+          <Input.TextArea rows={2} placeholder="例：今日打卡，欢迎关注我们" maxLength={1024} />
+        </Form.Item>
+      )}
+    </>
   );
 }

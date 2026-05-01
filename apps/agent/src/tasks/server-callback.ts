@@ -65,6 +65,13 @@ export async function pickRandomAsset(opts: {
   return (await res.json()) as RandomAsset;
 }
 
+/** 按 id 取单条 asset 元数据 (用户在前端"指定具体素材"时走这条) */
+export async function fetchAssetById(assetId: string): Promise<RandomAsset | null> {
+  const res = await fetch(`${API_BASE}/assets/${assetId}`, { headers: authHeaders() });
+  if (!res.ok) return null;
+  return (await res.json()) as RandomAsset;
+}
+
 /** Stream asset bytes from server. agent 不缓存到磁盘，直接拿到 Buffer 给 GramJS。 */
 export async function fetchAssetFile(assetId: string): Promise<Buffer | null> {
   const res = await fetch(`${API_BASE}/assets/${assetId}/file`, { headers: authHeaders() });
