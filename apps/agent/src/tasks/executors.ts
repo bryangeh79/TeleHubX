@@ -299,16 +299,15 @@ export async function postChannel(ctx: ExecutorCtx): Promise<void> {
   // 兼容两套字段名: targetId/content 或 channelId/text (历史)
   const targetId = (ctx.payload.targetId ?? ctx.payload.channelId) as string;
   const content = (ctx.payload.caption ?? ctx.payload.content ?? '') as string;
-  const { assetId, poolName, targetAccountId } = ctx.payload as { assetId?: string; poolName?: string; targetAccountId?: string };
+  const { assetId, poolName } = ctx.payload as { assetId?: string; poolName?: string };
   if (!targetId) throw new Error('payload.targetId / channelId 必填');
 
-  // 内池号接收: 先 import contact
-  const isPhoneTarget = targetAccountId && /^\+?\d{6,}$/.test(targetId);
-  if (isPhoneTarget) {
+  // 手机号格式目标统一 import contact 预热 (适用所有手机号: 内池 / 陌生人 leads)
+  if (isPhoneFormat(targetId)) {
     await tryImportContact(ctx.client, targetId);
   }
 
-  const entity = await ctx.client.getEntity(targetId);
+  const entity = await withTimeout(ctx.client.getEntity(targetId), 15_000, 'getEntity 解析目标超时');
   await ctx.reportProgress?.(20);
 
   // 如果指定了 assetId 或 poolName, 拉素材附带发出
@@ -552,16 +551,15 @@ async function mediaSendImpl(
   ctx: ExecutorCtx,
   defaultCategory: 'photo' | 'video' | 'voice',
 ): Promise<void> {
-  const { targetId, poolName, caption, assetId, targetAccountId } = ctx.payload as {
+  const { targetId, poolName, caption, assetId } = ctx.payload as {
     targetId: string; poolName?: string; caption?: string; assetId?: string;
-    targetAccountId?: string;
   };
   const category = (ctx.payload.category as string) ?? defaultCategory;
   if (!targetId) throw new Error('payload.targetId 必填');
 
-  // 内池号接收 (server 注入了 phoneNumber 作为 targetId): 先 import contact, 否则 getEntity 会失败/超时
-  const isPhoneTarget = targetAccountId && /^\+?\d{6,}$/.test(targetId);
-  if (isPhoneTarget) {
+  // 任何手机号格式的目标都做 import 预热 (无论内池还是外部陌生人)
+  // tryImportContact 幂等: 已是联系人 → no-op; 隐私限制 → 静默
+  if (isPhoneFormat(targetId)) {
     await tryImportContact(ctx.client, targetId);
   }
 
@@ -576,23 +574,14 @@ async function mediaSendImpl(
   if (!buffer) throw new Error(`无法拉取 asset.id=${asset.id} 的文件`);
   await ctx.reportProgress?.(60);
 
-  const entity = await ctx.client.getEntity(targetId);
+  // 加超时: 防 getEntity / sendFile 永远 hang 住 (例如 TG WebSocket 间歇丢包)
+  const entity = await withTimeout(ctx.client.getEntity(targetId), 15_000, 'getEntity 解析目标超时 (对方可能不存在 / 隐私设置不允许 / 网络阻塞)');
   const file = new CustomFile(asset.fileName, buffer.length, '', buffer);
 
-  // voice 走单独路径（强制 voice attribute 让 TG 显示语音条而不是音频文件）
-  if (defaultCategory === 'voice') {
-    await ctx.client.sendFile(entity, {
-      file,
-      voiceNote: true,
-      caption,
-    });
-  } else {
-    await ctx.client.sendFile(entity, {
-      file,
-      caption,
-      forceDocument: false,
-    });
-  }
+  const sendPromise = defaultCategory === 'voice'
+    ? ctx.client.sendFile(entity, { file, voiceNote: true, caption })
+    : ctx.client.sendFile(entity, { file, caption, forceDocument: false });
+  await withTimeout(sendPromise, 60_000, 'sendFile 上传超时 (>60s, 可能网络问题或 TG 服务波动)');
   await ctx.reportProgress?.(100);
 }
 
@@ -740,6 +729,24 @@ async function chatScriptImpl(
     }
 
     await ctx.reportProgress?.(Math.round(((i + 1) / allTurns.length) * 100));
+  }
+}
+
+/** 简单手机号格式判断: + 可选, 至少 6 位数字 (国码 + 号码) */
+function isPhoneFormat(s: string): boolean {
+  return /^\+?\d{6,}$/.test(s);
+}
+
+/** Promise 超时包装: 到时抛错让 task-runner 标 failed, 不再永远卡 60% */
+async function withTimeout<T>(p: Promise<T>, ms: number, label = 'operation'): Promise<T> {
+  let to: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    to = setTimeout(() => reject(new Error(`${label} (timed out after ${ms}ms)`)), ms);
+  });
+  try {
+    return await Promise.race([p, timeout]);
+  } finally {
+    if (to) clearTimeout(to);
   }
 }
 

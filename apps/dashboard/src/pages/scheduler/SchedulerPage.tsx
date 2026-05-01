@@ -964,6 +964,9 @@ function humanizeError(msg: string): string {
   if (m.includes('username_invalid') || m.includes('username_not_occupied')) return '用户名不存在或无效';
   if (m.includes('chat_admin_required')) return '需要群管理员权限才能执行此操作';
   if (m.includes('participants_forbidden')) return '群组禁止查看成员';
+  if (m.includes('getentity') && m.includes('timed out')) return '解析对方信息超时 — 对方可能设了「不允许通过手机号查找我」隐私，或网络阻塞';
+  if (m.includes('sendfile') && m.includes('timed out')) return '文件上传到 Telegram 超时（>60s），可能是网络抖动';
+  if (m.includes('timed out')) return 'Telegram 接口超时，请重试';
   if (m.includes('flood')) return 'Telegram 短期限流';
   return msg;  // 兜底返回原文
 }
