@@ -54,8 +54,12 @@ function AdTemplateModal({
   const [mediaFileName, setMediaFileName] = useState<string>('');
   const [uploadPct, setUploadPct] = useState<number>(0);
   const [uploading, setUploading] = useState(false);
+  // 用于追踪 auto-create 出的 id，避免重复保存
+  const [autoCreatedId, setAutoCreatedId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const isEdit = !!template;
+  // 真实 id：编辑时来自 template.id，新建时可能来自 auto-create
+  const currentId = template?.id ?? autoCreatedId;
+  const isEdit = !!currentId;
 
   useEffect(() => {
     if (!open) return;
@@ -72,6 +76,7 @@ function AdTemplateModal({
       setMediaAssetId('');
       setMediaFileName('');
     }
+    setAutoCreatedId(null); // 每次打开重置
     setUploadPct(0);
   }, [open, template, form]);
 
@@ -105,19 +110,24 @@ function AdTemplateModal({
     setSaving(true);
     try {
       const payload: any = {
-        tenantId,
         name: values.name,
         content: values.content,
         aiVariantEnabled: aiEnabled,
         hasMedia: !!mediaAssetId,
         mediaAssetId: mediaAssetId || undefined,
       };
-      if (isEdit && template) {
-        await adTemplatesApi.update(template.id, payload);
-      } else {
-        await adTemplatesApi.create(payload);
+      // 把当前编辑的 variants 也保存（用户可能手动改过）
+      if (variants.length > 0) {
+        payload.variants = variants;
       }
-      antdMessage.success(isEdit ? '已更新' : '已保存');
+      if (currentId) {
+        await adTemplatesApi.update(currentId, payload);
+        antdMessage.success('已更新');
+      } else {
+        payload.tenantId = tenantId;
+        await adTemplatesApi.create(payload);
+        antdMessage.success('已保存');
+      }
       onSave();
     } catch (err: any) {
       antdMessage.error(err?.response?.data?.message ?? '保存失败');
@@ -127,36 +137,41 @@ function AdTemplateModal({
   };
 
   const handleGenerateVariants = async () => {
-    if (!template?.id) {
-      // Need to save first
+    let targetId = currentId;
+
+    // 如果还没保存过，先 auto-create 一次（只创建一次）
+    if (!targetId) {
       let values: any;
-      try { values = await form.validateFields(); } catch { return; }
+      try { values = await form.validateFields(); } catch { setShowConfirm(false); return; }
       setSaving(true);
       try {
-        const res = await adTemplatesApi.create({ tenantId, name: values.name, content: values.content, aiVariantEnabled: true });
-        const newId = res.data.id;
-        setGenerating(true);
-        const result = await adTemplatesApi.generateVariants(newId);
-        const vars = result.data.variants ?? [];
-        setVariants(vars);
-        antdMessage.success(`✓ 已生成 ${vars.length} 条 AI 变体，查看下方列表，满意后点保存`);
+        const res = await adTemplatesApi.create({
+          tenantId,
+          name: values.name,
+          content: values.content,
+          aiVariantEnabled: true,
+          hasMedia: !!mediaAssetId,
+          mediaAssetId: mediaAssetId || undefined,
+        });
+        targetId = res.data.id;
+        setAutoCreatedId(targetId); // 关键：记录已创建的 id，handleSave 走 update
       } catch (err: any) {
-        antdMessage.error(err?.response?.data?.message ?? 'AI 生成失败');
+        antdMessage.error(err?.response?.data?.message ?? '保存广告失败');
+        setSaving(false);
+        setShowConfirm(false);
+        return;
       } finally {
         setSaving(false);
-        setGenerating(false);
-        setShowConfirm(false);
       }
-      return;
     }
-    // Already saved — generate and show in modal (don't close yet)
+
+    // 生成变体
     setGenerating(true);
     try {
-      const result = await adTemplatesApi.generateVariants(template.id);
+      const result = await adTemplatesApi.generateVariants(targetId!);
       const vars = result.data.variants ?? [];
       setVariants(vars);
       antdMessage.success(`✓ 已生成 ${vars.length} 条 AI 变体，查看下方列表，满意后点保存`);
-      // Don't call onSave() here — let user review variants first
     } catch (err: any) {
       const msg = err?.response?.data?.message;
       antdMessage.error(msg ?? 'AI 生成失败，请检查平台 AI Key 配置');
