@@ -8,7 +8,7 @@ import {
   ThunderboltOutlined, PlusCircleOutlined, UploadOutlined, CloseCircleOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { adTemplatesApi, assetsApi, tenantsApi } from '../../services/api';
+import { adTemplatesApi, assetsApi, tenantsApi as tenantsApiSvc } from '../../services/api';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -30,7 +30,7 @@ interface AdTemplate {
 interface Props {
   open: boolean;
   onClose: () => void;
-  tenantId: string;
+  tenantId?: string;
 }
 
 // ── Edit Modal ──────────────────────────────────────────────────────────
@@ -376,13 +376,24 @@ function AdTemplateModal({
 
 // ── Main Drawer ─────────────────────────────────────────────────────────
 
-export default function AdTemplateDrawer({ open, onClose, tenantId }: Props) {
+export default function AdTemplateDrawer({ open, onClose, tenantId: tenantIdProp }: Props) {
+  const [tenantId, setTenantId] = useState<string>(tenantIdProp ?? '');
   const [templates, setTemplates] = useState<AdTemplate[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<AdTemplate | null>(null);
 
+  // 兜底加载 tenantId
+  useEffect(() => {
+    if (tenantIdProp) { setTenantId(tenantIdProp); return; }
+    if (!open) return;
+    tenantsApiSvc.getDefault()
+      .then(r => { if (r.data?.id) setTenantId(r.data.id); })
+      .catch(() => {});
+  }, [open, tenantIdProp]);
+
   const load = useCallback(async () => {
+    if (!tenantId) return;
     setLoading(true);
     try {
       const res = await adTemplatesApi.list(tenantId);
@@ -394,7 +405,7 @@ export default function AdTemplateDrawer({ open, onClose, tenantId }: Props) {
     }
   }, [tenantId]);
 
-  useEffect(() => { if (open) void load(); }, [open, load]);
+  useEffect(() => { if (open && tenantId) void load(); }, [open, tenantId, load]);
 
   const handleDelete = async (t: AdTemplate) => {
     try {

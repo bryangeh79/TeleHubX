@@ -7,7 +7,7 @@ import {
   DeleteOutlined, EditOutlined, PlusOutlined, StarOutlined,
   ThunderboltOutlined, PlusCircleOutlined, ImportOutlined,
 } from '@ant-design/icons';
-import { greetingTemplatesApi } from '../../services/api';
+import { greetingTemplatesApi, tenantsApi } from '../../services/api';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -26,7 +26,7 @@ interface GreetingTemplate {
 interface Props {
   open: boolean;
   onClose: () => void;
-  tenantId: string;
+  tenantId?: string; // 可选，没传时内部自己加载
 }
 
 const CATEGORIES = ['礼貌', '好奇', '优惠', '热情', '专业', '幽默'];
@@ -275,14 +275,25 @@ function GreetingModal({
 
 // ── Main Drawer ─────────────────────────────────────────────────────────
 
-export default function GreetingDrawer({ open, onClose, tenantId }: Props) {
+export default function GreetingDrawer({ open, onClose, tenantId: tenantIdProp }: Props) {
+  const [tenantId, setTenantId] = useState<string>(tenantIdProp ?? '');
   const [templates, setTemplates] = useState<GreetingTemplate[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<GreetingTemplate | null>(null);
   const [seeding, setSeeding] = useState(false);
 
+  // 兜底：传进来的 tenantId 是空的话，自己拉一次
+  useEffect(() => {
+    if (tenantIdProp) { setTenantId(tenantIdProp); return; }
+    if (!open) return;
+    tenantsApi.getDefault()
+      .then(r => { if (r.data?.id) setTenantId(r.data.id); })
+      .catch(() => {});
+  }, [open, tenantIdProp]);
+
   const load = useCallback(async () => {
+    if (!tenantId) return;
     setLoading(true);
     try {
       const res = await greetingTemplatesApi.list(tenantId);
@@ -294,7 +305,7 @@ export default function GreetingDrawer({ open, onClose, tenantId }: Props) {
     }
   }, [tenantId]);
 
-  useEffect(() => { if (open) void load(); }, [open, load]);
+  useEffect(() => { if (open && tenantId) void load(); }, [open, tenantId, load]);
 
   const handleDelete = async (t: GreetingTemplate) => {
     try {
