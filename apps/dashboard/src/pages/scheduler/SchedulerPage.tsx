@@ -290,12 +290,14 @@ export default function SchedulerPage() {
 
       // chat_script_ab / chat_script_4p：服务端会自动拆 N 个子任务
       if (values.type === 'chat_script_ab' || values.type === 'chat_script_4p') {
+        const chatMode = values.chatMode ?? 'private';
         const payload: any = {
-          tgChatId: values.tgChatId,
+          chatMode,
           accountAId: values.accountAId,
           accountBId: values.accountBId,
           aiOptimize: values.aiOptimize ?? false,
         };
+        if (chatMode === 'group') payload.tgChatId = values.tgChatId;
         if (values.type === 'chat_script_4p') {
           payload.accountCId = values.accountCId;
           payload.accountDId = values.accountDId;
@@ -729,9 +731,27 @@ export default function SchedulerPage() {
                     </Row>
                   </Card>
 
-                  <Form.Item name="tgChatId" label="目标群 (tgChatId)" rules={[{ required: true, message: '请输入要在哪个群跑剧本' }]}
-                    extra="格式：-100xxxxxxxxxx 或 @groupname。建议在自有群跑，不要在公开群里被发现是 bot 对话">
-                    <Input placeholder="-1001234567890 或 @mytestgroup" />
+                  <Form.Item name="chatMode" label="对话场景" initialValue="private">
+                    <Radio.Group>
+                      <Radio value="private">💬 私聊（A ⇄ B 直接私信）</Radio>
+                      <Radio value="group">👥 群聊（在指定群里对话）</Radio>
+                    </Radio.Group>
+                  </Form.Item>
+                  <Form.Item shouldUpdate={(p, c) => p.chatMode !== c.chatMode} noStyle>
+                    {({ getFieldValue }) => getFieldValue('chatMode') === 'group' ? (
+                      <Form.Item name="tgChatId" label="目标群 (tgChatId)" rules={[{ required: true, message: '请输入群 id' }]}
+                        extra="格式：-100xxxxxxxxxx 或 @groupname。建议在自有群跑，不要在公开群里被发现是 bot 对话">
+                        <Input placeholder="-1001234567890 或 @mytestgroup" />
+                      </Form.Item>
+                    ) : (
+                      <Alert
+                        type="info"
+                        showIcon
+                        message="私聊模式：A 直接给 B 发私信，反之亦然"
+                        description="前置条件：两个账号互为联系人（或互知 username）。系统会自动用对方手机号 getEntity 解析。"
+                        style={{ marginBottom: 16 }}
+                      />
+                    )}
                   </Form.Item>
 
                   <Card size="small" style={{ marginBottom: 12 }} title={

@@ -593,10 +593,14 @@ async function chatScriptImpl(
   ctx: ExecutorCtx,
   expectedType: 'A+B' | 'A+B+C+D',
 ): Promise<void> {
-  const { tgChatId, packId, scriptId } = ctx.payload as {
-    tgChatId: string; packId?: string; scriptId?: string;
+  const { tgChatId, targetPhoneNumber, packId, scriptId, chatMode } = ctx.payload as {
+    tgChatId?: string; targetPhoneNumber?: string;
+    packId?: string; scriptId?: string;
+    chatMode?: 'private' | 'group';
   };
-  if (!tgChatId) throw new Error('payload.tgChatId 必填');
+  // 群聊：tgChatId 必填；私聊：targetPhoneNumber 必填
+  const target = tgChatId ?? targetPhoneNumber;
+  if (!target) throw new Error('chat_script: 群聊需 tgChatId / 私聊需 targetPhoneNumber');
 
   // 角色映射：哪个 accountId 对应哪个 role label
   // 简化：任务 payload 里直接传 myRole（'A'/'B'/'C'/'D'）
@@ -616,7 +620,7 @@ async function chatScriptImpl(
     throw new Error(`剧本 ${script.id} 没有 rawScript.sessions[]`);
   }
 
-  const entity = await ctx.client.getEntity(tgChatId);
+  const entity = await ctx.client.getEntity(target);
   const allTurns: any[] = [];
   for (const sess of raw.sessions) {
     for (const t of sess.turns ?? []) allTurns.push(t);

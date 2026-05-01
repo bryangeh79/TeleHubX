@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, Repository } from 'typeorm';
+import { FindOptionsWhere, In, Repository } from 'typeorm';
+import { Account } from '../accounts/account.entity';
 import { CreateTaskDto, UpdateTaskDto } from './task.dto';
 import { Task, TaskStatus, TaskType } from './task.entity';
 
@@ -8,6 +9,7 @@ import { Task, TaskStatus, TaskType } from './task.entity';
 export class TasksService {
   constructor(
     @InjectRepository(Task) private readonly repo: Repository<Task>,
+    @InjectRepository(Account) private readonly accountRepo: Repository<Account>,
   ) {}
 
   async create(dto: CreateTaskDto, tenantId?: string): Promise<Task | Task[]> {
@@ -47,13 +49,31 @@ export class TasksService {
     }
 
     const baseScheduledAt = new Date(dto.scheduledAt);
+    const isPrivate = (p.chatMode ?? 'private') === 'private';
+
+    // 私聊模式：每个子任务需要知道"对方"的 phoneNumber 用作 getEntity 目标
+    const accountById = new Map<string, Account>();
+    if (isPrivate) {
+      const ids = roleAccounts.map((r) => r.accountId);
+      const rows = await this.accountRepo.findBy({ id: In(ids) as any });
+      for (const a of rows) accountById.set(a.id, a);
+    }
+
     const created: Task[] = [];
     for (const ra of roleAccounts) {
-      const subPayload = {
+      const subPayload: any = {
         ...p,
         myRole: ra.role,
-        // 保留全部 accountIds 给执行器调试看
       };
+      if (isPrivate) {
+        // 取除自己以外的第一个账号当 DM 目标（A+B 场景就是另一边；4P 暂只支持 A→B 的串行私聊）
+        const others = roleAccounts.filter((r) => r.accountId !== ra.accountId);
+        const targetAcc = others.length ? accountById.get(others[0].accountId) : null;
+        if (targetAcc?.phoneNumber) {
+          subPayload.targetPhoneNumber = targetAcc.phoneNumber;
+          subPayload.targetAccountId = targetAcc.id;
+        }
+      }
       const sub = this.repo.create({
         name: `${dto.name} [${ra.role}]`,
         type: dto.type,
