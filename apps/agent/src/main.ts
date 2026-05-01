@@ -39,6 +39,7 @@ interface ApiAccount {
     langCode: string;
     systemLangCode: string;
   } | null;
+  tgUserId?: string | null;
 }
 
 const FALLBACK_FINGERPRINT = {
@@ -140,6 +141,12 @@ async function bootstrap(): Promise<void> {
   const manager = new ConnectionManager();
   const slots = new Map<string, ConnectedSlot>(); // accountId → connected resources
 
+  // 「自己人白名单」: 本实例所有已绑账号的 TG 数字 user id 集合。
+  // AutoReplyDecider 收到消息时, 如果 msg.fromId 落在这里就跳过自动回复,
+  // 防止 chat_script 让两个本租户账号互相 FAQ-loop.
+  const ownNetwork = new Set<string>();
+  const getOwnNetwork = () => ownNetwork;
+
   // Optional CS-role AI reply (shared across all cs accounts)
   let aiReplyService: AiReplyService | undefined;
   if (process.env.AI_API_KEY ?? process.env.OPENAI_API_KEY ?? process.env.DEEPSEEK_API_KEY) {
@@ -233,9 +240,11 @@ async function bootstrap(): Promise<void> {
     attachMessageHandler(client, {
       role: account.role,
       accountId: account.id,
+      selfTgUserId: account.tgUserId ?? null,
       botUsername: process.env.BOT_USERNAME ?? 'your_bot',
       adGroupFaqReply: process.env.AD_GROUP_FAQ_REPLY ?? 'For more details please DM our bot!',
       aiReplyService: account.role === 'cs' ? aiReplyService : undefined,
+      getOwnNetwork,
     });
 
     const keepOnline = new KeepOnlineService();
@@ -243,6 +252,23 @@ async function bootstrap(): Promise<void> {
 
     slots.set(account.id, { client, keepOnline, role: account.role });
     logger.info(`[connect] ${account.id.slice(0, 8)} role=${account.role} phone=${account.phoneNumber} proxy=${proxy ? proxy.ip + ':' + proxy.port : '(direct)'} ✓`);
+
+    // 懒迁移: tgUserId 为空就 getMe() 回填 + 加进白名单
+    if (!account.tgUserId) {
+      try {
+        const me = await client.getMe();
+        const tgUserId = String((me as any)?.id ?? '');
+        if (tgUserId) {
+          ownNetwork.add(tgUserId);
+          await patchJson(`/accounts/${account.id}`, { tgUserId }).catch(() => {});
+          logger.info(`[connect] ${account.id.slice(0, 8)} backfilled tgUserId=${tgUserId}`);
+        }
+      } catch (err: unknown) {
+        logger.warn(`[connect] ${account.id.slice(0, 8)} getMe failed: ${err instanceof Error ? err.message : err}`);
+      }
+    } else {
+      ownNetwork.add(account.tgUserId);
+    }
   }
 
   async function disconnect(accountId: string): Promise<void> {
@@ -265,6 +291,12 @@ async function bootstrap(): Promise<void> {
 
     const wantConnected = accounts.filter((a) => a.sessionEncrypted);
     const dbIds = new Set(wantConnected.map((a) => a.id));
+
+    // 重建 ownNetwork: 把所有已知 tgUserId 收进来 (新连的会在 connect() 里再加)
+    ownNetwork.clear();
+    for (const a of accounts) {
+      if (a.tgUserId) ownNetwork.add(a.tgUserId);
+    }
 
     // Connect newcomers
     for (const a of wantConnected) {

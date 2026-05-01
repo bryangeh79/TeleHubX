@@ -36,6 +36,14 @@ export class Account {
   @Column({ unique: true })
   phoneNumber: string;
 
+  /**
+   * TG 数字 user id，绑号成功后从 client.getMe() 拿。
+   * 用作「自己人白名单」: AutoReplyDecider 判断 incoming msg.from.id
+   * 是否属于本租户已绑账号集合，避免自我循环（A 给 B 发剧本 → B 触发 FAQ → A 触发 FAQ）。
+   */
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  tgUserId: string | null;
+
   @Exclude({ toPlainOnly: true })
   @Column({ nullable: true, select: false })
   sessionString: string;
