@@ -67,6 +67,12 @@ export class TasksController {
     return this.service.findOne(id);
   }
 
+  /** preset_* 父任务下的所有子任务 (按时间正序) */
+  @Get(':id/children')
+  findChildren(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.findChildren(id);
+  }
+
   @Patch(':id')
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateTaskDto) {
     return this.service.update(id, dto);

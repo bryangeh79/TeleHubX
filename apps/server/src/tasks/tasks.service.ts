@@ -74,8 +74,6 @@ export class TasksService {
    */
   private async expandPreset(dto: CreateTaskDto, tenantId?: string): Promise<Task> {
     const start = new Date(dto.scheduledAt);
-    const accountId = dto.accountId ?? '';
-    const accountLabel = dto.accountLabel ?? null;
     const baseName = dto.name;
 
     let subs: Array<{ type: TaskType; scheduledAt: Date; name: string; payload: any }> = [];
@@ -93,36 +91,34 @@ export class TasksService {
       subs = this.buildMatureOps7d(start, baseName);
     }
 
-    // 创建子任务
-    let inserted = 0;
+    // 先创建父任务 (待运行状态作为"主任务"展示, 子任务进度反推父任务进度)
+    const parent = await this.repo.save(this.repo.create({
+      ...dto,
+      scheduledAt: start,
+      tenantId: tenantId ?? null,
+      status: TaskStatus.PENDING,
+      progress: 0,
+    }));
+
+    // 再创建子任务 + 链接 parentTaskId
+    let savedCount = 0;
     for (const s of subs) {
       const sub = this.repo.create({
         name: s.name,
         type: s.type,
-        accountId,
-        accountLabel,
+        accountId: dto.accountId ?? '',
+        accountLabel: dto.accountLabel ?? null,
         payload: s.payload,
         scheduledAt: s.scheduledAt,
         tenantId: tenantId ?? null,
+        parentTaskId: parent.id,
         status: TaskStatus.PENDING,
         progress: 0,
       });
       await this.repo.save(sub);
-      inserted++;
+      savedCount++;
     }
-
-    // 父任务: 标 done, 作为"配方"历史展示
-    const parent = this.repo.create({
-      ...dto,
-      scheduledAt: start,
-      tenantId: tenantId ?? null,
-      status: TaskStatus.DONE,
-      progress: 100,
-      startedAt: new Date(),
-      finishedAt: new Date(),
-      errorMsg: `已自动展开为 ${inserted} 个子任务，按计划逐个执行`,
-    });
-    return this.repo.save(parent);
+    return parent;
   }
 
   /** 7 天养号: P0→P4 渐进, 每天 2-4 个低风险任务 */
@@ -239,7 +235,23 @@ export class TasksService {
     if (filters.status) where.status = filters.status;
     if (filters.type) where.type = filters.type;
     if (filters.tenantId) where.tenantId = filters.tenantId;
-    return this.repo.find({ where, order: { createdAt: 'DESC' }, take: 500 });
+    // 默认隐藏 PRESET 子任务 (parentTaskId 不为空), 只列父任务
+    const qb = this.repo.createQueryBuilder('t')
+      .where(filters.status ? 't.status = :status' : '1=1', { status: filters.status })
+      .andWhere(filters.type ? 't.type = :type' : '1=1', { type: filters.type })
+      .andWhere(filters.tenantId ? 't.tenantId = :tid' : '1=1', { tid: filters.tenantId })
+      .andWhere('t.parentTaskId IS NULL')
+      .orderBy('t.createdAt', 'DESC')
+      .limit(500);
+    return qb.getMany();
+  }
+
+  /** 列出某个父任务下的所有子任务 (preset_* 展开后用) */
+  async findChildren(parentTaskId: string): Promise<Task[]> {
+    return this.repo.find({
+      where: { parentTaskId },
+      order: { scheduledAt: 'ASC' },
+    });
   }
 
   async findOne(id: string): Promise<Task> {

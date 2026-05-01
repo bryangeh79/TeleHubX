@@ -253,6 +253,7 @@ export const tasksApi = {
   resume: (id: string) => api.post(`/tasks/${id}/resume`),
   retry: (id: string) => api.post(`/tasks/${id}/retry`),
   cancel: (id: string) => api.post(`/tasks/${id}/cancel`),
+  children: (id: string) => api.get(`/tasks/${id}/children`),
   cancelAll: () => api.post('/tasks/cancel-all'),
   runNow: (id: string) => api.post(`/tasks/${id}/run-now`),
   delete: (id: string) => api.delete(`/tasks/${id}`),

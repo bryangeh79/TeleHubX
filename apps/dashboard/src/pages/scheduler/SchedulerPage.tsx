@@ -177,6 +177,7 @@ export default function SchedulerPage() {
 
   // 任务详情/日志查看
   const [logTask, setLogTask] = useState<Task | null>(null);
+  const [logChildren, setLogChildren] = useState<Task[]>([]);
 
   // 自动刷新计时器
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -311,6 +312,21 @@ export default function SchedulerPage() {
       } catch {}
     }, 3000);
     return () => clearInterval(t);
+  }, [logTask?.id, logTask?.status]);
+
+  // 打开 preset 父任务时, 拉子任务列表
+  useEffect(() => {
+    if (!logTask) { setLogChildren([]); return; }
+    const isPreset = (logTask.type as string).startsWith('preset_');
+    if (!isPreset) { setLogChildren([]); return; }
+    (async () => {
+      try {
+        const res = await tasksApi.children(logTask.id);
+        setLogChildren(Array.isArray(res.data) ? res.data : []);
+      } catch {
+        setLogChildren([]);
+      }
+    })();
   }, [logTask?.id, logTask?.status]);
 
   const handleCreate = async (values: any) => {
@@ -756,6 +772,44 @@ export default function SchedulerPage() {
               renderPayloadAsKv(logTask.type, logTask.payload, accountSlotMap, accountOptions)
             )}
           </Descriptions>
+        )}
+
+        {/* preset 父任务 → 子任务时间线 */}
+        {logTask && logChildren.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <Title level={5} style={{ marginBottom: 8 }}>
+              <ScheduleOutlined style={{ marginRight: 6 }} />
+              子任务进度 ({logChildren.filter((c) => c.status === 'done').length}/{logChildren.length} 完成)
+            </Title>
+            <div style={{ maxHeight: 360, overflow: 'auto' }}>
+              {logChildren.map((c) => {
+                const m = STATUS_META[c.status];
+                const tm = TASK_TYPE_LABELS[c.type];
+                return (
+                  <div key={c.id} style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '6px 10px',
+                    marginBottom: 4,
+                    background: c.status === 'done' ? '#f6ffed' : c.status === 'running' ? '#e6f7ff' : c.status === 'failed' ? '#fff1f0' : '#fafafa',
+                    borderRadius: 4,
+                    fontSize: 12,
+                  }}>
+                    <Tag color={tm?.color ?? 'default'} style={{ fontSize: 11, marginRight: 8 }}>
+                      {tm?.icon} {tm?.label}
+                    </Tag>
+                    <Text style={{ flex: 1, fontSize: 12 }}>{c.name}</Text>
+                    <Text type="secondary" style={{ fontSize: 11, marginRight: 10 }}>
+                      {dayjs(c.scheduledAt).format('MM-DD HH:mm')}
+                    </Text>
+                    <Tag color={m.color as any} style={{ fontSize: 10, margin: 0 }}>
+                      {c.status === 'running' ? <LoadingOutlined /> : null} {m.label}
+                    </Tag>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
       </Modal>
 

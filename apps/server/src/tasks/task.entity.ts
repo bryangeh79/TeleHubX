@@ -102,6 +102,14 @@ export class Task {
   @Column({ type: 'bigint', generated: 'increment', insert: false, update: false, nullable: true })
   seq: number;
 
+  /**
+   * preset_* 任务展开时, 子任务的 parentTaskId 指向父任务 id.
+   * findAll 默认隐藏 parentTaskId IS NOT NULL 的子任务, 只列父任务,
+   * 父任务详情 Modal 里展示所有子任务进度.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  parentTaskId: string | null;
+
   @Column({ type: 'uuid', nullable: true })
   tenantId: string | null;
 
