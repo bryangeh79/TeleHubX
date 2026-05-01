@@ -28,6 +28,8 @@ export interface ExecutorCtx {
   accountId?: string;
   /** 租户 id —— group_scrape 写候选池必须有 */
   tenantId?: string;
+  /** 本 agent 内所有连接的 client，按 accountId 索引。chat_script_* 多账号编排用 */
+  clients?: Map<string, TelegramClient>;
 }
 
 // ─── 1. IDLE_KEEPALIVE ───────────────────────────────────────────────
@@ -593,94 +595,101 @@ async function chatScriptImpl(
   ctx: ExecutorCtx,
   expectedType: 'A+B' | 'A+B+C+D',
 ): Promise<void> {
-  const { tgChatId, targetPhoneNumber, packId, scriptId, chatMode } = ctx.payload as {
-    tgChatId?: string; targetPhoneNumber?: string;
-    packId?: string; scriptId?: string;
+  const p = ctx.payload as {
+    tgChatId?: string;
     chatMode?: 'private' | 'group';
+    accountAId?: string; accountBId?: string; accountCId?: string; accountDId?: string;
+    accountAPhone?: string; accountBPhone?: string;
+    accountCPhone?: string; accountDPhone?: string;
+    packId?: string; scriptId?: string;
   };
-  // 群聊：tgChatId 必填；私聊：targetPhoneNumber 必填
-  const target = tgChatId ?? targetPhoneNumber;
-  if (!target) throw new Error('chat_script: 群聊需 tgChatId / 私聊需 targetPhoneNumber');
 
-  // 角色映射：哪个 accountId 对应哪个 role label
-  // 简化：任务 payload 里直接传 myRole（'A'/'B'/'C'/'D'）
-  const myRole = (ctx.payload.myRole as 'A'|'B'|'C'|'D') ?? 'A';
+  const isGroup = p.chatMode === 'group';
 
-  let script: any;
-  if (scriptId) {
-    // 显式指定 scriptId → 后续可加 GET /chat-scripts/:id 单独调（暂不实现）
-    throw new Error('scriptId 显式指定暂未实现，请用 packId 随机抽');
-  } else {
-    script = await pickRandomChatScript({ packId, type: expectedType });
-    if (!script) throw new Error(`没有匹配的剧本 (packId=${packId ?? '*'}, type=${expectedType})`);
+  // 角色 → accountId
+  const roleAcc: Record<string, string> = {};
+  if (p.accountAId) roleAcc.A = p.accountAId;
+  if (p.accountBId) roleAcc.B = p.accountBId;
+  if (p.accountCId) roleAcc.C = p.accountCId;
+  if (p.accountDId) roleAcc.D = p.accountDId;
+  const rolesPresent = Object.keys(roleAcc);
+  if (rolesPresent.length < 2) throw new Error('chat_script 至少需 2 个账号');
+
+  if (!isGroup && expectedType === 'A+B+C+D') {
+    throw new Error('4 人剧本必须用群聊模式 (4 人 N×N 私聊太复杂, 暂不支持)');
   }
 
+  // 取所有 client (必须都在本 agent 上)
+  const clients = ctx.clients;
+  if (!clients) throw new Error('chat_script 需要 ctx.clients (本 agent 全部 client map)');
+  const roleClient: Record<string, TelegramClient> = {};
+  for (const [r, accId] of Object.entries(roleAcc)) {
+    const c = clients.get(accId);
+    if (!c) throw new Error(`账号 ${accId.slice(0, 8)} (角色 ${r}) 未连接到本 agent`);
+    roleClient[r] = c;
+  }
+
+  // 抽剧本
+  if (p.scriptId) throw new Error('scriptId 暂未实现, 请用 packId 随机抽');
+  const script = await pickRandomChatScript({ packId: p.packId, type: expectedType });
+  if (!script) throw new Error(`没有匹配的剧本 (packId=${p.packId ?? '*'}, type=${expectedType})`);
   const raw = script.rawScript;
-  if (!raw?.sessions?.length) {
-    throw new Error(`剧本 ${script.id} 没有 rawScript.sessions[]`);
-  }
+  if (!raw?.sessions?.length) throw new Error(`剧本 ${script.id} 没有 sessions`);
 
-  // 私聊前置：自动把对方手机号 import 为联系人。
-  // - 已经是联系人 / 对方已被添加：TG 直接当 no-op，不报错
-  // - 对方手机号隐私设为「无人可见」：ImportContacts 返回空 users[]，下面
-  //   getEntity 会抛 PEER_ID_INVALID，executor 会被外层标记 failed 并清晰报错
-  if (targetPhoneNumber && !tgChatId) {
-    try {
-      await ctx.client.invoke(
-        new Api.contacts.ImportContacts({
-          contacts: [
-            new Api.InputPhoneContact({
-              clientId: BigInt(Date.now()) as any,
-              phone: targetPhoneNumber,
-              firstName: 'TeleHubX',
-              lastName: 'Peer',
-            }),
-          ],
-        }),
-      );
-      // 给 TG 服务器一点时间把 contact 同步进来
-      await sleep(gaussianDelayMs(2_000, 5_000));
-    } catch {
-      // FloodWait / 隐私限制 / 已存在 — 都不阻塞，让下面 getEntity 决定
+  // 解析每个 role 的 target entity (用各自的 client 来 resolve)
+  // 群聊: 所有 role 都发到同一个群
+  // 私聊 A+B: A 发给 B 用户, B 发给 A 用户
+  const roleTarget: Record<string, any> = {};
+  if (isGroup) {
+    if (!p.tgChatId) throw new Error('群聊模式需要 tgChatId');
+    for (const r of rolesPresent) {
+      try {
+        roleTarget[r] = await roleClient[r].getEntity(p.tgChatId);
+      } catch (err) {
+        throw new Error(`角色 ${r} 无法加入群 ${p.tgChatId}: ${(err as Error).message}`);
+      }
     }
+  } else {
+    // 私聊: A↔B 互发
+    const aPhone = p.accountAPhone, bPhone = p.accountBPhone;
+    if (!aPhone || !bPhone) throw new Error('私聊模式需要 accountAPhone / accountBPhone');
+    // A 端 import B → resolve B 实体
+    await tryImportContact(roleClient.A, bPhone);
+    roleTarget.A = await roleClient.A.getEntity(bPhone);
+    // B 端 import A → resolve A 实体
+    await tryImportContact(roleClient.B, aPhone);
+    roleTarget.B = await roleClient.B.getEntity(aPhone);
   }
 
-  const entity = await ctx.client.getEntity(target);
+  // 走所有 turns
   const allTurns: any[] = [];
   for (const sess of raw.sessions) {
     for (const t of sess.turns ?? []) allTurns.push(t);
   }
 
-  // 只跑 myRole 的回合
-  const myTurns = allTurns.filter((t) => t.role === myRole);
-  if (!myTurns.length) {
-    // 这个 role 没回合，直接结束
-    await ctx.reportProgress?.(100);
-    return;
-  }
+  for (let i = 0; i < allTurns.length; i++) {
+    const t = allTurns[i];
+    const senderClient = roleClient[t.role];
+    const targetEntity = roleTarget[t.role];
+    if (!senderClient || !targetEntity) continue; // role 不在本任务（比如剧本里有 D 但任务只 A+B）
 
-  for (let i = 0; i < myTurns.length; i++) {
-    const t = myTurns[i];
-
-    // 等到 turn 起点（用 send_delay_sec 累加近似，不与其他 role 真正同步 — 简化版）
+    // 间隔（剧本里写的 send_delay_sec）
     if (i > 0) {
       const [a, b] = (t.send_delay_sec as [number, number]) ?? [30, 90];
       await sleep(gaussianDelayMs(a * 1000, b * 1000));
     }
 
     if (t.type === 'voice' && t.asset_pool) {
-      // 语音 turn：按 asset_pool 名查 _builtin_voices_<pool>
       const fullPool = t.asset_pool.startsWith('_builtin_') ? t.asset_pool : `_builtin_${t.asset_pool}`;
       const asset = await pickRandomAsset({ poolName: fullPool });
       if (asset) {
         const buf = await fetchAssetFile(asset.id);
         if (buf) {
           const file = new CustomFile(asset.fileName, buf.length, '', buf);
-          await ctx.client.sendFile(entity, { file, voiceNote: true });
+          await senderClient.sendFile(targetEntity, { file, voiceNote: true });
         }
       } else if (t.caption_fallback) {
-        // 找不到素材 → 用文字兜底
-        await sendMessageLikeHuman(ctx.client, entity, t.caption_fallback);
+        await sendMessageLikeHuman(senderClient, targetEntity, t.caption_fallback);
       }
     } else if ((t.type === 'image' || t.type === 'video') && t.asset_pool) {
       const fullPool = t.asset_pool.startsWith('_builtin_') ? t.asset_pool : `_builtin_${t.asset_pool}`;
@@ -693,20 +702,39 @@ async function chatScriptImpl(
         const buf = await fetchAssetFile(asset.id);
         if (buf) {
           const file = new CustomFile(asset.fileName, buf.length, '', buf);
-          await ctx.client.sendFile(entity, { file, caption });
+          await senderClient.sendFile(targetEntity, { file, caption });
         }
       } else if (caption) {
-        await sendMessageLikeHuman(ctx.client, entity, caption);
+        await sendMessageLikeHuman(senderClient, targetEntity, caption);
       }
     } else {
-      // 文本 turn：从 content_pool 随机抽变体
       const pool: string[] = t.content_pool ?? [];
       if (!pool.length) continue;
       const text = pool[Math.floor(Math.random() * pool.length)];
-      await sendMessageLikeHuman(ctx.client, entity, text);
+      await sendMessageLikeHuman(senderClient, targetEntity, text);
     }
 
-    await ctx.reportProgress?.(Math.round(((i + 1) / myTurns.length) * 100));
+    await ctx.reportProgress?.(Math.round(((i + 1) / allTurns.length) * 100));
+  }
+}
+
+async function tryImportContact(client: TelegramClient, phone: string): Promise<void> {
+  try {
+    await client.invoke(
+      new Api.contacts.ImportContacts({
+        contacts: [
+          new Api.InputPhoneContact({
+            clientId: BigInt(Date.now()) as any,
+            phone,
+            firstName: 'TeleHubX',
+            lastName: 'Peer',
+          }),
+        ],
+      }),
+    );
+    await sleep(gaussianDelayMs(2_000, 5_000));
+  } catch {
+    // 已是联系人 / 隐私限制 / FloodWait — 都不阻塞，让下面 getEntity 决定
   }
 }
 

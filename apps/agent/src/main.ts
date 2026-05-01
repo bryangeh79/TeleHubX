@@ -382,10 +382,15 @@ async function bootstrap(): Promise<void> {
       }
       // 串行执行（同一时刻一个 agent 不并行跑多个 task 给同一个号）
       const { executeTask } = await import('./tasks/task-runner');
+      // 把所有 connected client 给 executor (chat_script 多账号编排用)
+      const allClients = new Map<string, import('telegram').TelegramClient>();
+      for (const [accId, s] of slots) allClients.set(accId, s.client);
+
       await executeTask(
         { id: t.id, type: t.type, accountId: t.accountId, accountLabel: t.accountLabel, payload: t.payload, tenantId: t.tenantId ?? null },
         slot.client,
         taskCallbacks,
+        allClients,
       ).catch((err) => {
         logger.error(`[task ${t.id?.slice(0, 8)}] uncaught: ${err instanceof Error ? err.message : err}`);
       });

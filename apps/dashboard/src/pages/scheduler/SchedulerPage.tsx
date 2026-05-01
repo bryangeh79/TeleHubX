@@ -424,8 +424,31 @@ export default function SchedulerPage() {
       },
     },
     {
-      title: '目标', key: 'target', width: 200,
+      title: '目标', key: 'target', width: 280,
       render: (_, row) => {
+        // chat_script_ab/4p: 显示 A/B/C/D 多账号
+        const p = row.payload as any;
+        if (p && (p.accountAId || p.accountBId)) {
+          const renderRole = (label: string, accId?: string) => {
+            if (!accId) return null;
+            const slotNo = accountSlotMap.get(accId);
+            const opt = accountOptions.find((o) => o.value === accId);
+            const phone = opt?.phone ?? accId.slice(0, 6);
+            return (
+              <Tag key={label} color="blue" style={{ fontSize: 11, padding: '2px 6px', marginBottom: 2 }}>
+                {label}: {slotNo != null ? `#${String(slotNo).padStart(2, '0')} · ` : ''}{phone}
+              </Tag>
+            );
+          };
+          return (
+            <div>
+              {renderRole('A', p.accountAId)}
+              {renderRole('B', p.accountBId)}
+              {renderRole('C', p.accountCId)}
+              {renderRole('D', p.accountDId)}
+            </div>
+          );
+        }
         if (!row.accountId) return <Text type="secondary">—</Text>;
         const slotNo = accountSlotMap.get(row.accountId);
         const phone = row.accountLabel ?? '';

@@ -41,6 +41,7 @@ export async function executeTask(
   task: DispatchedTask,
   client: TelegramClient,
   cb: ServerCallbacks,
+  clients?: Map<string, TelegramClient>,
 ): Promise<void> {
   const exec = EXECUTORS[task.type];
   if (!exec) {
@@ -55,6 +56,7 @@ export async function executeTask(
     taskId: task.id,
     accountId: task.accountId ?? undefined,
     tenantId: task.tenantId ?? undefined,
+    clients,
   };
 
   cb.log.info(`[task ${task.id.slice(0, 8)}] start type=${task.type} account=${task.accountLabel ?? task.accountId?.slice(0, 8)}`);

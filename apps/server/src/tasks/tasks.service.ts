@@ -12,20 +12,21 @@ export class TasksService {
     @InjectRepository(Account) private readonly accountRepo: Repository<Account>,
   ) {}
 
-  async create(dto: CreateTaskDto, tenantId?: string): Promise<Task | Task[]> {
-    // chat_script_ab / chat_script_4p 多账号编排：
-    // 当 payload 里有 accountAId/accountBId(/C/D) 时拆成 N 个子任务，
-    // 每个子任务跑自己 myRole 的 turns。共享 packId/scriptId 和 tgChatId。
+  async create(dto: CreateTaskDto, tenantId?: string): Promise<Task> {
+    // chat_script_ab / chat_script_4p: 一条记录 (不拆子任务).
+    // executor 在 agent 端协调切换 client (单 agent 内全部 N 个号互发)
+    // 私聊模式: 把 accountA/B/C/D 的 phoneNumber 注入 payload, 让 agent 端 getEntity 用
+    let payload = dto.payload as any;
     if (
-      (dto.type === TaskType.CHAT_SCRIPT_AB || dto.type === TaskType.CHAT_SCRIPT_4P)
-      && dto.payload
-      && (dto.payload as any).accountAId
+      (dto.type === TaskType.CHAT_SCRIPT_AB || dto.type === TaskType.CHAT_SCRIPT_4P) &&
+      payload?.accountAId
     ) {
-      return this.splitChatScriptTask(dto, tenantId);
+      payload = await this.enrichChatScriptPayload(payload);
     }
 
     const task = this.repo.create({
       ...dto,
+      payload,
       scheduledAt: new Date(dto.scheduledAt),
       tenantId: tenantId ?? null,
       status: TaskStatus.PENDING,
@@ -34,60 +35,22 @@ export class TasksService {
     return this.repo.save(task);
   }
 
-  private async splitChatScriptTask(dto: CreateTaskDto, tenantId?: string): Promise<Task[]> {
-    const p = dto.payload as any;
-    const isAB = dto.type === TaskType.CHAT_SCRIPT_AB;
-    const roleAccounts: Array<{ role: 'A' | 'B' | 'C' | 'D'; accountId: string }> = [];
-    if (p.accountAId) roleAccounts.push({ role: 'A', accountId: p.accountAId });
-    if (p.accountBId) roleAccounts.push({ role: 'B', accountId: p.accountBId });
-    if (!isAB) {
-      if (p.accountCId) roleAccounts.push({ role: 'C', accountId: p.accountCId });
-      if (p.accountDId) roleAccounts.push({ role: 'D', accountId: p.accountDId });
-    }
-    if (roleAccounts.length < 2) {
-      throw new Error('chat_script 任务至少需要 2 个账号 (accountAId + accountBId)');
-    }
-
-    const baseScheduledAt = new Date(dto.scheduledAt);
+  /** 私聊模式注入各角色 phoneNumber 到 payload, 让 agent executor getEntity 用 */
+  private async enrichChatScriptPayload(p: any): Promise<any> {
     const isPrivate = (p.chatMode ?? 'private') === 'private';
-
-    // 私聊模式：每个子任务需要知道"对方"的 phoneNumber 用作 getEntity 目标
-    const accountById = new Map<string, Account>();
-    if (isPrivate) {
-      const ids = roleAccounts.map((r) => r.accountId);
-      const rows = await this.accountRepo.findBy({ id: In(ids) as any });
-      for (const a of rows) accountById.set(a.id, a);
-    }
-
-    const created: Task[] = [];
-    for (const ra of roleAccounts) {
-      const subPayload: any = {
-        ...p,
-        myRole: ra.role,
-      };
-      if (isPrivate) {
-        // 取除自己以外的第一个账号当 DM 目标（A+B 场景就是另一边；4P 暂只支持 A→B 的串行私聊）
-        const others = roleAccounts.filter((r) => r.accountId !== ra.accountId);
-        const targetAcc = others.length ? accountById.get(others[0].accountId) : null;
-        if (targetAcc?.phoneNumber) {
-          subPayload.targetPhoneNumber = targetAcc.phoneNumber;
-          subPayload.targetAccountId = targetAcc.id;
-        }
-      }
-      const sub = this.repo.create({
-        name: `${dto.name} [${ra.role}]`,
-        type: dto.type,
-        accountId: ra.accountId,
-        accountLabel: dto.accountLabel ?? null,
-        payload: subPayload,
-        scheduledAt: baseScheduledAt,
-        tenantId: tenantId ?? null,
-        status: TaskStatus.PENDING,
-        progress: 0,
-      });
-      created.push(await this.repo.save(sub));
-    }
-    return created;
+    if (!isPrivate) return p;
+    const ids = [p.accountAId, p.accountBId, p.accountCId, p.accountDId].filter(Boolean) as string[];
+    if (!ids.length) return p;
+    const rows = await this.accountRepo.findBy({ id: In(ids) as any });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const phoneOf = (id?: string) => (id ? byId.get(id)?.phoneNumber : undefined);
+    return {
+      ...p,
+      accountAPhone: phoneOf(p.accountAId),
+      accountBPhone: phoneOf(p.accountBId),
+      accountCPhone: phoneOf(p.accountCId),
+      accountDPhone: phoneOf(p.accountDId),
+    };
   }
 
   findAll(filters: { status?: TaskStatus; type?: TaskType; tenantId?: string } = {}): Promise<Task[]> {
