@@ -372,6 +372,7 @@ export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
           lastName: u.lastName ?? null,
           sourceGroupId: chatId,
           scrapedByAccountId: ctx.accountId ?? null,
+          huntTaskId: (ctx.payload.huntTaskId as string | undefined) ?? null,
           priorityScore: 50 + (u.username ? 10 : 0) + (u.photo ? 5 : 0),
         });
         if (items.length >= maxPer) break;

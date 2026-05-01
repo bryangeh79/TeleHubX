@@ -63,6 +63,11 @@ export class LeadCandidate {
   @Column({ type: 'uuid', nullable: true })
   scrapedByAccountId: string | null;
 
+  /** 关联到哪个 keyword_lead_hunt 父任务 (用于目标达成统计 + 跨 hunt 去重) */
+  @Column({ type: 'uuid', nullable: true })
+  @Index()
+  huntTaskId: string | null;
+
   @Column({ type: 'timestamptz' })
   scrapedAt: Date;
 

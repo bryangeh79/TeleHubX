@@ -10,6 +10,7 @@ export interface BulkUpsertItem {
   lastName?: string | null;
   sourceGroupId?: string | null;
   scrapedByAccountId?: string | null;
+  huntTaskId?: string | null;
   priorityScore?: number;
 }
 
@@ -62,6 +63,7 @@ export class LeadCandidatesService {
           lastName: it.lastName ?? null,
           sourceGroupId: it.sourceGroupId ?? null,
           scrapedByAccountId: it.scrapedByAccountId ?? null,
+          huntTaskId: it.huntTaskId ?? null,
           scrapedAt: now,
           priorityScore: it.priorityScore ?? 50,
           status: CandidateStatus.PENDING,
@@ -71,6 +73,30 @@ export class LeadCandidatesService {
       }
     }
     return { inserted, updated };
+  }
+
+  /** 数某个 hunt 任务下累计爬到的候选人数 (含已联系 / 已转 / 黑名单 / 过期等所有状态) */
+  async countByHunt(huntTaskId: string): Promise<number> {
+    return this.repo.count({ where: { huntTaskId } });
+  }
+
+  /** 数某个 hunt 已触达的候选人 (status = contacted / replied / converted) */
+  async countContactedByHunt(huntTaskId: string): Promise<number> {
+    const all = await this.repo.find({ where: { huntTaskId } });
+    return all.filter((c) =>
+      c.status === CandidateStatus.CONTACTED ||
+      c.status === CandidateStatus.REPLIED ||
+      c.status === CandidateStatus.CONVERTED,
+    ).length;
+  }
+
+  /** 取 hunt 下 pending 候选人 (用于阶段 4 contact_add 动态选目标) */
+  async listPendingByHunt(huntTaskId: string, limit: number): Promise<LeadCandidate[]> {
+    return this.repo.find({
+      where: { huntTaskId, status: CandidateStatus.PENDING },
+      order: { priorityScore: 'DESC' },
+      take: limit,
+    });
   }
 
   /** 列出 pending 候选人（agent 触达任务前过滤可用 target）。 */

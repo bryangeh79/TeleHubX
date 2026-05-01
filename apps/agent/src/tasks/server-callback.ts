@@ -13,6 +13,7 @@ export interface CandidateUpsertItem {
   lastName?: string | null;
   sourceGroupId?: string | null;
   scrapedByAccountId?: string | null;
+  huntTaskId?: string | null;
   priorityScore?: number;
 }
 

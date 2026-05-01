@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, In, Repository } from 'typeorm';
 import { Account } from '../accounts/account.entity';
+import { LeadCandidatesService } from '../leads-candidates/leads-candidates.service';
 import { CreateTaskDto, UpdateTaskDto } from './task.dto';
 import { Task, TaskStatus, TaskType } from './task.entity';
 
@@ -30,6 +31,7 @@ export class TasksService {
   constructor(
     @InjectRepository(Task) private readonly repo: Repository<Task>,
     @InjectRepository(Account) private readonly accountRepo: Repository<Account>,
+    private readonly leadCandidates: LeadCandidatesService,
   ) {}
 
   async create(dto: CreateTaskDto, tenantId?: string): Promise<Task> {
@@ -104,15 +106,21 @@ export class TasksService {
       progress: 0,
     }));
 
+    // 是否 keyword_lead_hunt? 子任务 payload 注入 huntTaskId
+    const isHunt = dto.type === TaskType.KEYWORD_LEAD_HUNT;
+
     // 再创建子任务 + 链接 parentTaskId
     let savedCount = 0;
     for (const s of subs) {
+      const childPayload = isHunt
+        ? { ...s.payload, huntTaskId: parent.id }
+        : s.payload;
       const sub = this.repo.create({
         name: s.name,
         type: s.type,
         accountId: dto.accountId ?? '',
         accountLabel: dto.accountLabel ?? null,
-        payload: s.payload,
+        payload: childPayload,
         scheduledAt: s.scheduledAt,
         tenantId: tenantId ?? null,
         parentTaskId: parent.id,
@@ -307,17 +315,42 @@ export class TasksService {
   private buildKeywordLeadHunt(start: Date, baseName: string, payloadHint: any = {}): Array<{ type: TaskType; scheduledAt: Date; name: string; payload: any }> {
     const out: Array<{ type: TaskType; scheduledAt: Date; name: string; payload: any }> = [];
     const keywords: string[] = Array.isArray(payloadHint.keywords) && payloadHint.keywords.length
-      ? payloadHint.keywords : ['外汇']; // 默认兜底, 否则任务无意义
+      ? payloadHint.keywords : ['外汇'];
     const maxGroupsPerDay: number = payloadHint.maxGroupsPerDay ?? 2;
-    const scrapeDelayHours: number = payloadHint.scrapeDelayHours ?? 48;
+    const scrapeDelayHours: number = payloadHint.scrapeDelayHours ?? 24;
     const maxOutreachPerDay: number = payloadHint.maxOutreachPerDay ?? 5;
-    const durationDays: number = Math.min(90, Math.max(7, payloadHint.durationDays ?? 30));
+    const durationDays: number = Math.min(90, Math.max(3, payloadHint.durationDays ?? 7));
 
-    // 计算阶段边界
-    const stage1End = 7;                                                                  // D1-7
-    const stage2End = stage1End + Math.ceil(scrapeDelayHours / 24);                        // 默认 D9
-    const stage3End = Math.max(stage2End + 5, durationDays - 4);                           // 给阶段 4 留 5 天
-    const stage4End = durationDays;
+    // 目标 (用户填的, 决定每阶段需要几天)
+    const targetGroups: number = payloadHint.targetGroups ?? 5;
+    const targetCandidates: number = payloadHint.targetCandidates ?? 50;
+    const targetOutreach: number = payloadHint.targetOutreach ?? 10;
+    const SCRAPE_PER_SESSION = 50;  // 经验值: 一次 GROUP_SCRAPE 大约爬 50 人
+
+    // 按目标计算"需要"几天, 再用 durationDays 总额上限约束
+    const need1 = Math.max(1, Math.ceil(targetGroups / maxGroupsPerDay));
+    const need2 = Math.max(1, Math.ceil(scrapeDelayHours / 24));
+    const need3 = Math.max(1, Math.ceil(targetCandidates / SCRAPE_PER_SESSION));
+    const need4 = Math.max(1, Math.ceil(targetOutreach / maxOutreachPerDay));
+    const totalNeed = need1 + need2 + need3 + need4;
+
+    // 总需求超过 durationDays → 按比例缩到 durationDays 内 (优先压缩 stage 4)
+    let s1 = need1, s2 = need2, s3 = need3, s4 = need4;
+    if (totalNeed > durationDays) {
+      const scale = durationDays / totalNeed;
+      s1 = Math.max(1, Math.floor(need1 * scale));
+      s2 = Math.max(1, Math.floor(need2 * scale));
+      s3 = Math.max(1, Math.floor(need3 * scale));
+      s4 = Math.max(1, durationDays - s1 - s2 - s3);
+    }
+
+    const stage1End = s1;
+    const stage2End = s1 + s2;
+    const stage3End = s1 + s2 + s3;
+    const stage4End = Math.min(durationDays, stage3End + s4);
+
+    // 把目标放到子任务 payload, executor 完成时方便回算进度
+    const targetMeta = { targetGroups, targetCandidates, targetOutreach };
 
     // ── 阶段 1 (D1-7): 关键词搜群+加 (每天 1 个 task, 内部 maxPerDay 控制) ───
     for (let day = 0; day < stage1End; day++) {
@@ -581,6 +614,64 @@ export class TasksService {
    *   - 一次最多 limit 个（默认 5），避免单 agent 抢光
    *   - 每个 task 用 typeORM 乐观锁防 race
    */
+  /**
+   * 检查 keyword_lead_hunt 父任务是否已经达到任意一个目标.
+   * - 加群目标: 已完成的 JOIN_GROUPS_BY_KEYWORD 子任务数 × maxGroupsPerDay
+   * - 候选人目标: lead_candidates 表 huntTaskId = parent.id 的行数
+   * - 触达目标: 已完成的 CONTACT_ADD 子任务数 × maxOutreachPerDay
+   * 命中任一 → 标父任务 done + cancel 所有 pending 子任务.
+   */
+  async checkAndCompleteHunt(huntId: string): Promise<{ completed: boolean; reason?: string }> {
+    const parent = await this.repo.findOneBy({ id: huntId });
+    if (!parent || parent.type !== TaskType.KEYWORD_LEAD_HUNT) return { completed: false };
+    if (parent.status === TaskStatus.DONE || parent.status === TaskStatus.FAILED) return { completed: true };
+
+    const p = parent.payload as any ?? {};
+    const targets = {
+      groups: p.targetGroups ?? 0,
+      candidates: p.targetCandidates ?? 0,
+      outreach: p.targetOutreach ?? 0,
+    };
+    const maxGroupsPerDay = p.maxGroupsPerDay ?? 2;
+    const maxOutreachPerDay = p.maxOutreachPerDay ?? 5;
+
+    let reason: string | null = null;
+    if (targets.groups > 0) {
+      const doneJoins = await this.repo.count({
+        where: { parentTaskId: huntId, type: TaskType.JOIN_GROUPS_BY_KEYWORD, status: TaskStatus.DONE },
+      });
+      const groups = doneJoins * maxGroupsPerDay;
+      if (groups >= targets.groups) reason = `加群目标已达 (${groups}/${targets.groups})`;
+    }
+    if (!reason && targets.candidates > 0) {
+      const candidates = await this.leadCandidates.countByHunt(huntId);
+      if (candidates >= targets.candidates) reason = `候选人目标已达 (${candidates}/${targets.candidates})`;
+    }
+    if (!reason && targets.outreach > 0) {
+      const contacted = await this.leadCandidates.countContactedByHunt(huntId);
+      if (contacted >= targets.outreach) reason = `触达目标已达 (${contacted}/${targets.outreach})`;
+    }
+
+    if (!reason) return { completed: false };
+
+    // 标父任务 done + cancel 所有 pending 子任务
+    parent.status = TaskStatus.DONE;
+    parent.progress = 100;
+    parent.finishedAt = new Date();
+    parent.errorMsg = `提前完成: ${reason}`;
+    await this.repo.save(parent);
+
+    await this.repo
+      .createQueryBuilder()
+      .update(Task)
+      .set({ status: TaskStatus.FAILED, errorMsg: '上级任务目标已达, 跳过', finishedAt: new Date() })
+      .where('parentTaskId = :id', { id: huntId })
+      .andWhere('status = :s', { s: TaskStatus.PENDING })
+      .execute();
+
+    return { completed: true, reason };
+  }
+
   async dispatchToAgent(accountIds: string[], limit = 5): Promise<Task[]> {
     if (!accountIds.length) return [];
     const now = new Date();
@@ -597,8 +688,20 @@ export class TasksService {
 
     if (!candidates.length) return [];
 
+    // keyword_lead_hunt 子任务: 派发前检查父任务目标是否已达
+    // 已达 → 标父 done + 跳过所有 pending 子, 当前不派发
+    const surviving: Task[] = [];
+    for (const c of candidates) {
+      if (c.parentTaskId) {
+        const checkResult = await this.checkAndCompleteHunt(c.parentTaskId);
+        if (checkResult.completed) continue;  // 父已完成, 这个子也不派发
+      }
+      surviving.push(c);
+    }
+    if (!surviving.length) return [];
+
     // 原子转 running
-    const ids = candidates.map((c) => c.id);
+    const ids = surviving.map((c) => c.id);
     const updateRes = await this.repo
       .createQueryBuilder()
       .update(Task)

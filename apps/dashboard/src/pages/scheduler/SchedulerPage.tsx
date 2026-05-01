@@ -1213,9 +1213,12 @@ function buildPayloadForTaskType(taskType: string, v: any): any {
     return {
       keywords: linesToArr(v.huntKeywords),
       maxGroupsPerDay: v.huntMaxGroupsPerDay ?? 2,
-      scrapeDelayHours: v.huntScrapeDelayHours ?? 48,
+      scrapeDelayHours: v.huntScrapeDelayHours ?? 24,
       maxOutreachPerDay: v.huntMaxOutreachPerDay ?? 5,
-      durationDays: v.huntDurationDays ?? 30,
+      durationDays: v.huntDurationDays ?? 7,
+      targetGroups: v.huntTargetGroups ?? 5,
+      targetCandidates: v.huntTargetCandidates ?? 50,
+      targetOutreach: v.huntTargetOutreach ?? 10,
     };
   }
 
@@ -1448,17 +1451,35 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
           extra="例: 外汇 / 加密 / 区块链">
           <Input.TextArea rows={3} placeholder="外汇&#10;加密货币" />
         </Form.Item>
-        <Form.Item name="huntMaxGroupsPerDay" label="每天最多加群数" initialValue={2}>
-          <InputNumber min={1} max={5} />
-        </Form.Item>
-        <Form.Item name="huntScrapeDelayHours" label="加群后等多久再爬成员" initialValue={48} extra="48 小时让账号在群里沉淀, 显得自然">
-          <InputNumber min={6} max={168} />
-        </Form.Item>
-        <Form.Item name="huntMaxOutreachPerDay" label="每天最多触达陌生人" initialValue={5}>
-          <InputNumber min={0} max={20} />
-        </Form.Item>
-        <Form.Item name="huntDurationDays" label="任务总持续天数" initialValue={30}>
-          <InputNumber min={7} max={90} />
+        <Card size="small" title="🎯 目标" style={{ marginBottom: 12, background: '#fff7e6' }}>
+          <Form.Item name="huntTargetGroups" label="加群目标 (累计)" initialValue={5}
+            extra="阶段1 累计加到这个数 → 提前进下阶段">
+            <InputNumber min={1} max={50} />
+          </Form.Item>
+          <Form.Item name="huntTargetCandidates" label="候选人目标 (累计)" initialValue={50}
+            extra="阶段3 爬到这个数 → 提前进下阶段">
+            <InputNumber min={10} max={2000} />
+          </Form.Item>
+          <Form.Item name="huntTargetOutreach" label="触达目标 (累计)" initialValue={10}
+            extra="阶段4 触达这个数 → 任务整体完成 (任一目标先达即提前结束)">
+            <InputNumber min={1} max={500} />
+          </Form.Item>
+        </Card>
+        <Card size="small" title="⏱ 节奏 (每日上限)" style={{ marginBottom: 12, background: '#f0f9ff' }}>
+          <Form.Item name="huntMaxGroupsPerDay" label="每天最多加群数" initialValue={2}>
+            <InputNumber min={1} max={5} />
+          </Form.Item>
+          <Form.Item name="huntScrapeDelayHours" label="加群后等多久再爬成员" initialValue={24}
+            extra="24h 紧凑 / 48h 推荐 / 72h 最稳">
+            <InputNumber min={6} max={168} />
+          </Form.Item>
+          <Form.Item name="huntMaxOutreachPerDay" label="每天最多触达陌生人" initialValue={5}>
+            <InputNumber min={0} max={20} />
+          </Form.Item>
+        </Card>
+        <Form.Item name="huntDurationDays" label="任务总持续天数" initialValue={7}
+          extra="3-90 天. 系统按 (目标 / 每日上限) 自动安排各阶段长度. 总目标超过天数能跑完时自动等比缩放.">
+          <InputNumber min={3} max={90} />
         </Form.Item>
       </>
     );
