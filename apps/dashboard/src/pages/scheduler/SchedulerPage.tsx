@@ -42,7 +42,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { accountsApi, assetsApi, chatScriptsApi, slotsApi, tasksApi } from '../../services/api';
+import { accountsApi, assetsApi, chatScriptsApi, leadCandidatesApi, slotsApi, tasksApi } from '../../services/api';
 
 const { Title, Text } = Typography;
 
@@ -179,6 +179,8 @@ export default function SchedulerPage() {
   // 任务详情/日志查看
   const [logTask, setLogTask] = useState<Task | null>(null);
   const [logChildren, setLogChildren] = useState<Task[]>([]);
+  const [logHuntCount, setLogHuntCount] = useState<number>(0);
+  const [logHuntSources, setLogHuntSources] = useState<Array<{ sourceGroupId: string | null; sourceGroupTitle: string | null; count: number }>>([]);
 
   // 自动刷新计时器
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -315,15 +317,26 @@ export default function SchedulerPage() {
     return () => clearInterval(t);
   }, [logTask?.id, logTask?.status]);
 
-  // 打开 preset 父任务时, 拉子任务列表
+  // 打开父任务时, 拉子任务列表 + (keyword_lead_hunt 额外拉候选人统计)
   useEffect(() => {
-    if (!logTask) { setLogChildren([]); return; }
+    if (!logTask) { setLogChildren([]); setLogHuntCount(0); setLogHuntSources([]); return; }
     const isPreset = (logTask.type as string).startsWith('preset_');
-    if (!isPreset) { setLogChildren([]); return; }
+    const isHunt = logTask.type === 'keyword_lead_hunt';
+    if (!isPreset && !isHunt) { setLogChildren([]); setLogHuntCount(0); setLogHuntSources([]); return; }
     (async () => {
       try {
-        const res = await tasksApi.children(logTask.id);
-        setLogChildren(Array.isArray(res.data) ? res.data : []);
+        const childrenRes = await tasksApi.children(logTask.id);
+        setLogChildren(Array.isArray(childrenRes.data) ? childrenRes.data : []);
+        if (isHunt) {
+          const tenantId = localStorage.getItem('telehubx:tenantId') ?? 'default';
+          const [listRes, srcRes] = await Promise.all([
+            leadCandidatesApi.list({ tenantId, huntTaskId: logTask.id }),
+            leadCandidatesApi.huntSources(logTask.id),
+          ]);
+          const list = Array.isArray(listRes.data) ? listRes.data.filter((c: any) => c.huntTaskId === logTask.id) : [];
+          setLogHuntCount(list.length);
+          setLogHuntSources(Array.isArray(srcRes.data) ? srcRes.data : []);
+        }
       } catch {
         setLogChildren([]);
       }
@@ -778,6 +791,40 @@ export default function SchedulerPage() {
           </Descriptions>
         )}
 
+        {/* keyword_lead_hunt → 候选人收集进度 + 来源群分布 */}
+        {logTask && logTask.type === 'keyword_lead_hunt' && (
+          <div style={{ marginTop: 16 }}>
+            <Title level={5} style={{ marginBottom: 8 }}>
+              📥 候选人收集进度 ({logHuntCount} / {(logTask.payload as any)?.targetCandidates ?? '?'})
+            </Title>
+            <Progress
+              percent={Math.min(100, Math.round((logHuntCount / Math.max(1, (logTask.payload as any)?.targetCandidates ?? 1)) * 100))}
+              status={logTask.status === 'done' ? 'success' : 'active'}
+              strokeColor={{ from: '#1677ff', to: '#52c41a' }}
+            />
+            {logHuntSources.length > 0 && (
+              <Card size="small" style={{ marginTop: 8 }} title="来源群分布">
+                {logHuntSources.map((s) => (
+                  <div key={s.sourceGroupId ?? 'unknown'} style={{
+                    display: 'flex', justifyContent: 'space-between',
+                    fontSize: 12, padding: '4px 0', borderBottom: '1px solid #f0f0f0',
+                  }}>
+                    <Text>{s.sourceGroupTitle ?? s.sourceGroupId ?? '(未知)'}</Text>
+                    <Tag color="blue">{s.count} 人</Tag>
+                  </div>
+                ))}
+              </Card>
+            )}
+            <Button
+              type="link"
+              style={{ marginTop: 8, padding: 0 }}
+              onClick={() => { window.location.href = `/lead-candidates?huntTaskId=${logTask.id}`; }}
+            >
+              查看完整候选人列表 →
+            </Button>
+          </div>
+        )}
+
         {/* preset 父任务 → 子任务时间线 */}
         {logTask && logChildren.length > 0 && (
           <div style={{ marginTop: 16 }}>
@@ -1212,13 +1259,8 @@ function buildPayloadForTaskType(taskType: string, v: any): any {
   if (t === 'keyword_lead_hunt') {
     return {
       keywords: linesToArr(v.huntKeywords),
-      maxGroupsPerDay: v.huntMaxGroupsPerDay ?? 2,
-      scrapeDelayHours: v.huntScrapeDelayHours ?? 24,
-      maxOutreachPerDay: v.huntMaxOutreachPerDay ?? 5,
-      durationDays: v.huntDurationDays ?? 7,
-      targetGroups: v.huntTargetGroups ?? 5,
-      targetCandidates: v.huntTargetCandidates ?? 50,
-      targetOutreach: v.huntTargetOutreach ?? 10,
+      targetCandidates: v.huntTargetCandidates ?? 300,
+      durationDays: v.huntDurationDays ?? 10,
     };
   }
 
@@ -1443,43 +1485,60 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
     );
   }
 
-  // ─── KEYWORD_LEAD_HUNT ──────────────────────────────────
+  // ─── KEYWORD_LEAD_HUNT (v2 — 纯候选人收集) ───────────────
   if (t === 'keyword_lead_hunt') {
     return (
       <>
-        <Form.Item name="huntKeywords" label="关键词 (一行一个)" rules={[{ required: true }]}
-          extra="例: 外汇 / 加密 / 区块链">
-          <Input.TextArea rows={3} placeholder="外汇&#10;加密货币" />
+        <Form.Item label="任务说明" style={{ marginBottom: 8 }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            🎯 目标: 通过加目标群 + 爬成员，<b>累计收集到指定数量的候选人</b>。
+            收集到的候选人写入「候选人池」(/lead-candidates)，含来源群名 / TG id / username / 手机号(若可见) / 最近在线时间 / Premium 标记。
+            <b>触达不在此任务范围</b> — 用 CAMPAIGN_SINGLE / CONTACT_ADD 单独跑。
+          </Text>
         </Form.Item>
-        <Card size="small" title="🎯 目标" style={{ marginBottom: 12, background: '#fff7e6' }}>
-          <Form.Item name="huntTargetGroups" label="加群目标 (累计)" initialValue={5}
-            extra="阶段1 累计加到这个数 → 提前进下阶段">
-            <InputNumber min={1} max={50} />
-          </Form.Item>
-          <Form.Item name="huntTargetCandidates" label="候选人目标 (累计)" initialValue={50}
-            extra="阶段3 爬到这个数 → 提前进下阶段">
-            <InputNumber min={10} max={2000} />
-          </Form.Item>
-          <Form.Item name="huntTargetOutreach" label="触达目标 (累计)" initialValue={10}
-            extra="阶段4 触达这个数 → 任务整体完成 (任一目标先达即提前结束)">
-            <InputNumber min={1} max={500} />
-          </Form.Item>
-        </Card>
-        <Card size="small" title="⏱ 节奏 (每日上限)" style={{ marginBottom: 12, background: '#f0f9ff' }}>
-          <Form.Item name="huntMaxGroupsPerDay" label="每天最多加群数" initialValue={2}>
-            <InputNumber min={1} max={5} />
-          </Form.Item>
-          <Form.Item name="huntScrapeDelayHours" label="加群后等多久再爬成员" initialValue={24}
-            extra="24h 紧凑 / 48h 推荐 / 72h 最稳">
-            <InputNumber min={6} max={168} />
-          </Form.Item>
-          <Form.Item name="huntMaxOutreachPerDay" label="每天最多触达陌生人" initialValue={5}>
-            <InputNumber min={0} max={20} />
-          </Form.Item>
-        </Card>
-        <Form.Item name="huntDurationDays" label="任务总持续天数" initialValue={7}
-          extra="3-90 天. 系统按 (目标 / 每日上限) 自动安排各阶段长度. 总目标超过天数能跑完时自动等比缩放.">
-          <InputNumber min={3} max={90} />
+        <Form.Item name="huntKeywords" label="关键词 (一行一个)" rules={[{ required: true }]}
+          extra="例: 外汇 / 加密货币 / 区块链 — 系统按这些词搜公开群">
+          <Input.TextArea rows={2} placeholder="外汇" />
+        </Form.Item>
+        <Form.Item name="huntTargetCandidates" label="目标候选人数 (累计)" rules={[{ required: true }]} initialValue={300}>
+          <InputNumber min={10} max={5000} style={{ width: 160 }} />
+        </Form.Item>
+        <Form.Item name="huntDurationDays" label="执行天数" rules={[{ required: true }]} initialValue={10}
+          extra="3-90 天. 系统按 (目标人数 / 天数) 自动算每天加群速度">
+          <InputNumber min={3} max={90} style={{ width: 160 }} />
+        </Form.Item>
+        <Form.Item shouldUpdate={(p, c) => p.huntTargetCandidates !== c.huntTargetCandidates || p.huntDurationDays !== c.huntDurationDays} noStyle>
+          {({ getFieldValue }) => {
+            const target = getFieldValue('huntTargetCandidates') || 300;
+            const days = getFieldValue('huntDurationDays') || 10;
+            const AVG = 30;
+            const SAFE_MAX = 2;
+            const needGroups = Math.ceil(target / AVG);
+            const joinDays = Math.max(1, days - 1);
+            let groupsPerDay = Math.max(1, Math.ceil(needGroups / joinDays));
+            const capped = groupsPerDay > SAFE_MAX;
+            if (capped) groupsPerDay = SAFE_MAX;
+            const realCanCollect = groupsPerDay * joinDays * AVG;
+            return (
+              <Alert
+                type={capped ? 'warning' : 'info'}
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="⚙️ 自动节奏预览"
+                description={
+                  <div style={{ fontSize: 12 }}>
+                    <div>• 估算需加 <b>{needGroups} 个群</b> (每群约 {AVG} 候选人)</div>
+                    <div>• D1 - D{joinDays} 每天加 <b>{groupsPerDay} 群</b>（{capped ? `⚠️ TG 安全线 ≤ ${SAFE_MAX} 群/天，已限速` : '在 TG 安全线内'}）</div>
+                    <div>• D2 - D{days} 每天爬一次群成员</div>
+                    <div>• 累计达 {target} 人 → 提前完成；天数到期 → 自然结束</div>
+                    {capped && <div style={{ color: '#fa8c16', marginTop: 4 }}>
+                      ⚠️ 当前节奏 {days} 天最多收集 ~{realCanCollect} 人 ({'<'}{target}). 建议延长天数到 ≥ {Math.ceil(target / (SAFE_MAX * AVG)) + 1} 天.
+                    </div>}
+                  </div>
+                }
+              />
+            );
+          }}
         </Form.Item>
       </>
     );

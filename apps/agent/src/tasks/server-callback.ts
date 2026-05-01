@@ -12,6 +12,11 @@ export interface CandidateUpsertItem {
   firstName?: string | null;
   lastName?: string | null;
   sourceGroupId?: string | null;
+  sourceGroupTitle?: string | null;
+  phone?: string | null;
+  lastSeenAt?: string | null;
+  isPremium?: boolean;
+  isBot?: boolean;
   scrapedByAccountId?: string | null;
   huntTaskId?: string | null;
   priorityScore?: number;

@@ -9,6 +9,11 @@ export interface BulkUpsertItem {
   firstName?: string | null;
   lastName?: string | null;
   sourceGroupId?: string | null;
+  sourceGroupTitle?: string | null;
+  phone?: string | null;
+  lastSeenAt?: string | null;     // ISO string from agent
+  isPremium?: boolean;
+  isBot?: boolean;
   scrapedByAccountId?: string | null;
   huntTaskId?: string | null;
   priorityScore?: number;
@@ -45,11 +50,14 @@ export class LeadCandidatesService {
     for (const it of items) {
       const found = existingMap.get(it.tgUserId);
       if (found) {
-        // 已存在 → 仅补全空字段，不覆盖已有 username/name
+        // 已存在 → 仅补全空字段, 不覆盖已有
         let dirty = false;
         if (!found.tgUsername && it.tgUsername) { found.tgUsername = it.tgUsername; dirty = true; }
         if (!found.firstName && it.firstName) { found.firstName = it.firstName; dirty = true; }
         if (!found.lastName && it.lastName) { found.lastName = it.lastName; dirty = true; }
+        if (!found.sourceGroupTitle && it.sourceGroupTitle) { found.sourceGroupTitle = it.sourceGroupTitle; dirty = true; }
+        if (!found.phone && it.phone) { found.phone = it.phone; dirty = true; }
+        if (!found.lastSeenAt && it.lastSeenAt) { found.lastSeenAt = new Date(it.lastSeenAt); dirty = true; }
         if (dirty) {
           await this.repo.save(found);
           updated++;
@@ -62,6 +70,11 @@ export class LeadCandidatesService {
           firstName: it.firstName ?? null,
           lastName: it.lastName ?? null,
           sourceGroupId: it.sourceGroupId ?? null,
+          sourceGroupTitle: it.sourceGroupTitle ?? null,
+          phone: it.phone ?? null,
+          lastSeenAt: it.lastSeenAt ? new Date(it.lastSeenAt) : null,
+          isPremium: it.isPremium ?? false,
+          isBot: it.isBot ?? false,
           scrapedByAccountId: it.scrapedByAccountId ?? null,
           huntTaskId: it.huntTaskId ?? null,
           scrapedAt: now,
@@ -73,6 +86,25 @@ export class LeadCandidatesService {
       }
     }
     return { inserted, updated };
+  }
+
+  /** 数 hunt 下来源群分布 (huntTaskId → groupTitle → count) */
+  async groupSourcesByHunt(huntTaskId: string): Promise<Array<{ sourceGroupId: string | null; sourceGroupTitle: string | null; count: number }>> {
+    const rows = await this.repo
+      .createQueryBuilder('c')
+      .select('c.sourceGroupId', 'sourceGroupId')
+      .addSelect('c.sourceGroupTitle', 'sourceGroupTitle')
+      .addSelect('COUNT(*)', 'count')
+      .where('c.huntTaskId = :id', { id: huntTaskId })
+      .groupBy('c.sourceGroupId')
+      .addGroupBy('c.sourceGroupTitle')
+      .orderBy('"count"', 'DESC')
+      .getRawMany();
+    return rows.map((r) => ({
+      sourceGroupId: r.sourceGroupId,
+      sourceGroupTitle: r.sourceGroupTitle,
+      count: parseInt(r.count, 10),
+    }));
   }
 
   /** 数某个 hunt 任务下累计爬到的候选人数 (含已联系 / 已转 / 黑名单 / 过期等所有状态) */

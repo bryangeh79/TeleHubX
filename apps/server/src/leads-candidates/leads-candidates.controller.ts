@@ -74,6 +74,12 @@ export class LeadCandidatesController {
     return this.service.stats(resolveTenantId(user, q));
   }
 
+  /** 候选池按来源群分组 (任务详情 Modal 显示「来自哪几个群」) */
+  @Get('hunt-sources')
+  huntSources(@Query('huntTaskId') huntTaskId: string) {
+    return this.service.groupSourcesByHunt(huntTaskId);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.findOne(id);

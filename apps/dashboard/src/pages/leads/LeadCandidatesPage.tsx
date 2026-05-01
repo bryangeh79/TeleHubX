@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Button,
   Card,
   Col,
@@ -39,7 +40,13 @@ interface Candidate {
   firstName: string | null;
   lastName: string | null;
   sourceGroupId: string | null;
+  sourceGroupTitle: string | null;
+  phone: string | null;
+  lastSeenAt: string | null;
+  isPremium: boolean;
+  isBot: boolean;
   scrapedByAccountId: string | null;
+  huntTaskId: string | null;
   scrapedAt: string;
   priorityScore: number;
   status: 'pending' | 'contacted' | 'replied' | 'converted' | 'blocked' | 'expired';
@@ -75,21 +82,31 @@ export default function LeadCandidatesPage() {
     [],
   );
 
+  // 支持 URL ?huntTaskId=xxx 跳转过滤 (从任务详情 Modal 跳过来)
+  const huntTaskId = useMemo(() => {
+    if (typeof window === 'undefined') return undefined;
+    return new URL(window.location.href).searchParams.get('huntTaskId') ?? undefined;
+  }, []);
+
   const reload = useCallback(async () => {
     setLoading(true);
     try {
+      const params: any = { tenantId, status: filterStatus };
+      if (huntTaskId) params.huntTaskId = huntTaskId;
       const [listRes, statsRes] = await Promise.all([
-        leadCandidatesApi.list({ tenantId, status: filterStatus }),
+        leadCandidatesApi.list(params),
         leadCandidatesApi.stats(tenantId),
       ]);
-      setCandidates(Array.isArray(listRes.data) ? listRes.data : []);
+      let arr = Array.isArray(listRes.data) ? listRes.data : [];
+      if (huntTaskId) arr = arr.filter((c: any) => c.huntTaskId === huntTaskId);
+      setCandidates(arr);
       setStats(statsRes.data ?? {});
     } catch (err: any) {
       antdMessage.error(err?.response?.data?.message ?? '加载候选池失败');
     } finally {
       setLoading(false);
     }
-  }, [tenantId, filterStatus]);
+  }, [tenantId, filterStatus, huntTaskId]);
 
   useEffect(() => { void reload(); }, [reload]);
 
@@ -160,11 +177,26 @@ export default function LeadCandidatesPage() {
   };
 
   const exportCsv = () => {
-    const header = ['tgUserId', 'tgUsername', 'firstName', 'lastName', 'sourceGroupId', 'priorityScore', 'status', 'scrapedAt'];
-    const rows = candidates.map((c) =>
-      [c.tgUserId, c.tgUsername ?? '', c.firstName ?? '', c.lastName ?? '', c.sourceGroupId ?? '', c.priorityScore, c.status, c.scrapedAt].join(','),
-    );
-    const csv = [header.join(','), ...rows].join('\n');
+    const header = [
+      'tgUserId', 'tgUsername', 'firstName', 'lastName',
+      'phone', 'lastSeenAt', 'isPremium',
+      'sourceGroupId', 'sourceGroupTitle',
+      'priorityScore', 'status', 'scrapedAt', 'huntTaskId',
+    ];
+    const esc = (v: any) => {
+      if (v == null) return '';
+      const s = String(v);
+      return s.includes(',') || s.includes('"') || s.includes('\n')
+        ? `"${s.replace(/"/g, '""')}"`
+        : s;
+    };
+    const rows = candidates.map((c) => [
+      c.tgUserId, c.tgUsername, c.firstName, c.lastName,
+      c.phone, c.lastSeenAt, c.isPremium ? '是' : '',
+      c.sourceGroupId, c.sourceGroupTitle,
+      c.priorityScore, c.status, c.scrapedAt, c.huntTaskId,
+    ].map(esc).join(','));
+    const csv = '﻿' + [header.join(','), ...rows].join('\n'); // UTF-8 BOM 防 Excel 乱码
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -176,23 +208,41 @@ export default function LeadCandidatesPage() {
 
   const columns: ColumnsType<Candidate> = [
     {
-      title: 'TG 用户', key: 'tg', width: 220,
+      title: 'TG 用户', key: 'tg', width: 240,
       render: (_, c) => (
         <div>
-          <Text strong>
-            {c.firstName ?? ''} {c.lastName ?? ''}
-            {!c.firstName && !c.lastName && <Text type="secondary">(无名)</Text>}
-          </Text>
+          <Space size={4}>
+            <Text strong>
+              {c.firstName ?? ''} {c.lastName ?? ''}
+              {!c.firstName && !c.lastName && <Text type="secondary">(无名)</Text>}
+            </Text>
+            {c.isPremium && <Tag color="gold" style={{ fontSize: 10 }}>⭐ Premium</Tag>}
+          </Space>
           <br />
           <Text type="secondary" style={{ fontSize: 11 }}>
             {c.tgUsername ? `@${c.tgUsername}` : `id:${c.tgUserId}`}
+            {c.phone && <span style={{ marginLeft: 6 }}>📞 {c.phone}</span>}
           </Text>
         </div>
       ),
     },
     {
-      title: '来源群', dataIndex: 'sourceGroupId', key: 'sourceGroupId', width: 160,
-      render: (g: string | null) => (g ? <Tag color="blue">{g.slice(0, 16)}</Tag> : <Text type="secondary">—</Text>),
+      title: '来源群', key: 'source', width: 200,
+      render: (_, c) => (
+        c.sourceGroupTitle || c.sourceGroupId ? (
+          <div>
+            <Text style={{ fontSize: 12 }}>{c.sourceGroupTitle ?? '(未知群名)'}</Text>
+            <br />
+            <Text type="secondary" style={{ fontSize: 10 }}>{c.sourceGroupId?.slice(0, 18)}</Text>
+          </div>
+        ) : <Text type="secondary">—</Text>
+      ),
+    },
+    {
+      title: '最后在线', dataIndex: 'lastSeenAt', key: 'lastSeenAt', width: 110,
+      render: (t: string | null) => t
+        ? <Text style={{ fontSize: 11 }}>{dayjs(t).format('MM-DD HH:mm')}</Text>
+        : <Text type="secondary" style={{ fontSize: 11 }}>未知</Text>,
     },
     {
       title: '优先级', dataIndex: 'priorityScore', key: 'priorityScore', width: 90,
@@ -235,6 +285,20 @@ export default function LeadCandidatesPage() {
           <Button icon={<ReloadOutlined />} onClick={() => void reload()}>刷新</Button>
         </Space>
       </div>
+
+      {huntTaskId && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={`仅显示来自任务 #${huntTaskId.slice(0, 8)} 的候选人 (${candidates.length} 人)`}
+          action={
+            <Button size="small" onClick={() => { window.location.href = '/lead-candidates'; }}>
+              查看全部
+            </Button>
+          }
+        />
+      )}
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}><Card size="small"><Statistic title="总候选人" value={stats.total ?? 0} /></Card></Col>

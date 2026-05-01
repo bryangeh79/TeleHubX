@@ -353,7 +353,8 @@ export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
   for (let i = 0; i < chatIds.length; i++) {
     const chatId = chatIds[i].trim();
     try {
-      const entity = await ctx.client.getEntity(chatId);
+      const entity: any = await ctx.client.getEntity(chatId);
+      const groupTitle = entity?.title ?? null;
       const participants = await ctx.client.getParticipants(entity, {
         limit: 200,
       });
@@ -361,7 +362,7 @@ export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
       const items: any[] = [];
       for (const p of participants) {
         const u: any = p;
-        // 只要真人：非 bot, 非已删除, 30 天内活跃过
+        // 只要真人: 非 bot, 非已删除, 30 天内活跃过
         if (u.bot || u.deleted) continue;
         const lastSeenSec = (u.status?.wasOnline as number | undefined) ?? null;
         if (lastSeenSec !== null && lastSeenSec < cutoff) continue;
@@ -371,9 +372,18 @@ export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
           firstName: u.firstName ?? null,
           lastName: u.lastName ?? null,
           sourceGroupId: chatId,
+          sourceGroupTitle: groupTitle,
+          phone: u.phone ? `+${u.phone}` : null,
+          lastSeenAt: lastSeenSec ? new Date(lastSeenSec * 1000).toISOString() : null,
+          isPremium: u.premium === true,
+          isBot: false,
           scrapedByAccountId: ctx.accountId ?? null,
           huntTaskId: (ctx.payload.huntTaskId as string | undefined) ?? null,
-          priorityScore: 50 + (u.username ? 10 : 0) + (u.photo ? 5 : 0),
+          priorityScore: 50
+            + (u.username ? 10 : 0)
+            + (u.photo ? 5 : 0)
+            + (u.premium ? 3 : 0)
+            + (u.phone ? 8 : 0),
         });
         if (items.length >= maxPer) break;
       }

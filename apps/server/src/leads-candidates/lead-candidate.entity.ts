@@ -59,6 +59,26 @@ export class LeadCandidate {
   @Column({ type: 'varchar', length: 64, nullable: true })
   sourceGroupId: string | null;
 
+  /** 来源群的显示名 (爬时同步抓 entity.title), 给租户看用 */
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  sourceGroupTitle: string | null;
+
+  /** 手机号 (TG 协议默认隐藏, 仅当对方主动公开时可拿到, 实际命中率 <5%) */
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  phone: string | null;
+
+  /** 最后在线时间 (从 u.status.wasOnline, 隐私允许才有) */
+  @Column({ type: 'timestamptz', nullable: true })
+  lastSeenAt: Date | null;
+
+  /** 是否 TG Premium 用户 */
+  @Column({ default: false })
+  isPremium: boolean;
+
+  /** 是否 bot (爬时已过滤, 这里仅作为冗余标记) */
+  @Column({ default: false })
+  isBot: boolean;
+
   /** 哪个号爬到这个人（用于跨号去重 — 同执行组别其他号别再去联系）*/
   @Column({ type: 'uuid', nullable: true })
   scrapedByAccountId: string | null;

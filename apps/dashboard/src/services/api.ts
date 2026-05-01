@@ -325,12 +325,14 @@ async function fetchOverview(): Promise<DashboardOverview> {
 }
 
 export const leadCandidatesApi = {
-  list: (params?: { tenantId: string; status?: string }) =>
+  list: (params?: { tenantId: string; status?: string; huntTaskId?: string }) =>
     api.get('/lead-candidates', { params }),
   pending: (tenantId: string, limit = 50) =>
     api.get('/lead-candidates/pending', { params: { tenantId, limit } }),
   stats: (tenantId: string) =>
     api.get('/lead-candidates/stats', { params: { tenantId } }),
+  huntSources: (huntTaskId: string) =>
+    api.get('/lead-candidates/hunt-sources', { params: { huntTaskId } }),
   get: (id: string) => api.get(`/lead-candidates/${id}`),
   remove: (id: string) => api.delete(`/lead-candidates/${id}`),
 };
