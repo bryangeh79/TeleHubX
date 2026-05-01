@@ -87,6 +87,12 @@ export class TasksController {
     return this.service.retry(id);
   }
 
+  /** 强制停止：无论当前状态都标 failed + errorMsg='Cancelled by user'. */
+  @Post(':id/cancel')
+  cancel(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.cancel(id);
+  }
+
   /** 复用任务：clone 一份立即排队执行，原任务不动。 */
   @Post(':id/run-now')
   runNow(@Param('id', ParseUUIDPipe) id: string) {

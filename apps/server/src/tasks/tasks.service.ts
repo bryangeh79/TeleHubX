@@ -131,6 +131,23 @@ export class TasksService {
     return this.repo.save(t);
   }
 
+  /**
+   * 强制停止任务。无论当前状态都标记 FAILED + errorMsg='Cancelled by user'。
+   * - pending：还没被 agent 领，DB 改完就生效
+   * - running：agent 仍在跑当前 turn（Node 无法 kill 中途 await），但任务对用户视为已停。
+   *   agent 完成当前 turn 后 PATCH 回 done 也会被 cancel 状态覆盖
+   * - paused：直接 cancel
+   * 已 done 的任务忽略 (cancel 历史已完成的没意义)
+   */
+  async cancel(id: string): Promise<Task> {
+    const t = await this.findOne(id);
+    if (t.status === TaskStatus.DONE || t.status === TaskStatus.FAILED) return t;
+    t.status = TaskStatus.FAILED;
+    t.errorMsg = 'Cancelled by user';
+    t.finishedAt = new Date();
+    return this.repo.save(t);
+  }
+
   async retry(id: string): Promise<Task> {
     const t = await this.findOne(id);
     if (t.status !== TaskStatus.FAILED) return t;

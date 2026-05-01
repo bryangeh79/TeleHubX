@@ -36,6 +36,7 @@ import {
   PlusOutlined,
   ReloadOutlined,
   ScheduleOutlined,
+  StopOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -375,6 +376,16 @@ export default function SchedulerPage() {
     }
   };
 
+  const handleCancel = async (id: string) => {
+    try {
+      await tasksApi.cancel(id);
+      antdMessage.success('任务已强制停止');
+      void reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '停止失败');
+    }
+  };
+
   const handleDelete = async (id: string) => {
     try {
       await tasksApi.delete(id);
@@ -457,6 +468,15 @@ export default function SchedulerPage() {
           {row.status === 'running' && <Button size="small" icon={<PauseCircleOutlined />} onClick={() => handlePause(row.id)} />}
           {row.status === 'paused' && <Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={() => handleResume(row.id)} />}
           {row.status === 'failed' && <Button size="small" icon={<ReloadOutlined />} onClick={() => handleRetry(row.id)}>重试</Button>}
+          {(row.status === 'running' || row.status === 'pending' || row.status === 'paused') && (
+            <Popconfirm
+              title="强制停止此任务？"
+              description="agent 完成当前 turn 后停下；任务标 failed，不会再被领取"
+              onConfirm={() => handleCancel(row.id)}
+            >
+              <Button size="small" danger icon={<StopOutlined />} title="强制停止" />
+            </Popconfirm>
+          )}
           <Popconfirm title="确认删除？" onConfirm={() => handleDelete(row.id)}>
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
