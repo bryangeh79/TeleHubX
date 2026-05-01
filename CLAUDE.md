@@ -87,7 +87,9 @@
 
 ---
 
-## 七、当前进度（2026-04-30 状态快照）
+## 七、当前进度（2026-05-01 状态快照 — 第 2 轮长会话末）
+
+新会话开机请先读 [HANDOFF.md](HANDOFF.md)（同目录），那里有上一轮工作的全景 + 未完成项 + 已知 bug。本节是历史进度，HANDOFF 更新更勤。
 
 ### 已完成
 - [x] 市场调研：GramJS / Telethon / TDLib / Pyrogram / Telegram Expert / 2026 反封号机制

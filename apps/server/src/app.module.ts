@@ -23,6 +23,9 @@ import { TakeoverModule } from './takeover/takeover.module';
 import { AssetsModule } from './assets/assets.module';
 import { GroupsModule } from './groups/groups.module';
 import { LeadCandidatesModule } from './leads-candidates/leads-candidates.module';
+import { CustomerGroupsModule } from './customer-groups/customer-groups.module';
+import { AdTemplatesModule } from './ad-templates/ad-templates.module';
+import { GreetingTemplatesModule } from './greeting-templates/greeting-templates.module';
 
 @Module({
   imports: [
@@ -67,6 +70,9 @@ import { LeadCandidatesModule } from './leads-candidates/leads-candidates.module
     AssetsModule,
     GroupsModule,
     LeadCandidatesModule,
+    CustomerGroupsModule,
+    AdTemplatesModule,
+    GreetingTemplatesModule,
   ],
   controllers: [HealthController],
 })

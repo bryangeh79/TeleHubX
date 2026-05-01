@@ -69,6 +69,43 @@ export const campaignsApi = {
   update: (id: string, data: any) => api.patch(`/campaigns/${id}`, data),
   delete: (id: string) => api.delete(`/campaigns/${id}`),
   send: (id: string) => api.post(`/campaigns/${id}/send`),
+  capacityCheck: (params: {
+    targetCount?: number;
+    pacePreset?: string;
+    customerGroupIds?: string[];
+    extraTargets?: string[];
+  }) => api.get('/campaigns/capacity-check', {
+    params: {
+      targetCount: params.targetCount,
+      pacePreset: params.pacePreset,
+      customerGroupIds: params.customerGroupIds?.join(','),
+      extraTargets: params.extraTargets?.join(','),
+    },
+  }),
+};
+
+export const customerGroupsApi = {
+  list: (tenantId?: string) => api.get('/customer-groups', { params: { tenantId } }),
+  get: (id: string) => api.get(`/customer-groups/${id}`),
+  create: (data: any) => api.post('/customer-groups', data),
+  update: (id: string, data: any) => api.patch(`/customer-groups/${id}`, data),
+  delete: (id: string) => api.delete(`/customer-groups/${id}`),
+};
+
+export const adTemplatesApi = {
+  list: (tenantId?: string) => api.get('/ad-templates', { params: { tenantId } }),
+  get: (id: string) => api.get(`/ad-templates/${id}`),
+  create: (data: any) => api.post('/ad-templates', data),
+  update: (id: string, data: any) => api.patch(`/ad-templates/${id}`, data),
+  delete: (id: string) => api.delete(`/ad-templates/${id}`),
+};
+
+export const greetingTemplatesApi = {
+  list: (tenantId?: string) => api.get('/greeting-templates', { params: { tenantId } }),
+  get: (id: string) => api.get(`/greeting-templates/${id}`),
+  create: (data: any) => api.post('/greeting-templates', data),
+  update: (id: string, data: any) => api.patch(`/greeting-templates/${id}`, data),
+  delete: (id: string) => api.delete(`/greeting-templates/${id}`),
 };
 
 export const takeoverApi = {

@@ -1,27 +1,16 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
-  Table,
-  Button,
-  Tag,
-  Progress,
-  Space,
-  Typography,
-  Popconfirm,
-  Badge,
-  Tooltip,
-  message as antdMessage,
+  Table, Button, Tag, Progress, Space, Typography,
+  Popconfirm, Badge, message as antdMessage,
 } from 'antd';
 import {
-  PlusOutlined,
-  EditOutlined,
-  DeleteOutlined,
-  SendOutlined,
-  ReloadOutlined,
+  PlusOutlined, EditOutlined, DeleteOutlined,
+  SendOutlined, ReloadOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { campaignsApi } from '../../services/api';
+import CampaignWizard from './CampaignWizard';
 
 const { Title, Text } = Typography;
 
@@ -35,11 +24,12 @@ interface ApiCampaign {
   type: CampaignType;
   status: CampaignStatus;
   targets: string[] | null;
+  customerGroupIds: string[] | null;
   messageVariants: Array<{ text: string; mediaUrl?: string }> | null;
   sentCount: number;
   replyCount: number;
-  scheduledAt: string | null;
-  completedAt: string | null;
+  pacePreset: string | null;
+  scheduleMode: string | null;
   createdAt: string;
 }
 
@@ -50,11 +40,23 @@ const STATUS_BADGE: Record<CampaignStatus, 'default' | 'warning' | 'processing' 
   paused:    'default',
   completed: 'success',
 };
+const STATUS_TEXT: Record<CampaignStatus, string> = {
+  draft:     '草稿',
+  scheduled: '已排期',
+  running:   '运行中',
+  paused:    '已暂停',
+  completed: '已完成',
+};
+const TYPE_TEXT: Record<CampaignType, string> = {
+  broadcast:  '群发',
+  sequential: '顺序',
+};
 
 export default function CampaignsPage() {
-  const navigate = useNavigate();
   const [campaigns, setCampaigns] = useState<ApiCampaign[]>([]);
   const [loading, setLoading] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [editId, setEditId] = useState<string | undefined>();
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -68,9 +70,7 @@ export default function CampaignsPage() {
     }
   }, []);
 
-  useEffect(() => {
-    void reload();
-  }, [reload]);
+  useEffect(() => { void reload(); }, [reload]);
 
   const handleDelete = async (c: ApiCampaign) => {
     try {
@@ -94,17 +94,12 @@ export default function CampaignsPage() {
     }
   };
 
-  const STATUS_TEXT: Record<CampaignStatus, string> = {
-    draft:     '草稿',
-    scheduled: '已排期',
-    running:   '运行中',
-    paused:    '已暂停',
-    completed: '已完成',
-  };
-  const TYPE_TEXT: Record<CampaignType, string> = {
-    broadcast:  '群发',
-    sequential: '顺序',
-  };
+  const openNew = () => { setEditId(undefined); setWizardOpen(true); };
+  const openEdit = (id: string) => { setEditId(id); setWizardOpen(true); };
+  const onWizardSuccess = () => { setWizardOpen(false); void reload(); };
+
+  const targetCount = (r: ApiCampaign) =>
+    (r.targets?.length ?? 0) + (r.customerGroupIds?.length ? 1 : 0);
 
   const columns: ColumnsType<ApiCampaign> = [
     {
@@ -114,11 +109,9 @@ export default function CampaignsPage() {
       render: (v: string, r) => (
         <div>
           <Text strong>{v}</Text>
-          {r.description ? (
-            <div>
-              <Text type="secondary" style={{ fontSize: 11 }}>{r.description}</Text>
-            </div>
-          ) : null}
+          {r.description && (
+            <div><Text type="secondary" style={{ fontSize: 11 }}>{r.description}</Text></div>
+          )}
         </div>
       ),
     },
@@ -126,7 +119,7 @@ export default function CampaignsPage() {
       title: '类型',
       dataIndex: 'type',
       key: 'type',
-      width: 110,
+      width: 80,
       render: (t: CampaignType) => (
         <Tag color={t === 'broadcast' ? 'blue' : 'purple'}>{TYPE_TEXT[t] ?? t}</Tag>
       ),
@@ -135,22 +128,18 @@ export default function CampaignsPage() {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 110,
+      width: 100,
       render: (s: CampaignStatus) => <Badge status={STATUS_BADGE[s]} text={STATUS_TEXT[s] ?? s} />,
     },
     {
-      title: '目标数',
-      key: 'targets',
-      width: 80,
-      align: 'center',
-      render: (_, r) => r.targets?.length ?? 0,
-    },
-    {
-      title: '文案变体',
-      key: 'variants',
-      width: 80,
-      align: 'center',
-      render: (_, r) => r.messageVariants?.length ?? 0,
+      title: '节奏',
+      dataIndex: 'pacePreset',
+      key: 'pacePreset',
+      width: 70,
+      render: (v: string | null) => {
+        const map: Record<string, string> = { conservative: '保守', balanced: '平衡', aggressive: '投放' };
+        return v ? <Tag>{map[v] ?? v}</Tag> : '—';
+      },
     },
     {
       title: '进度',
@@ -163,13 +152,10 @@ export default function CampaignsPage() {
         return (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
-              <span>已发 {r.sentCount}</span>
-              <span>共 {total}</span>
+              <span>已发 {r.sentCount}</span><span>共 {total}</span>
             </div>
             <Progress percent={pct} size="small" showInfo={false} />
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              {r.replyCount} 条回复
-            </Text>
+            <Text type="secondary" style={{ fontSize: 11 }}>{r.replyCount} 条回复</Text>
           </div>
         );
       },
@@ -184,34 +170,21 @@ export default function CampaignsPage() {
     {
       title: '操作',
       key: 'actions',
-      width: 200,
+      width: 160,
       render: (_, record) => {
         const canSend = record.status === 'draft' || record.status === 'scheduled' || record.status === 'paused';
         return (
           <Space size={4}>
             {canSend && (record.targets?.length ?? 0) > 0 && (
-              <Tooltip title="把这条广告排进发送队列">
-                <Button
-                  size="small"
-                  type="primary"
-                  icon={<SendOutlined />}
-                  onClick={() => handleSend(record)}
-                >
-                  发送
-                </Button>
-              </Tooltip>
+              <Button size="small" type="primary" icon={<SendOutlined />} onClick={() => handleSend(record)}>
+                发送
+              </Button>
             )}
-            <Button
-              size="small"
-              icon={<EditOutlined />}
-              onClick={() => navigate(`/campaigns/${record.id}/edit`)}
-            />
+            <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record.id)} />
             <Popconfirm
               title={`删除「${record.name}」?`}
               onConfirm={() => handleDelete(record)}
-              okText="删除"
-              cancelText="取消"
-              okButtonProps={{ danger: true }}
+              okText="删除" cancelText="取消" okButtonProps={{ danger: true }}
             >
               <Button size="small" danger icon={<DeleteOutlined />} />
             </Popconfirm>
@@ -229,16 +202,8 @@ export default function CampaignsPage() {
           <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>({campaigns.length})</Text>
         </Title>
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>
-            刷新
-          </Button>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => navigate('/campaigns/new')}
-          >
-            新建广告
-          </Button>
+          <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>刷新</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openNew}>新建广告</Button>
         </Space>
       </div>
 
@@ -249,6 +214,13 @@ export default function CampaignsPage() {
         loading={loading}
         pagination={{ pageSize: 20, hideOnSinglePage: true }}
         size="middle"
+      />
+
+      <CampaignWizard
+        open={wizardOpen}
+        editId={editId}
+        onClose={() => setWizardOpen(false)}
+        onSuccess={onWizardSuccess}
       />
     </div>
   );
