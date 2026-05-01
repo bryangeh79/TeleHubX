@@ -13,6 +13,7 @@ import { campaignsApi, tenantsApi } from '../../services/api';
 import CampaignWizard from './CampaignWizard';
 import AdTemplateDrawer from './AdTemplateDrawer';
 import GreetingDrawer from './GreetingDrawer';
+import CustomerGroupDrawer from './CustomerGroupDrawer';
 
 const { Title, Text } = Typography;
 
@@ -61,6 +62,7 @@ export default function CampaignsPage() {
   const [editId, setEditId] = useState<string | undefined>();
   const [adDrawerOpen, setAdDrawerOpen] = useState(false);
   const [greetingDrawerOpen, setGreetingDrawerOpen] = useState(false);
+  const [groupsDrawerOpen, setGroupsDrawerOpen] = useState(false);
   const [tenantId, setTenantId] = useState<string>('');
 
   useEffect(() => {
@@ -214,7 +216,7 @@ export default function CampaignsPage() {
         </Title>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading} />
-          <Button icon={<TeamOutlined />} onClick={() => {}}>客户群管理</Button>
+          <Button icon={<TeamOutlined />} onClick={() => setGroupsDrawerOpen(true)}>客户群管理</Button>
           <Dropdown
             menu={{
               items: [
@@ -273,6 +275,12 @@ export default function CampaignsPage() {
       <GreetingDrawer
         open={greetingDrawerOpen}
         onClose={() => setGreetingDrawerOpen(false)}
+        tenantId={tenantId}
+      />
+
+      <CustomerGroupDrawer
+        open={groupsDrawerOpen}
+        onClose={() => setGroupsDrawerOpen(false)}
         tenantId={tenantId}
       />
     </div>

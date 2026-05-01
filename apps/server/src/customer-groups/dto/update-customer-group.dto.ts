@@ -25,4 +25,9 @@ export class UpdateCustomerGroupDto {
   @IsOptional()
   @IsInt()
   memberCount?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  tags?: string[];
 }

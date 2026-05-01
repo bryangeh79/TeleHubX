@@ -90,6 +90,17 @@ export const customerGroupsApi = {
   create: (data: any) => api.post('/customer-groups', data),
   update: (id: string, data: any) => api.patch(`/customer-groups/${id}`, data),
   delete: (id: string) => api.delete(`/customer-groups/${id}`),
+  appendMembers: (id: string, items: Array<any>) =>
+    api.post(`/customer-groups/${id}/append-members`, { items }),
+  removeMember: (id: string, value: string) =>
+    api.delete(`/customer-groups/${id}/members/${encodeURIComponent(value)}`),
+  // 候选池相关
+  candidatePreview: (params: any) =>
+    api.get('/customer-groups/candidate-preview', { params }),
+  listHuntTasks: (tenantId: string) =>
+    api.get('/customer-groups/hunt-tasks', { params: { tenantId } }),
+  createFromCandidates: (data: any) =>
+    api.post('/customer-groups/from-candidates', data),
 };
 
 export const adTemplatesApi = {

@@ -19,4 +19,9 @@ export class CreateCustomerGroupDto {
   @IsArray()
   @IsString({ each: true })
   members?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  tags?: string[];
 }
