@@ -9,6 +9,8 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Radio,
+  Segmented,
   Select,
   Space,
   Table,
@@ -50,7 +52,12 @@ interface Asset {
   enabled: boolean;
   usageCount: number;
   createdAt: string;
+  source?: 'builtin' | 'upload' | 'generated';
+  poolName?: string | null;
+  relativePath?: string | null;
 }
+
+type SourceFilter = 'tenant' | 'builtin';
 
 const CAT_META: Record<Category, { label: string; icon: React.ReactNode; color: string }> = {
   photo:        { label: '图片',     icon: <PictureOutlined />,      color: 'blue' },
@@ -68,7 +75,10 @@ const fmtBytes = (n: number) => {
 
 export default function AssetsPage() {
   const [activeCat, setActiveCat] = useState<Category>('photo');
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('tenant');
+  const [poolFilter, setPoolFilter] = useState<string | undefined>();
   const [items, setItems] = useState<Asset[]>([]);
+  const [pools, setPools] = useState<Array<{ poolName: string; category: Category; count: number }>>([]);
   const [loading, setLoading] = useState(false);
   const [snippetModalOpen, setSnippetModalOpen] = useState(false);
   const [snippetForm] = Form.useForm<{ text: string; tags?: string; description?: string }>();
@@ -76,16 +86,30 @@ export default function AssetsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await assetsApi.list({ category: activeCat });
+      const params: any = { category: activeCat };
+      if (sourceFilter === 'builtin') params.source = 'builtin';
+      if (poolFilter) params.poolName = poolFilter;
+      const res = await assetsApi.list(params);
       setItems(Array.isArray(res.data) ? res.data : []);
     } catch (err: any) {
       antdMessage.error(err?.response?.data?.message ?? '加载失败');
     } finally {
       setLoading(false);
     }
-  }, [activeCat]);
+  }, [activeCat, sourceFilter, poolFilter]);
+
+  const loadPools = useCallback(async () => {
+    try {
+      const res = await assetsApi.pools();
+      setPools(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void loadPools(); }, [loadPools]);
+  useEffect(() => { setPoolFilter(undefined); }, [activeCat, sourceFilter]);
 
   const handleUpload = async (file: File) => {
     try {
@@ -148,7 +172,13 @@ export default function AssetsPage() {
       key: 'fileName',
       render: (name: string, r) => (
         <div>
-          <Text strong>{name}</Text>
+          <Space size={4}>
+            <Text strong>{name}</Text>
+            {r.source === 'builtin' && <Tag color="cyan" style={{ fontSize: 10 }}>内置</Tag>}
+          </Space>
+          {r.poolName && (
+            <div><Tag color="purple" style={{ fontSize: 10, marginTop: 2 }}>{r.poolName}</Tag></div>
+          )}
           {r.description && <div><Text type="secondary" style={{ fontSize: 12 }}>{r.description}</Text></div>}
           {r.tags?.length ? (
             <div style={{ marginTop: 4 }}>
@@ -167,12 +197,18 @@ export default function AssetsPage() {
     {
       title: '操作', key: 'ops', width: 80,
       render: (_, r) => (
-        <Popconfirm title="确认删除？" onConfirm={() => handleDelete(r.id)}>
-          <Button size="small" danger icon={<DeleteOutlined />} />
-        </Popconfirm>
+        r.source === 'builtin' ? (
+          <Tag color="default" style={{ fontSize: 10 }}>只读</Tag>
+        ) : (
+          <Popconfirm title="确认删除？" onConfirm={() => handleDelete(r.id)}>
+            <Button size="small" danger icon={<DeleteOutlined />} />
+          </Popconfirm>
+        )
       ),
     },
   ];
+
+  const poolsForActiveCat = pools.filter((p) => p.category === activeCat);
 
   return (
     <div>
@@ -198,24 +234,47 @@ export default function AssetsPage() {
           }))}
         />
 
-        <Space style={{ marginBottom: 12 }}>
-          {activeCat !== 'text_snippet' ? (
-            <Upload
-              showUploadList={false}
-              beforeUpload={(file) => { void handleUpload(file as File); return false; }}
-              accept={
-                activeCat === 'photo' ? 'image/*' :
-                activeCat === 'video' ? 'video/*' :
-                activeCat === 'voice' ? 'audio/*,.ogg,.opus' :
-                undefined
-              }
-            >
-              <Button type="primary" icon={<UploadOutlined />}>上传 {CAT_META[activeCat].label}</Button>
-            </Upload>
-          ) : (
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setSnippetModalOpen(true)}>
-              新建文本片段
-            </Button>
+        <Space style={{ marginBottom: 12 }} wrap>
+          <Segmented
+            value={sourceFilter}
+            onChange={(v) => setSourceFilter(v as SourceFilter)}
+            options={[
+              { label: '我的素材', value: 'tenant' },
+              { label: `内置素材库（${pools.reduce((s, p) => s + p.count, 0)}）`, value: 'builtin' },
+            ]}
+          />
+          {sourceFilter === 'builtin' && poolsForActiveCat.length > 0 && (
+            <Select
+              allowClear
+              placeholder="按 pool 过滤"
+              value={poolFilter}
+              onChange={(v) => setPoolFilter(v)}
+              style={{ width: 280 }}
+              options={poolsForActiveCat.map((p) => ({
+                value: p.poolName,
+                label: `${p.poolName} (${p.count})`,
+              }))}
+            />
+          )}
+          {sourceFilter === 'tenant' && (
+            activeCat !== 'text_snippet' ? (
+              <Upload
+                showUploadList={false}
+                beforeUpload={(file) => { void handleUpload(file as File); return false; }}
+                accept={
+                  activeCat === 'photo' ? 'image/*' :
+                  activeCat === 'video' ? 'video/*' :
+                  activeCat === 'voice' ? 'audio/*,.ogg,.opus' :
+                  undefined
+                }
+              >
+                <Button type="primary" icon={<UploadOutlined />}>上传 {CAT_META[activeCat].label}</Button>
+              </Upload>
+            ) : (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setSnippetModalOpen(true)}>
+                新建文本片段
+              </Button>
+            )
           )}
           <Button icon={<ReloadOutlined />} onClick={() => void load()}>刷新</Button>
         </Space>

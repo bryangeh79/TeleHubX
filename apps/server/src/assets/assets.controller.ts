@@ -19,7 +19,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import * as fs from 'fs';
-import { AssetCategory } from './asset.entity';
+import { AssetCategory, AssetSource } from './asset.entity';
 import { AssetsService } from './assets.service';
 import { TenantsService } from '../tenants/tenants.service';
 
@@ -67,12 +67,22 @@ export class AssetsController {
     @Query('category') category?: AssetCategory,
     @Query('enabled') enabled?: string,
     @Query('tenantId') tenantId?: string,
+    @Query('source') source?: AssetSource,
+    @Query('poolName') poolName?: string,
   ) {
     const tid = await this.resolveTenantId(tenantId);
     return this.service.list(tid, {
       category,
       enabled: enabled === undefined ? undefined : enabled === 'true',
+      source,
+      poolName,
     });
+  }
+
+  /** 列出所有 builtin pool 名 + 各 pool 的素材数（dashboard 侧栏导航用）。 */
+  @Get('pools')
+  async listPools() {
+    return this.service.listBuiltinPools();
   }
 
   /**

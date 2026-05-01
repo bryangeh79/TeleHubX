@@ -56,11 +56,18 @@ export class JwtAuthGuard implements CanActivate {
 
     // JWT 通道
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    let rawToken: string | null = null;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      rawToken = authHeader.slice(7);
+    } else if (typeof req.query?.t === 'string') {
+      // ?t=<jwt> 兼容浏览器 <img src> / <audio src> 这类不能附 Header 的请求
+      rawToken = req.query.t;
+    }
+    if (!rawToken) {
       throw new UnauthorizedException('Missing Bearer token');
     }
     try {
-      const payload = this.auth.verifyToken(authHeader.slice(7));
+      const payload = this.auth.verifyToken(rawToken);
       req.user = payload;
       return true;
     } catch (e) {

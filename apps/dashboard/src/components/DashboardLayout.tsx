@@ -40,6 +40,7 @@ const MENU_ITEMS_BASE = [
   { key: '/cs',         icon: <CustomerServiceOutlined />,  label: '智能客服' },
   { key: '/leads',      icon: <InboxOutlined />,            label: '人工接管' },
   { key: '/lead-candidates', icon: <TeamOutlined />,        label: '候选人池' },
+  { key: '/chat-scripts', icon: <CustomerServiceOutlined />, label: '聊天剧本' },
   { key: '/settings',   icon: <SettingOutlined />,          label: '设置' },
 ];
 

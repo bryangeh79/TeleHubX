@@ -20,6 +20,7 @@ import SchedulerPage from './pages/scheduler/SchedulerPage';
 import AdminPage from './pages/admin/AdminPage';
 import AssetsPage from './pages/assets/AssetsPage';
 import GroupsPage from './pages/groups/GroupsPage';
+import ChatScriptsPage from './pages/chat-scripts/ChatScriptsPage';
 import LoginPage from './pages/auth/LoginPage';
 import ActivatePage from './pages/auth/ActivatePage';
 
@@ -50,6 +51,7 @@ const App: React.FC = () => (
       <Route path="admin" element={<AdminPage />} />
       <Route path="assets" element={<AssetsPage />} />
       <Route path="groups" element={<GroupsPage />} />
+      <Route path="chat-scripts" element={<ChatScriptsPage />} />
     </Route>
   </Routes>
 );

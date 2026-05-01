@@ -62,11 +62,23 @@ export class AssetsService {
     return this.repo.save(a);
   }
 
-  list(tenantId: string, filters: { category?: AssetCategory; enabled?: boolean } = {}): Promise<Asset[]> {
-    const where: FindOptionsWhere<Asset> = { tenantId };
+  list(
+    tenantId: string,
+    filters: { category?: AssetCategory; enabled?: boolean; source?: AssetSource; poolName?: string } = {},
+  ): Promise<Asset[]> {
+    const where: FindOptionsWhere<Asset> = {};
+    // source=builtin 时忽略 tenantId（共享池），否则限定 tenantId
+    if (filters.source === AssetSource.BUILTIN) {
+      where.source = AssetSource.BUILTIN;
+      where.tenantId = IsNull();
+    } else {
+      where.tenantId = tenantId;
+      if (filters.source) where.source = filters.source;
+    }
     if (filters.category) where.category = filters.category;
     if (filters.enabled !== undefined) where.enabled = filters.enabled;
-    return this.repo.find({ where, order: { createdAt: 'DESC' }, take: 500 });
+    if (filters.poolName) where.poolName = filters.poolName;
+    return this.repo.find({ where, order: { createdAt: 'DESC' }, take: 1000 });
   }
 
   async findOne(id: string): Promise<Asset> {
@@ -127,6 +139,26 @@ export class AssetsService {
     const pick = list[Math.floor(Math.random() * list.length)];
     await this.repo.increment({ id: pick.id }, 'usageCount', 1);
     return pick;
+  }
+
+  /** 列出所有 builtin pool 名 + 每个 pool 内素材数 + 类型。 */
+  async listBuiltinPools(): Promise<Array<{ poolName: string; category: AssetCategory; count: number }>> {
+    const rows = await this.repo
+      .createQueryBuilder('a')
+      .select('a.poolName', 'poolName')
+      .addSelect('a.category', 'category')
+      .addSelect('COUNT(*)', 'count')
+      .where('a.source = :s', { s: AssetSource.BUILTIN })
+      .andWhere('a.poolName IS NOT NULL')
+      .groupBy('a.poolName')
+      .addGroupBy('a.category')
+      .orderBy('a.poolName', 'ASC')
+      .getRawMany();
+    return rows.map((r) => ({
+      poolName: r.poolName,
+      category: r.category,
+      count: parseInt(r.count, 10),
+    }));
   }
 
   /** 解析 builtin 资源的磁盘绝对路径；upload 资源读 bytea。 */

@@ -195,7 +195,9 @@ export const aiApi = {
 };
 
 export const assetsApi = {
-  list: (params?: { category?: string; enabled?: boolean }) => api.get('/assets', { params }),
+  list: (params?: { category?: string; enabled?: boolean; source?: string; poolName?: string }) =>
+    api.get('/assets', { params }),
+  pools: () => api.get('/assets/pools'),
   upload: (file: File, opts: { category?: string; description?: string; tags?: string } = {}) => {
     const fd = new FormData();
     fd.append('file', file);
@@ -206,9 +208,21 @@ export const assetsApi = {
   },
   createSnippet: (text: string, tags?: string[], description?: string) =>
     api.post('/assets/text-snippet', { text, tags, description }),
-  contentUrl: (id: string) => `/api/v1/assets/${id}/content`,
+  /** 浏览器 <img/audio/video src> 用：把 jwt token 拼到 query 里走 ?t= 通道。 */
+  contentUrl: (id: string) => {
+    const tok = (typeof localStorage !== 'undefined' ? localStorage.getItem('telehubx:token') : null) ?? '';
+    return `/api/v1/assets/${id}/file${tok ? `?t=${encodeURIComponent(tok)}` : ''}`;
+  },
   update: (id: string, data: any) => api.patch(`/assets/${id}`, data),
   delete: (id: string) => api.delete(`/assets/${id}`),
+};
+
+export const chatScriptsApi = {
+  list: (params?: { type?: string; status?: string }) => api.get('/chat-scripts', { params }),
+  get: (id: string) => api.get(`/chat-scripts/${id}`),
+  pickRandom: (params?: { packId?: string; category?: string; type?: string }) =>
+    api.get('/chat-scripts/random', { params }),
+  delete: (id: string) => api.delete(`/chat-scripts/${id}`),
 };
 
 export const testGroupsApi = {
