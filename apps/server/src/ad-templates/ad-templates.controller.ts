@@ -27,4 +27,11 @@ export class AdTemplatesController {
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id', ParseUUIDPipe) id: string) { return this.service.remove(id); }
+
+  /** 用平台 AI key 生成 10 条变体 */
+  @Post(':id/generate-variants')
+  @HttpCode(HttpStatus.OK)
+  generateVariants(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.generateVariants(id);
+  }
 }

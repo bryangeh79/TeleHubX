@@ -260,6 +260,35 @@ export class AiAgentService {
     return { ok: true };
   }
 
+  /**
+   * Simple one-shot completion using platform AI key (no history, no Redis).
+   * For internal tasks: variant generation, greeting scoring, etc.
+   */
+  async complete(opts: {
+    system: string;
+    user: string;
+    maxTokens?: number;
+    temperature?: number;
+  }): Promise<string> {
+    const provider = this.resolve();
+    const client = this.getClient(provider);
+    let completion: any;
+    try {
+      completion = await client.chat.completions.create({
+        model: provider.model,
+        messages: [
+          { role: 'system', content: opts.system },
+          { role: 'user', content: opts.user },
+        ],
+        max_tokens: opts.maxTokens ?? 2000,
+        temperature: opts.temperature ?? 0.8,
+      });
+    } catch (err) {
+      this.translateUpstreamError(err, provider.id);
+    }
+    return completion.choices[0]?.message?.content ?? '';
+  }
+
   private async loadHistory(key: string): Promise<ConversationMessage[]> {
     try {
       const raw = await this.redis.get(key);

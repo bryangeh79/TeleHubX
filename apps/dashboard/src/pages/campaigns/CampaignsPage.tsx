@@ -1,16 +1,18 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Table, Button, Tag, Progress, Space, Typography,
-  Popconfirm, Badge, message as antdMessage,
+  Popconfirm, Badge, Dropdown, message as antdMessage,
 } from 'antd';
 import {
-  PlusOutlined, EditOutlined, DeleteOutlined,
-  SendOutlined, ReloadOutlined,
+  PlusOutlined, EditOutlined, DeleteOutlined, SendOutlined,
+  ReloadOutlined, TeamOutlined, FileTextOutlined, DownOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { campaignsApi } from '../../services/api';
 import CampaignWizard from './CampaignWizard';
+import AdTemplateDrawer from './AdTemplateDrawer';
+import GreetingDrawer from './GreetingDrawer';
 
 const { Title, Text } = Typography;
 
@@ -57,6 +59,9 @@ export default function CampaignsPage() {
   const [loading, setLoading] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editId, setEditId] = useState<string | undefined>();
+  const [adDrawerOpen, setAdDrawerOpen] = useState(false);
+  const [greetingDrawerOpen, setGreetingDrawerOpen] = useState(false);
+  const tenantId = localStorage.getItem('telehubx:tenantId') ?? 'default';
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -202,8 +207,38 @@ export default function CampaignsPage() {
           <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>({campaigns.length})</Text>
         </Title>
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>刷新</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openNew}>新建广告</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading} />
+          <Button icon={<TeamOutlined />} onClick={() => {}}>客户群管理</Button>
+          <Dropdown
+            menu={{
+              items: [
+                {
+                  key: 'ad',
+                  label: '广告文案',
+                  icon: <FileTextOutlined />,
+                  onClick: () => setAdDrawerOpen(true),
+                },
+                {
+                  key: 'greeting',
+                  label: '开场白',
+                  icon: <FileTextOutlined />,
+                  onClick: () => setGreetingDrawerOpen(true),
+                },
+              ],
+            }}
+          >
+            <Button icon={<FileTextOutlined />}>
+              文案 <DownOutlined style={{ fontSize: 10 }} />
+            </Button>
+          </Dropdown>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={openNew}
+            style={{ background: '#52c41a', borderColor: '#52c41a' }}
+          >
+            + 新建投放
+          </Button>
         </Space>
       </div>
 
@@ -221,6 +256,18 @@ export default function CampaignsPage() {
         editId={editId}
         onClose={() => setWizardOpen(false)}
         onSuccess={onWizardSuccess}
+      />
+
+      <AdTemplateDrawer
+        open={adDrawerOpen}
+        onClose={() => setAdDrawerOpen(false)}
+        tenantId={tenantId}
+      />
+
+      <GreetingDrawer
+        open={greetingDrawerOpen}
+        onClose={() => setGreetingDrawerOpen(false)}
+        tenantId={tenantId}
       />
     </div>
   );

@@ -27,4 +27,9 @@ export class GreetingTemplatesController {
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id', ParseUUIDPipe) id: string) { return this.service.remove(id); }
+
+  /** 用平台 AI key 给开场白打分 */
+  @Post(':id/score')
+  @HttpCode(HttpStatus.OK)
+  score(@Param('id', ParseUUIDPipe) id: string) { return this.service.scoreGreeting(id); }
 }

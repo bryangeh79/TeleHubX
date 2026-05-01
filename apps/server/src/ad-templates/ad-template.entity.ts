@@ -20,7 +20,7 @@ export class AdTemplate {
   @Column({ nullable: true })
   description: string;
 
-  /** Main ad text */
+  /** Original ad text — the base copy */
   @Column({ type: 'text' })
   content: string;
 
@@ -35,6 +35,18 @@ export class AdTemplate {
   /** Tags for quick filtering */
   @Column({ type: 'simple-array', nullable: true })
   tags: string[];
+
+  /** AI-generated variants: array of { text: string } */
+  @Column({ type: 'jsonb', nullable: true })
+  variants: Array<{ text: string }>;
+
+  /** Whether AI variant pool is enabled */
+  @Column({ default: false })
+  aiVariantEnabled: boolean;
+
+  /** Whether this template is active / shown in wizard */
+  @Column({ default: true })
+  isActive: boolean;
 
   @CreateDateColumn()
   createdAt: Date;

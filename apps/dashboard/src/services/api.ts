@@ -98,6 +98,7 @@ export const adTemplatesApi = {
   create: (data: any) => api.post('/ad-templates', data),
   update: (id: string, data: any) => api.patch(`/ad-templates/${id}`, data),
   delete: (id: string) => api.delete(`/ad-templates/${id}`),
+  generateVariants: (id: string) => api.post(`/ad-templates/${id}/generate-variants`),
 };
 
 export const greetingTemplatesApi = {
@@ -106,6 +107,7 @@ export const greetingTemplatesApi = {
   create: (data: any) => api.post('/greeting-templates', data),
   update: (id: string, data: any) => api.patch(`/greeting-templates/${id}`, data),
   delete: (id: string) => api.delete(`/greeting-templates/${id}`),
+  score: (id: string) => api.post(`/greeting-templates/${id}/score`),
 };
 
 export const takeoverApi = {
