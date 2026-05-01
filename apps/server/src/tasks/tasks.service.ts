@@ -511,7 +511,46 @@ export class TasksService {
     if (dto.payload !== undefined) t.payload = dto.payload;
     if (dto.progress !== undefined) t.progress = dto.progress;
     if (dto.errorMsg !== undefined) t.errorMsg = dto.errorMsg;
-    return this.repo.save(t);
+    const saved = await this.repo.save(t);
+    // 子任务状态/进度变化 → 反推父任务汇总
+    if (t.parentTaskId && (dto.status !== undefined || dto.progress !== undefined)) {
+      await this.recalcParentAggregate(t.parentTaskId).catch(() => {});
+    }
+    return saved;
+  }
+
+  /**
+   * 子任务变化时反推父任务汇总:
+   *   - progress = round(done / total * 100)
+   *   - status: 全部 done/failed → done (有 failed 但有完成的也算 done)
+   *            有 running / 有 done → running
+   *            否则 pending 不动
+   *   - startedAt: 第一次进 running 时记
+   *   - finishedAt: 全部完成时记
+   */
+  private async recalcParentAggregate(parentId: string): Promise<void> {
+    const children = await this.repo.find({ where: { parentTaskId: parentId } });
+    if (!children.length) return;
+    const parent = await this.repo.findOneBy({ id: parentId });
+    if (!parent) return;
+    if (parent.status === TaskStatus.DONE || parent.status === TaskStatus.FAILED) return; // 已终态不动
+
+    const total = children.length;
+    const done = children.filter((c) => c.status === TaskStatus.DONE).length;
+    const failed = children.filter((c) => c.status === TaskStatus.FAILED).length;
+    const running = children.some((c) => c.status === TaskStatus.RUNNING);
+
+    parent.progress = Math.round((done / total) * 100);
+    if (done + failed >= total) {
+      parent.status = TaskStatus.DONE;
+      if (!parent.finishedAt) parent.finishedAt = new Date();
+    } else if (running || done > 0 || failed > 0) {
+      if (parent.status !== TaskStatus.RUNNING) {
+        parent.status = TaskStatus.RUNNING;
+        if (!parent.startedAt) parent.startedAt = new Date();
+      }
+    }
+    await this.repo.save(parent);
   }
 
   async pause(id: string): Promise<Task> {
@@ -696,6 +735,15 @@ export class TasksService {
       .returning('*')
       .execute();
 
-    return (updateRes.raw as Task[]) ?? [];
+    const dispatched = (updateRes.raw as Task[]) ?? [];
+    // 子任务进入 running, 父任务汇总跟着变 (从 pending → running, 至少有 startedAt)
+    const parentIds = new Set<string>();
+    for (const t of dispatched) {
+      if ((t as any).parentTaskId) parentIds.add((t as any).parentTaskId as string);
+    }
+    for (const pid of parentIds) {
+      await this.recalcParentAggregate(pid).catch(() => {});
+    }
+    return dispatched;
   }
 }
