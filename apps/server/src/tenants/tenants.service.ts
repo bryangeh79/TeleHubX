@@ -8,6 +8,15 @@ import { TenantBot } from './tenant-bot.entity';
 import { CreateTenantBotDto, UpdateTenantBotDto } from './tenant-bot.dto';
 import { ReplyMode, TenantAiProvider, TenantSettings } from './tenant-settings.entity';
 import { UpdateTenantSettingsDto } from './tenant-settings.dto';
+import { GreetingTemplate } from '../greeting-templates/greeting-template.entity';
+
+/** 平台默认开场白样本 — 新租户自动种入 */
+const DEFAULT_GREETINGS: Array<{ category: string; text: string }> = [
+  { category: '礼貌', text: '你好，打扰您一下 👋' },
+  { category: '优惠', text: '您好，新客户可以先免费试用 7 天，不满意零成本退出。看要不要先体验一下？' },
+  { category: '热情', text: '您好呀！今天天气真不错 ☀️ 想跟您分享个好东西，绝对不会让您失望' },
+  { category: '专业', text: '您好，我们是 XX 平台的官方合作伙伴，专门做 XX 业务。看您应该用得上，简单介绍一下？' },
+];
 
 export interface EffectiveAiConfig {
   source: 'tenant' | 'platform';
@@ -33,6 +42,7 @@ export class TenantsService implements OnModuleInit {
     @InjectRepository(Tenant) private readonly repo: Repository<Tenant>,
     @InjectRepository(TenantBot) private readonly botRepo: Repository<TenantBot>,
     @InjectRepository(TenantSettings) private readonly settingsRepo: Repository<TenantSettings>,
+    @InjectRepository(GreetingTemplate) private readonly greetingRepo: Repository<GreetingTemplate>,
     private readonly config: ConfigService,
   ) {
     const raw = this.config.get<string>('SESSION_ENCRYPTION_KEY');
@@ -46,17 +56,29 @@ export class TenantsService implements OnModuleInit {
    * full schema-per-tenant lands.
    */
   async onModuleInit(): Promise<void> {
-    const existing = await this.repo.findOneBy({ name: 'default' });
-    if (!existing) {
-      const t = this.repo.create({
+    let tenant = await this.repo.findOneBy({ name: 'default' });
+    if (!tenant) {
+      tenant = await this.repo.save(this.repo.create({
         name: 'default',
         plan: TenantPlan.BASIC,
         status: TenantStatus.ACTIVE,
         maxAccounts: PLAN_MAX_ACCOUNTS[TenantPlan.BASIC],
-      });
-      await this.repo.save(t);
-      this.logger.log(`Bootstrapped default tenant id=${t.id}`);
+      }));
+      this.logger.log(`Bootstrapped default tenant id=${tenant.id}`);
     }
+    // 确保默认 tenant 也有开场白样本（首次启动 / 新增样本时补齐）
+    await this.seedDefaultGreetings(tenant.id);
+  }
+
+  /** 给租户种入平台默认开场白（已存在则跳过，幂等安全） */
+  private async seedDefaultGreetings(tenantId: string): Promise<void> {
+    const existing = await this.greetingRepo.find({ where: { tenantId } });
+    const existingTexts = new Set(existing.map(g => g.text));
+    const toCreate = DEFAULT_GREETINGS.filter(s => !existingTexts.has(s.text));
+    if (!toCreate.length) return;
+    const records = toCreate.map(s => this.greetingRepo.create({ tenantId, ...s }));
+    await this.greetingRepo.save(records);
+    this.logger.log(`Seeded ${records.length} default greetings for tenant=${tenantId}`);
   }
 
   findAll(): Promise<Tenant[]> {
@@ -82,7 +104,10 @@ export class TenantsService implements OnModuleInit {
       status: TenantStatus.ACTIVE,
       maxAccounts: PLAN_MAX_ACCOUNTS[plan],
     });
-    return this.repo.save(t);
+    const saved = await this.repo.save(t);
+    // 新租户自动种入平台默认开场白
+    await this.seedDefaultGreetings(saved.id);
+    return saved;
   }
 
   async setLicense(

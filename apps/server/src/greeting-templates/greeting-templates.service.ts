@@ -8,32 +8,15 @@ import { UpdateGreetingTemplateDto } from './dto/update-greeting-template.dto';
 import { PlatformConfigService } from '../platform-config/platform-config.service';
 import { AI_PROVIDERS, isAiProviderId } from '../ai-agent/ai-providers';
 
-/** 6 类默认开场白样本（每类 3 条），新租户一键导入 */
+/**
+ * 平台默认开场白样本 — 每个分类一条精选基础样本。
+ * 租户拿到后可以再用 AI 生成 8 条变体扩展，避免开场白雷同被检测。
+ */
 const DEFAULT_SAMPLES: Array<{ category: string; text: string }> = [
-  // 礼貌
   { category: '礼貌', text: '你好，打扰您一下 👋' },
-  { category: '礼貌', text: '您好，请问方便聊几句吗？' },
-  { category: '礼貌', text: 'Hi～不好意思打扰下' },
-  // 好奇
-  { category: '好奇', text: '想问下您对这类产品有兴趣吗？' },
-  { category: '好奇', text: '不知道您有没有遇到过这个问题' },
-  { category: '好奇', text: '看到您应该是行业内的，想请教一下' },
-  // 优惠
-  { category: '优惠', text: '这个月有特别优惠想跟您分享 💰' },
-  { category: '优惠', text: '限时活动，错过就没有了' },
-  { category: '优惠', text: '第一次接触我们的话有惊喜价' },
-  // 热情
-  { category: '热情', text: 'Hi！很高兴认识您 🤝' },
-  { category: '热情', text: '您好呀！欢迎了解我们～' },
-  { category: '热情', text: '嗨～终于联系上您了 😊' },
-  // 专业
-  { category: '专业', text: '关于您之前关注的话题，有些专业建议想分享' },
-  { category: '专业', text: '我是专业团队，可以为您提供咨询' },
-  { category: '专业', text: '根据您的情况，有几个方案建议可以参考' },
-  // 幽默
-  { category: '幽默', text: '我是真人不是机器人 🤖🚫' },
-  { category: '幽默', text: '听说您可能需要这个？我猜对了吗 😄' },
-  { category: '幽默', text: '不是广告，是好东西 ✨' },
+  { category: '优惠', text: '您好，新客户可以先免费试用 7 天，不满意零成本退出。看要不要先体验一下？' },
+  { category: '热情', text: '您好呀！今天天气真不错 ☀️ 想跟您分享个好东西，绝对不会让您失望' },
+  { category: '专业', text: '您好，我们是 XX 平台的官方合作伙伴，专门做 XX 业务。看您应该用得上，简单介绍一下？' },
 ];
 
 @Injectable()
