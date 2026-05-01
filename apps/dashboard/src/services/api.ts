@@ -183,6 +183,7 @@ export const tenantsApi = {
   getSettings: (tenantId: string) => api.get(`/tenants/${tenantId}/settings`),
   updateSettings: (tenantId: string, data: any) =>
     api.patch(`/tenants/${tenantId}/settings`, data),
+  testAi: (tenantId: string) => api.post(`/tenants/${tenantId}/settings/test-ai`),
 };
 
 export const knowledgeApi = {

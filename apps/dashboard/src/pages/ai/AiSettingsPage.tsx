@@ -398,6 +398,80 @@ function MarketingPromptModal({
   );
 }
 
+// ── 租户 AI Key 卡片（含测试）────────────────────────────────────────────
+function TenantAiCard({ tenantId, tenantAi, onEdit }: {
+  tenantId: string;
+  tenantAi: any;
+  onEdit: () => void;
+}) {
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const PROVIDER_LABELS: Record<string, string> = {
+    openai: 'OpenAI', deepseek: 'DeepSeek', gemini: 'Google Gemini', custom: '自定义',
+  };
+  const PROVIDER_COLORS: Record<string, string> = {
+    openai: 'blue', deepseek: 'purple', gemini: 'orange', custom: 'default',
+  };
+
+  const handleTest = async () => {
+    if (!tenantId) { antdMessage.warning('租户 ID 未加载，请刷新'); return; }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await tenantsApi.testAi(tenantId);
+      setTestResult({ ok: res.data.ok, msg: res.data.message });
+    } catch (err: any) {
+      setTestResult({ ok: false, msg: err?.response?.data?.message ?? '测试失败' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <Card
+      style={{ marginBottom: 16 }}
+      title={<Space><KeyOutlined />智能回复 AI Key</Space>}
+      extra={
+        <Space>
+          {tenantAi?.tenantAiProvider && (
+            <Button loading={testing} onClick={handleTest}>测试连接</Button>
+          )}
+          <Button type="primary" onClick={onEdit}>
+            {tenantAi?.tenantAiProvider ? '修改配置' : '立即配置'}
+          </Button>
+        </Space>
+      }
+    >
+      <Text type="secondary" style={{ fontSize: 13 }}>
+        用于客户与机器人聊天时的 AI 智能回复，Token 费用由你自己承担。
+        留空则自动回落到平台兜底 Key。
+      </Text>
+      <div style={{ marginTop: 10 }}>
+        {tenantAi?.tenantAiProvider ? (
+          <Space>
+            <Tag color="success" icon={<CheckCircleOutlined />}>已配置</Tag>
+            <Tag color={PROVIDER_COLORS[tenantAi.tenantAiProvider] ?? 'default'}>
+              {PROVIDER_LABELS[tenantAi.tenantAiProvider] ?? tenantAi.tenantAiProvider}
+            </Tag>
+            {tenantAi.tenantAiModel && <Tag>{tenantAi.tenantAiModel}</Tag>}
+          </Space>
+        ) : (
+          <Tag color="warning" icon={<CloseCircleOutlined />}>未配置 · 回落到平台兜底 Key</Tag>
+        )}
+      </div>
+      {testResult && (
+        <Alert
+          type={testResult.ok ? 'success' : 'error'}
+          showIcon
+          message={testResult.msg}
+          style={{ marginTop: 10 }}
+        />
+      )}
+    </Card>
+  );
+}
+
 // ── Main Page ────────────────────────────────────────────────────────────
 
 export default function AiSettingsPage() {
@@ -642,36 +716,11 @@ export default function AiSettingsPage() {
       )}
 
       {/* 智能回复 AI Key — 所有租户可配置 */}
-      <Card
-        style={{ marginBottom: 16 }}
-        title={<Space><KeyOutlined />智能回复 AI Key</Space>}
-        extra={
-          <Button type="primary" onClick={() => setTenantModalOpen(true)}>
-            {tenantAi?.tenantAiProvider ? '修改配置' : '立即配置'}
-          </Button>
-        }
-      >
-        <Row gutter={24} align="middle">
-          <Col flex="auto">
-            <Text type="secondary" style={{ fontSize: 13 }}>
-              用于客户与机器人聊天时的 AI 智能回复，Token 费用由你自己承担。
-            </Text>
-            <div style={{ marginTop: 8 }}>
-              {tenantAi?.tenantAiProvider ? (
-                <Space>
-                  <Tag color="success" icon={<CheckCircleOutlined />}>已配置</Tag>
-                  <Tag color={PROVIDER_COLORS[tenantAi.tenantAiProvider] ?? 'default'}>
-                    {PROVIDER_LABELS[tenantAi.tenantAiProvider] ?? tenantAi.tenantAiProvider}
-                  </Tag>
-                  {tenantAi.tenantAiModel && <Tag>{tenantAi.tenantAiModel}</Tag>}
-                </Space>
-              ) : (
-                <Tag color="warning" icon={<CloseCircleOutlined />}>未配置 · 回落到平台兜底 Key</Tag>
-              )}
-            </div>
-          </Col>
-        </Row>
-      </Card>
+      <TenantAiCard
+        tenantId={tenantId}
+        tenantAi={tenantAi}
+        onEdit={() => setTenantModalOpen(true)}
+      />
 
       {/* AI 营销人设 */}
       <Card
