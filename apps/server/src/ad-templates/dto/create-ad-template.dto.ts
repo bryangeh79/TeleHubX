@@ -1,4 +1,13 @@
-import { IsArray, IsBoolean, IsOptional, IsString, IsUUID } from 'class-validator';
+import {
+  IsArray, IsBoolean, IsOptional, IsString, IsUUID,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+
+class VariantDto {
+  @IsString()
+  text: string;
+}
 
 export class CreateAdTemplateDto {
   @IsUUID()
@@ -19,7 +28,7 @@ export class CreateAdTemplateDto {
   hasMedia?: boolean;
 
   @IsOptional()
-  @IsUUID()
+  @IsString()
   mediaAssetId?: string;
 
   @IsOptional()
@@ -34,4 +43,10 @@ export class CreateAdTemplateDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VariantDto)
+  variants?: VariantDto[];
 }
