@@ -122,61 +122,72 @@ export class TasksService {
     return parent;
   }
 
-  /** 默认安全频道池 — 几乎肯定长期存在的公开 TG 频道 */
-  private readonly DEFAULT_BROWSE_CHANNELS = ['@telegram', '@durov'];
+  /** 默认安全频道池 — 几乎肯定长期存在的公开 TG 频道 (3 个跨语种) */
+  private readonly DEFAULT_BROWSE_CHANNELS = ['@telegram', '@durov', '@trendingbot'];
 
   /**
-   * 7 天养号 — P0→P4 渐进, 严格按 CLAUDE.md 设计:
-   *   D1 (P0): 仅保活, 0 外发信号
-   *   D2 (P1): 浏览频道 (消费内容)
-   *   D3 (P2): Follow 频道 + reaction_boost (轻互动)
-   *   D4-5 (P3): 浏览 + reaction (社交感建立)
-   *   D6-7 (P4): 浏览 + reaction + profile_update
+   * 7 天养号 — 严格按 PDF / CLAUDE.md P0→P4 设计:
+   *   D1 (P0 沉默期)  : IDLE_KEEPALIVE × 1
+   *   D2 (P1 浏览)    : BROWSE_CHANNEL × 2 频道 (各停 30-60s)
+   *   D3 (P2 轻互动)  : JOIN_CHANNELS 1-2 频道 + REACTION_BOOST 3-5 个 👍
+   *   D4-5 (P3 社交建立): JOIN_GROUPS 1 公共讨论群 + GROUP_BUBBLE 群里发短句
+   *   D6-7 (P4 综合)   : PROFILE_UPDATE + BROWSE_CHANNEL 多频道
    *
-   * 所有需要 channels 的子任务用 DEFAULT_BROWSE_CHANNELS, 用户也可以
-   * 在 payload.channels 里覆盖自定义列表.
+   * payload.channels[] 覆盖默认频道
+   * payload.groups[] 提供可加入的群 (D4-5 GROUP_BUBBLE 用), 没有 → 退化成 BROWSE_CHANNEL
    */
   private buildWarmup7d(start: Date, baseName: string, payloadHint: any = {}): Array<{ type: TaskType; scheduledAt: Date; name: string; payload: any }> {
     const out: Array<{ type: TaskType; scheduledAt: Date; name: string; payload: any }> = [];
     const channels: string[] = Array.isArray(payloadHint.channels) && payloadHint.channels.length
       ? payloadHint.channels : this.DEFAULT_BROWSE_CHANNELS;
-    const ch1 = (i: number) => [channels[i % channels.length]];
+    const groups: string[] = Array.isArray(payloadHint.groups) ? payloadHint.groups : [];
+    const ch = (i: number) => channels[i % channels.length];
 
-    // ── Day 1 (P0): 仅保活, 沉默期 ──────────────────────────
+    // ── D1 (P0 沉默期): 仅保活 ─────────────────────────────
     out.push({ type: TaskType.IDLE_KEEPALIVE, scheduledAt: randomDayTime(start, 0, 10, 22), name: `${baseName} · D1 · 保活 (P0 沉默期)`, payload: {} });
 
-    // ── Day 2 (P1): 浏览 1 个频道 ───────────────────────────
-    out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, 1, 10, 13), name: `${baseName} · D2 · 浏览频道`, payload: { channels: ch1(0), readDurationSec: [30, 90] } });
-    out.push({ type: TaskType.IDLE_KEEPALIVE, scheduledAt: randomDayTime(start, 1, 19, 22), name: `${baseName} · D2 · 晚间保活`, payload: {} });
+    // ── D2 (P1 浏览): 2 个频道 ─────────────────────────────
+    out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, 1, 10, 13), name: `${baseName} · D2 · 浏览频道 #1`, payload: { channels: [ch(0)], readDurationSec: [30, 60] } });
+    out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, 1, 18, 22), name: `${baseName} · D2 · 浏览频道 #2`, payload: { channels: [ch(1)], readDurationSec: [30, 60] } });
 
-    // ── Day 3 (P2): Follow 1 个频道 + 浏览 + 给消息加 reaction ──
-    out.push({ type: TaskType.JOIN_CHANNELS, scheduledAt: randomDayTime(start, 2, 10, 12), name: `${baseName} · D3 · Follow 频道`, payload: { channels: ch1(0) } });
-    out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, 2, 14, 17), name: `${baseName} · D3 · 浏览阅读`, payload: { channels: ch1(0), readDurationSec: [30, 120] } });
-    out.push({ type: TaskType.REACTION_BOOST, scheduledAt: randomDayTime(start, 2, 18, 22), name: `${baseName} · D3 · 给消息点赞`, payload: { tgChatId: ch1(0)[0], count: [3, 5], emojiPool: ['👍', '❤️', '🔥'] } });
+    // ── D3 (P2 轻互动): Follow 1-2 频道 + Reaction 3-5 个 ──
+    const d3FollowCount = Math.min(2, channels.length);
+    out.push({
+      type: TaskType.JOIN_CHANNELS,
+      scheduledAt: randomDayTime(start, 2, 10, 13),
+      name: `${baseName} · D3 · Follow ${d3FollowCount} 频道`,
+      payload: { channels: channels.slice(0, d3FollowCount) },
+    });
+    out.push({ type: TaskType.REACTION_BOOST, scheduledAt: randomDayTime(start, 2, 18, 22), name: `${baseName} · D3 · 给消息点赞`, payload: { tgChatId: ch(0), count: [3, 5], emojiPool: ['👍', '❤️', '🔥'] } });
 
-    // ── Day 4 (P3): 浏览 + reaction × 2 ─────────────────────
-    out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, 3, 9, 12), name: `${baseName} · D4 · 早间浏览`, payload: { channels: ch1(0), readDurationSec: [30, 90] } });
-    out.push({ type: TaskType.REACTION_BOOST, scheduledAt: randomDayTime(start, 3, 14, 17), name: `${baseName} · D4 · 下午互动`, payload: { tgChatId: ch1(0)[0], count: [2, 4], emojiPool: ['👍', '❤️'] } });
-    out.push({ type: TaskType.IDLE_KEEPALIVE, scheduledAt: randomDayTime(start, 3, 20, 23), name: `${baseName} · D4 · 晚间保活`, payload: {} });
-
-    // ── Day 5 (P3): Follow 第 2 个频道 + 浏览 ──────────────
-    if (channels.length > 1) {
-      out.push({ type: TaskType.JOIN_CHANNELS, scheduledAt: randomDayTime(start, 4, 10, 13), name: `${baseName} · D5 · Follow 频道 #2`, payload: { channels: [channels[1]] } });
+    // ── D4 (P3 社交建立): 加群 + 群内冒泡 (无 group → 浏览兜底) ──
+    if (groups.length) {
+      out.push({ type: TaskType.JOIN_GROUPS, scheduledAt: randomDayTime(start, 3, 10, 13), name: `${baseName} · D4 · 加入讨论群`, payload: { chatIds: [groups[0]], inviteIntervalSec: [60, 180] } });
+      out.push({ type: TaskType.GROUP_BUBBLE, scheduledAt: randomDayTime(start, 3, 19, 22), name: `${baseName} · D4 · 群内冒泡`, payload: { tgChatId: groups[0], count: [1, 2] } });
     } else {
-      out.push({ type: TaskType.IDLE_KEEPALIVE, scheduledAt: randomDayTime(start, 4, 10, 13), name: `${baseName} · D5 · 早间保活`, payload: {} });
+      // payload 没给群 → 用 BROWSE 兜底, 不强制租户提供
+      out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, 3, 10, 13), name: `${baseName} · D4 · 浏览频道 (无群兜底)`, payload: { channels: [ch(0), ch(1)].slice(0, channels.length), readDurationSec: [30, 90] } });
+      out.push({ type: TaskType.IDLE_KEEPALIVE, scheduledAt: randomDayTime(start, 3, 20, 23), name: `${baseName} · D4 · 晚间保活`, payload: {} });
     }
-    out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, 4, 14, 18), name: `${baseName} · D5 · 浏览阅读`, payload: { channels: ch1(channels.length > 1 ? 1 : 0), readDurationSec: [40, 120] } });
-    out.push({ type: TaskType.REACTION_BOOST, scheduledAt: randomDayTime(start, 4, 19, 22), name: `${baseName} · D5 · 晚间点赞`, payload: { tgChatId: ch1(0)[0], count: [3, 5], emojiPool: ['👍', '❤️', '🎉'] } });
 
-    // ── Day 6 (P4): 资料更新 + 浏览 + reaction ────────────
+    // ── D5 (P3 群活跃): 群内再冒泡 1-2 条 (无群 → REACTION) ──
+    if (groups.length) {
+      out.push({ type: TaskType.GROUP_BUBBLE, scheduledAt: randomDayTime(start, 4, 11, 14), name: `${baseName} · D5 · 群内冒泡 #2`, payload: { tgChatId: groups[0], count: [1, 2] } });
+      out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, 4, 19, 22), name: `${baseName} · D5 · 晚间浏览`, payload: { channels: [ch(0)], readDurationSec: [30, 90] } });
+    } else {
+      out.push({ type: TaskType.REACTION_BOOST, scheduledAt: randomDayTime(start, 4, 11, 14), name: `${baseName} · D5 · 频道点赞`, payload: { tgChatId: ch(0), count: [3, 5], emojiPool: ['👍', '❤️'] } });
+      out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, 4, 19, 22), name: `${baseName} · D5 · 晚间浏览`, payload: { channels: [ch(1)], readDurationSec: [30, 90] } });
+    }
+
+    // ── D6 (P4 资料): 更新签名 + 浏览多频道 ──────────────
     out.push({ type: TaskType.PROFILE_UPDATE, scheduledAt: randomDayTime(start, 5, 9, 12), name: `${baseName} · D6 · 更新签名`, payload: { bio: '热爱生活 · 分享日常 ✨' } });
-    out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, 5, 14, 17), name: `${baseName} · D6 · 浏览阅读`, payload: { channels: ch1(0), readDurationSec: [30, 90] } });
-    out.push({ type: TaskType.REACTION_BOOST, scheduledAt: randomDayTime(start, 5, 19, 22), name: `${baseName} · D6 · 晚间点赞`, payload: { tgChatId: ch1(0)[0], count: [3, 6], emojiPool: ['👍', '❤️', '🔥', '🎉'] } });
+    out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, 5, 14, 17), name: `${baseName} · D6 · 多频道浏览`, payload: { channels: channels.slice(0, Math.min(2, channels.length)), readDurationSec: [30, 90] } });
+    out.push({ type: TaskType.REACTION_BOOST, scheduledAt: randomDayTime(start, 5, 19, 22), name: `${baseName} · D6 · 晚间点赞`, payload: { tgChatId: ch(0), count: [3, 6], emojiPool: ['👍', '❤️', '🔥', '🎉'] } });
 
-    // ── Day 7 (P4): 浏览 × 2 + reaction ─────────────────────
-    out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, 6, 9, 12), name: `${baseName} · D7 · 早间浏览`, payload: { channels: ch1(0), readDurationSec: [40, 100] } });
-    out.push({ type: TaskType.REACTION_BOOST, scheduledAt: randomDayTime(start, 6, 14, 17), name: `${baseName} · D7 · 下午点赞`, payload: { tgChatId: ch1(0)[0], count: [3, 5], emojiPool: ['👍', '🔥'] } });
-    out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, 6, 19, 22), name: `${baseName} · D7 · 晚间浏览`, payload: { channels: ch1(0), readDurationSec: [40, 120] } });
+    // ── D7 (P4 综合): 多频道浏览 × 2 + reaction ──────────
+    out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, 6, 9, 12), name: `${baseName} · D7 · 早间多频道浏览`, payload: { channels: channels.slice(0, Math.min(2, channels.length)), readDurationSec: [40, 100] } });
+    out.push({ type: TaskType.REACTION_BOOST, scheduledAt: randomDayTime(start, 6, 14, 17), name: `${baseName} · D7 · 下午点赞`, payload: { tgChatId: ch(0), count: [3, 5], emojiPool: ['👍', '🔥'] } });
+    out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, 6, 19, 22), name: `${baseName} · D7 · 晚间多频道浏览`, payload: { channels: channels.slice(0, Math.min(3, channels.length)), readDurationSec: [40, 120] } });
 
     return out;
   }
