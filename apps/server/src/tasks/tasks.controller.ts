@@ -93,6 +93,12 @@ export class TasksController {
     return this.service.cancel(id);
   }
 
+  /** 紧急按钮：一键取消所有 pending/running/paused 任务（按当前用户 tenant 范围）。 */
+  @Post('cancel-all')
+  cancelAll(@CurrentUser() user: AuthUser) {
+    return this.service.cancelAll(effectiveTenantId(user));
+  }
+
   /** 复用任务：clone 一份立即排队执行，原任务不动。 */
   @Post(':id/run-now')
   runNow(@Param('id', ParseUUIDPipe) id: string) {

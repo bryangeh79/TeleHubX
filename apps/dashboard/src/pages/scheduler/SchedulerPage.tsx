@@ -386,6 +386,16 @@ export default function SchedulerPage() {
     }
   };
 
+  const handleCancelAll = async () => {
+    try {
+      const res = await tasksApi.cancelAll();
+      antdMessage.success(`已强制停止 ${res.data?.cancelled ?? 0} 个任务`);
+      void reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '操作失败');
+    }
+  };
+
   const handleDelete = async (id: string) => {
     try {
       await tasksApi.delete(id);
@@ -516,6 +526,16 @@ export default function SchedulerPage() {
           </div>
         </div>
         <Space>
+          <Popconfirm
+            title="紧急停止所有任务？"
+            description={`将取消所有 pending/running/paused 任务，agent 完成当前 turn 后停下。无法恢复。`}
+            okText="确认全部停止"
+            okButtonProps={{ danger: true }}
+            cancelText="取消"
+            onConfirm={handleCancelAll}
+          >
+            <Button danger icon={<StopOutlined />}>立即终止全部</Button>
+          </Popconfirm>
           <Button icon={<HistoryOutlined />}>历史记录</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新建任务</Button>
         </Space>

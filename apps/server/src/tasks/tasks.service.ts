@@ -148,6 +148,23 @@ export class TasksService {
     return this.repo.save(t);
   }
 
+  /**
+   * 紧急按钮：批量取消所有 pending/running/paused 任务。
+   * 一次 UPDATE 完成，agent 下次 dispatch 不再领取这些。
+   */
+  async cancelAll(tenantId?: string): Promise<{ cancelled: number }> {
+    const qb = this.repo
+      .createQueryBuilder()
+      .update(Task)
+      .set({ status: TaskStatus.FAILED, errorMsg: 'Cancelled (bulk stop)', finishedAt: new Date() })
+      .where('status IN (:...statuses)', {
+        statuses: [TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.PAUSED],
+      });
+    if (tenantId) qb.andWhere('"tenantId" = :tid', { tid: tenantId });
+    const res = await qb.execute();
+    return { cancelled: res.affected ?? 0 };
+  }
+
   async retry(id: string): Promise<Task> {
     const t = await this.findOne(id);
     if (t.status !== TaskStatus.FAILED) return t;
