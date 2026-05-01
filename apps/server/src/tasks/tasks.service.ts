@@ -193,28 +193,124 @@ export class TasksService {
   }
 
   /**
-   * 7 天运营热身 (Day 8-14): 比 warmup 更活跃, 引入群组互动.
-   * 每日浏览 + reaction + 偶尔 group_bubble (在已加入群里发短句).
+   * 7 天运营热身 (Day 8-14) — 按 PDF 设计, 活跃度爬坡到主动触达:
+   *   D8-9: JOIN_GROUPS_BY_KEYWORD 关键词搜群 + 浏览
+   *   D10-11: GROUP_BUBBLE 群里冒泡 + REACTION_BOOST
+   *   D12-13: CONTACT_ADD 加联系人 (mild 跳过)
+   *   D14: CAMPAIGN_SINGLE 试发 (仅 aggressive 模式)
+   *
+   * payload:
+   *   - keywords[]: 用于 JOIN_GROUPS_BY_KEYWORD (没给则退化为 BROWSE)
+   *   - groups[]: 用于 GROUP_BUBBLE (没给则退化为 REACTION)
+   *   - contactTargets[]: 用于 CONTACT_ADD (没给则退化为 BROWSE)
+   *   - campaignTargets[] + campaignVariants[]: 用于 CAMPAIGN_SINGLE (没给则退化)
+   *   - intensity: 'mild' | 'aggressive' (默认 mild — 不发 CONTACT_ADD/CAMPAIGN_SINGLE)
    */
   private buildRampup7d(start: Date, baseName: string, payloadHint: any = {}): Array<{ type: TaskType; scheduledAt: Date; name: string; payload: any }> {
     const out: Array<{ type: TaskType; scheduledAt: Date; name: string; payload: any }> = [];
     const channels: string[] = Array.isArray(payloadHint.channels) && payloadHint.channels.length
       ? payloadHint.channels : this.DEFAULT_BROWSE_CHANNELS;
-    const ch1 = (i: number) => [channels[i % channels.length]];
+    const keywords: string[] = Array.isArray(payloadHint.keywords) ? payloadHint.keywords : [];
+    const groups: string[] = Array.isArray(payloadHint.groups) ? payloadHint.groups : [];
+    const contactTargets: any[] = Array.isArray(payloadHint.contactTargets) ? payloadHint.contactTargets : [];
+    const campaignTargets: any[] = Array.isArray(payloadHint.campaignTargets) ? payloadHint.campaignTargets : [];
+    const campaignVariants: string[] = Array.isArray(payloadHint.campaignVariants) ? payloadHint.campaignVariants : [];
+    const intensity: 'mild' | 'aggressive' = payloadHint.intensity === 'aggressive' ? 'aggressive' : 'mild';
+    const ch = (i: number) => channels[i % channels.length];
 
-    for (let day = 0; day < 7; day++) {
-      const dayLabel = day + 8; // D8-D14
-      out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, day, 8, 11), name: `${baseName} · D${dayLabel} · 早间浏览`, payload: { channels: ch1(day), readDurationSec: [30, 90] } });
-      out.push({ type: TaskType.REACTION_BOOST, scheduledAt: randomDayTime(start, day, 12, 15), name: `${baseName} · D${dayLabel} · 午间点赞`, payload: { tgChatId: ch1(day)[0], count: [3, 5], emojiPool: ['👍', '❤️', '🔥'] } });
-      out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, day, 16, 19), name: `${baseName} · D${dayLabel} · 下午浏览`, payload: { channels: ch1(day + 1), readDurationSec: [40, 120] } });
-      out.push({ type: TaskType.IDLE_KEEPALIVE, scheduledAt: randomDayTime(start, day, 20, 23), name: `${baseName} · D${dayLabel} · 晚间保活`, payload: {} });
+    // ── D8-9 (P3 群组扩展): 关键词搜群 + 浏览 ──────────────
+    for (let day = 0; day <= 1; day++) {
+      const lbl = day + 8;
+      if (keywords.length) {
+        out.push({
+          type: TaskType.JOIN_GROUPS_BY_KEYWORD,
+          scheduledAt: randomDayTime(start, day, 10, 14),
+          name: `${baseName} · D${lbl} · 关键词搜群`,
+          payload: { keywords, minMembers: 100, maxPerDay: 1 },
+        });
+      } else {
+        out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, day, 10, 14), name: `${baseName} · D${lbl} · 多频道浏览 (无 keywords)`, payload: { channels: channels.slice(0, 2), readDurationSec: [40, 120] } });
+      }
+      out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, day, 19, 22), name: `${baseName} · D${lbl} · 晚间浏览`, payload: { channels: [ch(day)], readDurationSec: [40, 90] } });
     }
+
+    // ── D10-11 (P4 群活跃): 群冒泡 + Reaction ──────────────
+    for (let day = 2; day <= 3; day++) {
+      const lbl = day + 8;
+      if (groups.length) {
+        out.push({ type: TaskType.GROUP_BUBBLE, scheduledAt: randomDayTime(start, day, 11, 15), name: `${baseName} · D${lbl} · 群冒泡`, payload: { tgChatId: groups[day % groups.length], count: [2, 3] } });
+      } else {
+        out.push({ type: TaskType.REACTION_BOOST, scheduledAt: randomDayTime(start, day, 11, 15), name: `${baseName} · D${lbl} · 频道点赞 (无群兜底)`, payload: { tgChatId: ch(day), count: [3, 6], emojiPool: ['👍', '❤️', '🔥'] } });
+      }
+      out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, day, 19, 22), name: `${baseName} · D${lbl} · 晚间浏览`, payload: { channels: channels.slice(0, 2), readDurationSec: [30, 90] } });
+    }
+
+    // ── D12-13 (开始触达): CONTACT_ADD (仅 aggressive 启用) ─
+    for (let day = 4; day <= 5; day++) {
+      const lbl = day + 8;
+      if (intensity === 'aggressive' && contactTargets.length) {
+        out.push({
+          type: TaskType.CONTACT_ADD,
+          scheduledAt: randomDayTime(start, day, 10, 14),
+          name: `${baseName} · D${lbl} · 加联系人 (aggressive)`,
+          payload: { mode: 'username', targets: contactTargets.slice(0, 3), maxPerDay: 3 },
+        });
+      } else {
+        out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, day, 10, 14), name: `${baseName} · D${lbl} · 浏览 (mild 模式跳过 contact)`, payload: { channels: channels.slice(0, 2), readDurationSec: [40, 100] } });
+      }
+      out.push({ type: TaskType.IDLE_KEEPALIVE, scheduledAt: randomDayTime(start, day, 19, 22), name: `${baseName} · D${lbl} · 晚间保活`, payload: {} });
+    }
+
+    // ── D14 (终极): CAMPAIGN_SINGLE 试发 (aggressive 才启用) ─
+    if (intensity === 'aggressive' && campaignTargets.length && campaignVariants.length >= 3) {
+      out.push({
+        type: TaskType.CAMPAIGN_SINGLE,
+        scheduledAt: randomDayTime(start, 6, 11, 16),
+        name: `${baseName} · D14 · 单条群发 (aggressive)`,
+        payload: {
+          targets: campaignTargets.slice(0, 10),
+          variants: campaignVariants,
+          intervalSec: [120, 300],
+        },
+      });
+    } else {
+      out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, 6, 11, 16), name: `${baseName} · D14 · 浏览 (mild 模式不发 campaign)`, payload: { channels: channels.slice(0, 3), readDurationSec: [40, 100] } });
+    }
+    out.push({ type: TaskType.IDLE_KEEPALIVE, scheduledAt: randomDayTime(start, 6, 20, 23), name: `${baseName} · D14 · 晚间保活`, payload: {} });
+
     return out;
   }
 
-  /** Day 15+ 持续运营: 与 rampup 类似, 但仅展开 7 天作为一周配方, 用户可重复运行 */
+  /**
+   * Day 15+ 成熟运营 — 不限期循环, 仅日常维护 (跟 rampup 完全不同):
+   *   每日: 1× 多频道浏览 + 1× Reaction + 1× 自有群冒泡 (无群 → IDLE) + 1× 晚间保活
+   *
+   * 系统按 7 天展开作为「一周配方」, 用户可重复运行 (run-now 复用整个 preset).
+   * 真正的 ad/campaign 任务由租户手动派发, 这里只负责让账号"看起来还活着".
+   */
   private buildMatureOps7d(start: Date, baseName: string, payloadHint: any = {}): Array<{ type: TaskType; scheduledAt: Date; name: string; payload: any }> {
-    return this.buildRampup7d(start, baseName, payloadHint);
+    const out: Array<{ type: TaskType; scheduledAt: Date; name: string; payload: any }> = [];
+    const channels: string[] = Array.isArray(payloadHint.channels) && payloadHint.channels.length
+      ? payloadHint.channels : this.DEFAULT_BROWSE_CHANNELS;
+    const ownGroups: string[] = Array.isArray(payloadHint.ownGroups) ? payloadHint.ownGroups : [];
+    const ch = (i: number) => channels[i % channels.length];
+
+    for (let day = 0; day < 7; day++) {
+      const lbl = day + 15;
+      // 早: 多频道浏览
+      out.push({ type: TaskType.BROWSE_CHANNEL, scheduledAt: randomDayTime(start, day, 8, 11), name: `${baseName} · D${lbl} · 晨间浏览`, payload: { channels: channels.slice(0, 2), readDurationSec: [30, 90] } });
+      // 午: Reaction
+      out.push({ type: TaskType.REACTION_BOOST, scheduledAt: randomDayTime(start, day, 12, 15), name: `${baseName} · D${lbl} · 午间点赞`, payload: { tgChatId: ch(day), count: [3, 5], emojiPool: ['👍', '❤️', '🔥'] } });
+      // 晚: 自有群冒泡 (没自有群 → IDLE_KEEPALIVE)
+      if (ownGroups.length) {
+        out.push({ type: TaskType.GROUP_BUBBLE, scheduledAt: randomDayTime(start, day, 18, 21), name: `${baseName} · D${lbl} · 自有群冒泡`, payload: { tgChatId: ownGroups[day % ownGroups.length], count: [1, 2] } });
+      } else {
+        out.push({ type: TaskType.IDLE_KEEPALIVE, scheduledAt: randomDayTime(start, day, 18, 21), name: `${baseName} · D${lbl} · 保活 (无自有群)`, payload: {} });
+      }
+      // 深夜: keepalive
+      out.push({ type: TaskType.IDLE_KEEPALIVE, scheduledAt: randomDayTime(start, day, 22, 23), name: `${baseName} · D${lbl} · 深夜保活`, payload: {} });
+    }
+    return out;
   }
 
   /** 接收方是本租户内池号: 查手机号注入 targetId 给 executor 用 */
