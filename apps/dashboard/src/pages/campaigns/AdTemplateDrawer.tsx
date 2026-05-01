@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert, Badge, Button, Drawer, Form, Input, Modal,
-  Popconfirm, Space, Switch, Tag, Tooltip, Typography, message as antdMessage,
+  Badge, Button, Drawer, Form, Input, Modal,
+  Popconfirm, Space, Switch, Tag, Typography, message as antdMessage, Progress,
 } from 'antd';
 import {
   DeleteOutlined, EditOutlined, PlusOutlined,
-  ThunderboltOutlined, PlusCircleOutlined, PictureOutlined,
+  ThunderboltOutlined, PlusCircleOutlined, UploadOutlined, CloseCircleOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { adTemplatesApi } from '../../services/api';
+import { adTemplatesApi, assetsApi } from '../../services/api';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -50,6 +50,11 @@ function AdTemplateModal({
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [mediaAssetId, setMediaAssetId] = useState<string>('');
+  const [mediaFileName, setMediaFileName] = useState<string>('');
+  const [uploadPct, setUploadPct] = useState<number>(0);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const isEdit = !!template;
 
   useEffect(() => {
@@ -58,23 +63,50 @@ function AdTemplateModal({
       form.setFieldsValue({ name: template.name, content: template.content });
       setAiEnabled(template.aiVariantEnabled);
       setVariants(template.variants ?? []);
+      setMediaAssetId(template.mediaAssetId ?? '');
+      setMediaFileName(template.mediaAssetId ? '已附加素材' : '');
     } else {
       form.resetFields();
       setAiEnabled(false);
       setVariants([]);
+      setMediaAssetId('');
+      setMediaFileName('');
     }
+    setUploadPct(0);
   }, [open, template, form]);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadPct(0);
+    try {
+      const res = await assetsApi.upload(file, { category: 'ad_media', description: file.name });
+      const asset = res.data;
+      setMediaAssetId(asset.id ?? '');
+      setMediaFileName(file.name);
+      antdMessage.success(`已上传: ${file.name}`);
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '上传失败');
+    } finally {
+      setUploading(false);
+      setUploadPct(100);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const handleSave = async () => {
     let values: any;
     try { values = await form.validateFields(); } catch { return; }
     setSaving(true);
     try {
-      const payload = {
+      const payload: any = {
         tenantId,
         name: values.name,
         content: values.content,
         aiVariantEnabled: aiEnabled,
+        hasMedia: !!mediaAssetId,
+        mediaAssetId: mediaAssetId || undefined,
       };
       if (isEdit && template) {
         await adTemplatesApi.update(template.id, payload);
@@ -176,11 +208,51 @@ function AdTemplateModal({
         </Text>
 
         <Form.Item label="附加素材 (可选)">
-          <Space>
-            <Button icon={<PictureOutlined />} disabled>上传图片 / 视频 / 语音</Button>
-            <Input placeholder="或素材ID" style={{ width: 160 }} disabled />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,video/*,audio/*"
+            style={{ display: 'none' }}
+            onChange={handleFileChange}
+          />
+          <Space wrap>
+            <Button
+              icon={<UploadOutlined />}
+              loading={uploading}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              上传图片 / 视频 / 语音
+            </Button>
+            {mediaFileName && (
+              <Space size={4}>
+                <Tag color="blue" style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {mediaFileName}
+                </Tag>
+                <CloseCircleOutlined
+                  style={{ color: '#ff4d4f', cursor: 'pointer' }}
+                  onClick={() => { setMediaAssetId(''); setMediaFileName(''); }}
+                />
+              </Space>
+            )}
           </Space>
-          <div><Text type="secondary" style={{ fontSize: 11 }}>素材上传功能即将开放</Text></div>
+          {uploading && (
+            <Progress percent={uploadPct} size="small" style={{ marginTop: 4, maxWidth: 300 }} />
+          )}
+          <div style={{ marginTop: 4 }}>
+            <Text type="secondary" style={{ fontSize: 11 }}>支持 jpg/png/mp4/mp3/ogg · 最大 50MB</Text>
+          </div>
+          {!mediaFileName && (
+            <div style={{ marginTop: 6 }}>
+              <Text type="secondary" style={{ fontSize: 11 }}>或直接填素材 ID：</Text>
+              <Input
+                placeholder="素材 UUID"
+                value={mediaAssetId}
+                onChange={e => setMediaAssetId(e.target.value)}
+                style={{ width: 260, marginLeft: 4 }}
+                size="small"
+              />
+            </div>
+          )}
         </Form.Item>
 
         <div style={{
