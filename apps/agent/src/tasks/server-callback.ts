@@ -131,3 +131,19 @@ export async function markCandidateContacted(
     // 静默失败
   }
 }
+
+/** 上报 campaign 已发送 +1 (campaignSingle 执行器在每条发送完成后调用) */
+export async function reportCampaignSent(campaignId: string, delta = 1): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/campaigns/${campaignId}/sent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.AGENT_TOKEN ? { 'X-Agent-Token': process.env.AGENT_TOKEN } : {}),
+      },
+      body: JSON.stringify({ delta }),
+    });
+  } catch {
+    // 静默失败 (后端宕机不应影响 agent 主流程)
+  }
+}

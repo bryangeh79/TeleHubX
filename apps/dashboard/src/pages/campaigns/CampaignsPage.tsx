@@ -159,15 +159,20 @@ export default function CampaignsPage() {
       key: 'progress',
       width: 180,
       render: (_, r) => {
-        const total = r.targets?.length ?? 0;
-        if (total === 0) return <Tag>无目标</Tag>;
-        const pct = Math.round((r.sentCount / total) * 100);
+        const manualTargets = r.targets?.length ?? 0;
+        const groupCount = r.customerGroupIds?.length ?? 0;
+        const hasAnyTarget = manualTargets > 0 || groupCount > 0;
+        if (!hasAnyTarget) return <Tag>无目标</Tag>;
+        // 没有客户群成员数信息，先按手动号码算进度（有客户群时显示「群+号码」）
+        const desc = groupCount > 0
+          ? `${groupCount} 个群${manualTargets > 0 ? ` + ${manualTargets} 号` : ''}`
+          : `${manualTargets} 号`;
         return (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
-              <span>已发 {r.sentCount}</span><span>共 {total}</span>
+              <span>已发 {r.sentCount}</span><span>{desc}</span>
             </div>
-            <Progress percent={pct} size="small" showInfo={false} />
+            <Progress percent={r.sentCount > 0 ? Math.min(100, r.sentCount) : 0} size="small" showInfo={false} />
             <Text type="secondary" style={{ fontSize: 11 }}>{r.replyCount} 条回复</Text>
           </div>
         );

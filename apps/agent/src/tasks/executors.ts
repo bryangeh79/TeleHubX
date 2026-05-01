@@ -8,6 +8,7 @@ import {
   markCandidateContacted,
   pickRandomAsset,
   pickRandomChatScript,
+  reportCampaignSent,
 } from './server-callback';
 
 /**
@@ -520,36 +521,75 @@ export async function contactAdd(ctx: ExecutorCtx): Promise<void> {
  *   intervalSec?: [60, 300]
  * }
  */
+/**
+ * payload (新版 — Dispatch Service 生成)：
+ *   { campaignId, targets: [oneTarget], variants: [{text}], greeting: string|null, intervalSec? }
+ * 兼容老版本：targets 可以是 string[] 或 [{username, candidateId}]，variants 可以是 string[] 或 [{text}]
+ */
 export async function campaignSingle(ctx: ExecutorCtx): Promise<void> {
   const rawTargets = (ctx.payload.targets ?? []) as any[];
-  const variants: string[] = (ctx.payload.variants ?? []) as string[];
+  const rawVariants = (ctx.payload.variants ?? []) as any[];
+  const greeting = ctx.payload.greeting as string | null | undefined;
+  const campaignId = ctx.payload.campaignId as string | undefined;
   const [minSec, maxSec] = (ctx.payload.intervalSec as [number, number]) ?? [60, 300];
 
   if (!rawTargets.length) throw new Error('payload.targets 为空');
-  if (!variants.length) throw new Error('payload.variants 为空');
+  if (!rawVariants.length) throw new Error('payload.variants 为空');
+
+  // 规范化 variants 池 (老版 string[]; 新版 [{text}])
+  const variants: string[] = rawVariants
+    .map(v => (typeof v === 'string' ? v : v?.text ?? ''))
+    .filter(Boolean);
+  if (!variants.length) throw new Error('variants 全部为空');
 
   for (let i = 0; i < rawTargets.length; i++) {
     const raw = rawTargets[i];
-    const target = typeof raw === 'string' ? { username: raw } : raw;
-    const handle = (target.username ?? '').replace(/^@/, '');
-    if (!handle) continue;
+    // 解析目标值：string 直接用；对象支持 username/value/phone
+    let value: string;
+    let candidateId: string | undefined;
+    if (typeof raw === 'string') {
+      value = raw.trim();
+    } else {
+      value = (raw.value ?? raw.username ?? raw.phone ?? '').trim();
+      candidateId = raw.candidateId;
+    }
+    if (!value) continue;
 
     try {
-      const entity = await ctx.client.getEntity(handle);
-      const variant = variants[Math.floor(Math.random() * variants.length)];
-      await sendMessageLikeHuman(ctx.client, entity, variant);
+      // 手机号: 先 ImportContact (TG 协议要求)
+      if (isPhoneFormat(value)) {
+        await tryImportContact(ctx.client, value);
+      }
 
-      if (target.candidateId && ctx.accountId) {
-        await markCandidateContacted(target.candidateId, ctx.accountId, ctx.taskId);
+      // 解析 entity (用 getEntity, 支持 username/phone/tgUserId)
+      const entity = await ctx.client.getEntity(value.replace(/^@/, ''));
+
+      // 选 variant (随机抽)
+      const variant = variants[Math.floor(Math.random() * variants.length)];
+
+      // 拼装消息: greeting + \n\n + variant (如果有 greeting)
+      const message = greeting ? `${greeting}\n\n${variant}` : variant;
+      await sendMessageLikeHuman(ctx.client, entity, message);
+
+      // 回写: campaign sentCount +1
+      if (campaignId) {
+        await reportCampaignSent(campaignId, 1);
+      }
+
+      // 候选人池标记 contacted
+      if (candidateId && ctx.accountId) {
+        await markCandidateContacted(candidateId, ctx.accountId, ctx.taskId);
       }
     } catch (err) {
       const msg = (err as Error).message ?? '';
       if (
         msg.includes('USER_PRIVACY_RESTRICTED') ||
         msg.includes('PEER_ID_INVALID') ||
-        msg.includes('USERNAME_NOT_OCCUPIED')
+        msg.includes('USERNAME_NOT_OCCUPIED') ||
+        msg.includes('USER_BLOCKED_BY_ADMIN') ||
+        msg.includes('Could not find the input entity')
       ) {
-        // 跳过
+        // 这些是目标侧问题, 跳过该条不抛 (任务整体仍可视为完成)
       } else {
         throw err;
       }
