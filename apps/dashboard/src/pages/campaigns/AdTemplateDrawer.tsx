@@ -137,9 +137,9 @@ function AdTemplateModal({
         const newId = res.data.id;
         setGenerating(true);
         const result = await adTemplatesApi.generateVariants(newId);
-        setVariants(result.data.variants ?? []);
-        antdMessage.success(`已生成 ${result.data.variants?.length ?? 0} 条 AI 变体`);
-        onSave();
+        const vars = result.data.variants ?? [];
+        setVariants(vars);
+        antdMessage.success(`✓ 已生成 ${vars.length} 条 AI 变体，查看下方列表，满意后点保存`);
       } catch (err: any) {
         antdMessage.error(err?.response?.data?.message ?? 'AI 生成失败');
       } finally {
@@ -149,15 +149,17 @@ function AdTemplateModal({
       }
       return;
     }
-    // Already saved
+    // Already saved — generate and show in modal (don't close yet)
     setGenerating(true);
     try {
       const result = await adTemplatesApi.generateVariants(template.id);
-      setVariants(result.data.variants ?? []);
-      antdMessage.success(`已生成 ${result.data.variants?.length ?? 0} 条 AI 变体`);
-      onSave();
+      const vars = result.data.variants ?? [];
+      setVariants(vars);
+      antdMessage.success(`✓ 已生成 ${vars.length} 条 AI 变体，查看下方列表，满意后点保存`);
+      // Don't call onSave() here — let user review variants first
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? 'AI 生成失败');
+      const msg = err?.response?.data?.message;
+      antdMessage.error(msg ?? 'AI 生成失败，请检查平台 AI Key 配置');
     } finally {
       setGenerating(false);
       setShowConfirm(false);
