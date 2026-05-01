@@ -88,7 +88,7 @@ export default function CampaignForm() {
           intervalMinMax: 90,
         });
       } catch (err: any) {
-        antdMessage.error(err?.response?.data?.message ?? 'Failed to load campaign');
+        antdMessage.error(err?.response?.data?.message ?? '加载失败');
       } finally {
         setLoading(false);
       }
@@ -116,15 +116,15 @@ export default function CampaignForm() {
       };
       if (isEdit && id) {
         await campaignsApi.update(id, payload);
-        antdMessage.success('Campaign updated');
+        antdMessage.success('已更新');
       } else {
         await campaignsApi.create(payload);
-        antdMessage.success('Campaign created');
+        antdMessage.success('已创建');
       }
       navigate('/campaigns');
     } catch (err: any) {
       const msg = err?.response?.data?.message;
-      antdMessage.error(Array.isArray(msg) ? msg.join('; ') : msg ?? 'Save failed');
+      antdMessage.error(Array.isArray(msg) ? msg.join('; ') : msg ?? '保存失败');
     } finally {
       setSubmitting(false);
     }
@@ -133,7 +133,7 @@ export default function CampaignForm() {
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
       <Title level={4} style={{ marginBottom: 24 }}>
-        {isEdit ? 'Edit Campaign' : 'New Campaign'}
+        {isEdit ? '编辑广告' : '新建广告'}
       </Title>
 
       <Form
@@ -149,43 +149,43 @@ export default function CampaignForm() {
           accountIds: [],
         }}
       >
-        <Card title="Basic Info" style={{ marginBottom: 16 }} loading={loading}>
+        <Card title="基本信息" style={{ marginBottom: 16 }} loading={loading}>
           <Form.Item
             name="name"
-            label="Campaign Name"
-            rules={[{ required: true, message: 'Required' }]}
+            label="广告名称"
+            rules={[{ required: true, message: '必填' }]}
           >
-            <Input placeholder="e.g. April Property Leads" maxLength={80} />
+            <Input placeholder="例: 4 月房产线索" maxLength={80} />
           </Form.Item>
 
-          <Form.Item name="description" label="Description (optional)">
+          <Form.Item name="description" label="备注 (选填)">
             <TextArea rows={2} maxLength={300} showCount />
           </Form.Item>
 
           <Form.Item
             name="type"
-            label="Type"
+            label="发送方式"
             rules={[{ required: true }]}
-            extra="broadcast = same content to all targets in parallel; sequential = one target at a time"
+            extra="群发 = 同样内容并行发给所有目标; 顺序 = 一个一个发"
           >
             <Select
               options={[
-                { value: 'broadcast',  label: 'Broadcast' },
-                { value: 'sequential', label: 'Sequential' },
+                { value: 'broadcast',  label: '群发 (并行)' },
+                { value: 'sequential', label: '顺序 (一个一个发)' },
               ]}
             />
           </Form.Item>
         </Card>
 
-        <Card title="Targeting" style={{ marginBottom: 16 }}>
+        <Card title="目标与发送号" style={{ marginBottom: 16 }}>
           <Form.Item
             name="accountIds"
-            label="AD Accounts (UI-only for now)"
-            extra="These come from the slot pool (ad/hybrid roles). Backend campaign↔account binding is not yet wired — selecting here is recorded for future."
+            label="广告号 (暂仅 UI 记录)"
+            extra="来自账号槽位池 (ad / hybrid 角色). 后端 campaign↔account 绑定还没接通, 现阶段选了仅记录, 实际不影响发送."
           >
             <Select
               mode="multiple"
-              placeholder={accounts.length ? 'Select AD accounts' : 'No ad/hybrid accounts bound yet'}
+              placeholder={accounts.length ? '选择广告号' : '还没绑定 ad / hybrid 账号'}
               options={accounts}
               disabled={accounts.length === 0}
             />
@@ -195,13 +195,13 @@ export default function CampaignForm() {
             name="targets"
             label={
               <Space>
-                Targets (Telegram usernames / chat IDs / invite links)
-                <Tooltip title="One per entry. For groups: account must be a member.">
+                目标 (TG 用户名 / 群 ID / 邀请链接)
+                <Tooltip title="一行一个. 群目标: 发送号必须已加入该群.">
                   <InfoCircleOutlined style={{ color: '#999' }} />
                 </Tooltip>
               </Space>
             }
-            rules={[{ required: true, message: 'Add at least one target' }]}
+            rules={[{ required: true, message: '至少填一个目标' }]}
           >
             <Select
               mode="tags"
@@ -211,10 +211,9 @@ export default function CampaignForm() {
           </Form.Item>
         </Card>
 
-        <Card title="Message Variants" style={{ marginBottom: 16 }}>
+        <Card title="文案变体" style={{ marginBottom: 16 }}>
           <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 12 }}>
-            Add multiple variants (different phrasing, emoji, formatting). The system rotates per account per target.
-            Best practice: similarity {'<'} 70% across variants.
+            建议加多版本变体 (用词 / emoji / 排版微差异). 系统会在每号每目标间轮换. 最佳实践: 变体相互相似度 {'<'} 70%.
           </Text>
 
           <Form.List
@@ -223,7 +222,7 @@ export default function CampaignForm() {
               {
                 validator: async (_, variants) => {
                   if (!variants || variants.length < 1) {
-                    return Promise.reject(new Error('At least one variant required'));
+                    return Promise.reject(new Error('至少填一条变体'));
                   }
                 },
               },
@@ -233,17 +232,17 @@ export default function CampaignForm() {
               <>
                 {fields.map((field, index) => (
                   <div key={field.key} style={{ marginBottom: 8 }}>
-                    <Text style={{ fontSize: 12, fontWeight: 500 }}>Variant {index + 1}</Text>
+                    <Text style={{ fontSize: 12, fontWeight: 500 }}>变体 {index + 1}</Text>
                     <Space align="start" style={{ width: '100%', marginTop: 4 }}>
                       <Form.Item
                         {...field}
                         name={[field.name, 'text']}
                         noStyle
-                        rules={[{ required: true, message: 'Variant text required' }]}
+                        rules={[{ required: true, message: '变体文案不能为空' }]}
                       >
                         <TextArea
                           rows={3}
-                          placeholder="Message text..."
+                          placeholder="消息文案..."
                           maxLength={4000}
                           showCount
                           style={{ width: 560 }}
@@ -265,7 +264,7 @@ export default function CampaignForm() {
                   icon={<PlusOutlined />}
                   style={{ width: '100%' }}
                 >
-                  Add Variant
+                  新增变体
                 </Button>
                 <Form.ErrorList errors={errors} />
               </>
@@ -273,45 +272,45 @@ export default function CampaignForm() {
           </Form.List>
         </Card>
 
-        <Card title="Send Schedule (UI-only stub)" style={{ marginBottom: 24 }}>
+        <Card title="发送节奏 (UI 占位)" style={{ marginBottom: 24 }}>
           <Alert
             type="warning"
             showIcon
-            message="Per-account daily limit & Gaussian interval are recorded in this form but not yet enforced server-side."
-            description="Backend campaign executor will pick these up once the dispatch worker lands."
+            message="每号每日上限 + 高斯随机间隔目前只是表单记录, 服务端还没强制执行."
+            description="等 dispatch worker 落地后, 后端会读取这两项作真节奏控制."
             style={{ marginBottom: 16, fontSize: 12 }}
           />
           <Form.Item
             name="dailyLimit"
             label={
               <Space>
-                Daily Limit per Account
-                <Tooltip title="Default cap: 10 msgs/account/day for ad accounts.">
+                每号每日上限
+                <Tooltip title="广告号默认: 10 条/号/天.">
                   <InfoCircleOutlined style={{ color: '#999' }} />
                 </Tooltip>
               </Space>
             }
             rules={[{ required: true }]}
           >
-            <InputNumber min={1} max={50} style={{ width: 120 }} addonAfter="msgs/day" />
+            <InputNumber min={1} max={50} style={{ width: 130 }} addonAfter="条/天" />
           </Form.Item>
 
-          <Divider plain style={{ fontSize: 12, color: '#999' }}>Gaussian interval</Divider>
+          <Divider plain style={{ fontSize: 12, color: '#999' }}>高斯随机间隔</Divider>
 
           <Space>
-            <Form.Item name="intervalMinMin" label="Min" rules={[{ required: true }]}>
-              <InputNumber min={1} max={240} style={{ width: 110 }} addonAfter="min" />
+            <Form.Item name="intervalMinMin" label="最小" rules={[{ required: true }]}>
+              <InputNumber min={1} max={240} style={{ width: 110 }} addonAfter="分钟" />
             </Form.Item>
-            <Form.Item name="intervalMinMax" label="Max" rules={[{ required: true }]}>
-              <InputNumber min={1} max={480} style={{ width: 110 }} addonAfter="min" />
+            <Form.Item name="intervalMinMax" label="最大" rules={[{ required: true }]}>
+              <InputNumber min={1} max={480} style={{ width: 110 }} addonAfter="分钟" />
             </Form.Item>
           </Space>
         </Card>
 
         <Space>
-          <Button onClick={() => navigate('/campaigns')}>Cancel</Button>
+          <Button onClick={() => navigate('/campaigns')}>取消</Button>
           <Button type="primary" loading={submitting} onClick={handleSubmit}>
-            {isEdit ? 'Save Changes' : 'Create Campaign'}
+            {isEdit ? '保存修改' : '创建广告'}
           </Button>
         </Space>
       </Form>
