@@ -3,6 +3,7 @@ import {
   Inject,
   Injectable,
   Logger,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -51,6 +52,11 @@ If unsure, acknowledge politely and offer to connect the customer with a human.`
 const DEFAULT_FAQ_SYSTEM = `You are a helpful assistant that answers frequently asked questions briefly and clearly.
 Keep responses under 100 words. Be direct and factual.`;
 
+/** Lazy-loaded to avoid circular dependency — injected after module init */
+export interface IPlatformConfigService {
+  getDefaultProvider(): Promise<{ provider: string; apiKey: string; model?: string; baseUrl?: string } | null>;
+}
+
 @Injectable()
 export class AiAgentService {
   private readonly logger = new Logger(AiAgentService.name);
@@ -60,6 +66,9 @@ export class AiAgentService {
 
   /** Default provider id (from AI_PROVIDER env, fallback openai). */
   private readonly defaultProviderId: AiProviderId;
+
+  /** Injected lazily to avoid circular dependency — set by PlatformConfigModule */
+  platformConfigService?: IPlatformConfigService;
 
   constructor(
     private readonly config: ConfigService,
@@ -77,15 +86,11 @@ export class AiAgentService {
 
   /**
    * Resolve which provider to use for this call.
-   * Priority for provider id: dto.provider > AI_PROVIDER env > 'openai'.
-   * Priority for API key: provider-specific env (OPENAI_API_KEY etc) >
-   *                       generic AI_API_KEY.
-   * Priority for model: dto.model > AI_MODEL env > provider's defaultModel.
-   * Priority for baseUrl: AI_BASE_URL env > provider's baseUrl.
+   * Priority: providerOverride param > DB platform config > .env > 'openai' defaults.
    */
   private resolve(providerOverride?: AiProviderId, modelOverride?: string): ResolvedProvider {
     const id: AiProviderId = providerOverride ?? this.defaultProviderId;
-    const cfg = AI_PROVIDERS[id];
+    const cfg = AI_PROVIDERS[id] ?? AI_PROVIDERS['openai'];
 
     const apiKey =
       this.config.get<string>(cfg.keyEnv) ||
@@ -94,19 +99,42 @@ export class AiAgentService {
 
     if (!apiKey) {
       throw new ServiceUnavailableException(
-        `AI provider '${id}' not configured. Set ${cfg.keyEnv} (or AI_API_KEY) in environment.`,
+        `AI provider '${id}' not configured. Set ${cfg.keyEnv} (or AI_API_KEY) in .env, or add a platform config in the dashboard.`,
       );
     }
 
-    const baseUrl =
-      this.config.get<string>('AI_BASE_URL') || cfg.baseUrl;
-
-    const model =
-      modelOverride ||
-      this.config.get<string>('AI_MODEL') ||
-      cfg.defaultModel;
+    const baseUrl = this.config.get<string>('AI_BASE_URL') || cfg.baseUrl;
+    const model = modelOverride || this.config.get<string>('AI_MODEL') || cfg.defaultModel;
 
     return { id, config: cfg, apiKey, baseUrl, model };
+  }
+
+  /**
+   * Resolve platform config from DB first, then fall back to .env.
+   * Used by internal tasks (variant generation, scoring, etc.)
+   */
+  async resolvePlatform(modelOverride?: string): Promise<ResolvedProvider> {
+    // Try DB config first
+    if (this.platformConfigService) {
+      try {
+        const dbCfg = await this.platformConfigService.getDefaultProvider();
+        if (dbCfg?.apiKey) {
+          const providerId = isAiProviderId(dbCfg.provider) ? dbCfg.provider : 'openai';
+          const cfg = AI_PROVIDERS[providerId];
+          return {
+            id: providerId,
+            config: cfg,
+            apiKey: dbCfg.apiKey,
+            baseUrl: dbCfg.baseUrl || cfg.baseUrl,
+            model: modelOverride || dbCfg.model || cfg.defaultModel,
+          };
+        }
+      } catch {
+        // DB not ready, fall through to .env
+      }
+    }
+    // Fallback to .env
+    return this.resolve(undefined, modelOverride);
   }
 
   private getClient(p: ResolvedProvider): OpenAI {
@@ -270,7 +298,7 @@ export class AiAgentService {
     maxTokens?: number;
     temperature?: number;
   }): Promise<string> {
-    const provider = this.resolve();
+    const provider = await this.resolvePlatform();
     const client = this.getClient(provider);
     let completion: any;
     try {

@@ -273,4 +273,66 @@ export class KnowledgeService {
     }
     return { generated: created.length, ids: created.map((f) => f.id) };
   }
+
+  /** Get all KB IDs for a tenant (used by smart reply to scope search) */
+  async getKbIdsByTenant(tenantId: string): Promise<string[]> {
+    const kbs = await this.kbs.find({ where: { tenantId, enabled: true } });
+    return kbs.map(k => k.id);
+  }
+
+  /**
+   * Search across all KBs for a tenant and return formatted context string.
+   * Used by BotGateway to inject relevant knowledge into AI system prompt.
+   * Returns top-N matches formatted as Q&A pairs.
+   */
+  async searchForContext(
+    query: string,
+    tenantId: string,
+    topN = 5,
+  ): Promise<{ contextText: string; hasResults: boolean }> {
+    const kbIds = await this.getKbIdsByTenant(tenantId);
+    if (!kbIds.length) return { contextText: '', hasResults: false };
+
+    const q = query.toLowerCase().trim();
+    const tokens = q.split(/\s+/).filter(t => t.length >= 2);
+    if (!tokens.length) return { contextText: '', hasResults: false };
+
+    // Search across all tenant KBs
+    const candidates = await this.faqs.find({
+      where: { enabled: true },
+      relations: [],
+    });
+    const tenantFaqs = candidates.filter(f => kbIds.includes(f.kbId));
+
+    const scored = tenantFaqs.map(faq => {
+      const haystack = faq.question.toLowerCase() + ' ' + (faq.tags ?? []).join(' ').toLowerCase();
+      let hits = 0;
+      for (const t of tokens) {
+        if (haystack.includes(t)) hits++;
+      }
+      // Also check answer for context relevance
+      const answerHits = tokens.filter(t => faq.answer.toLowerCase().includes(t)).length;
+      const score = (hits * 2 + answerHits * 0.5) / (tokens.length * 2);
+      return { faq, score };
+    });
+
+    const top = scored
+      .filter(m => m.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topN);
+
+    if (!top.length) return { contextText: '', hasResults: false };
+
+    const lines = top.map(m =>
+      `问：${m.faq.question}\n答：${m.faq.answer}`
+    );
+
+    const contextText = [
+      '【产品知识库（相关内容）】',
+      ...lines,
+      '【以上是产品资料，请基于此回答客户问题，不要凭空捏造】',
+    ].join('\n\n');
+
+    return { contextText, hasResults: true };
+  }
 }

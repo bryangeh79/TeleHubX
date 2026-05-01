@@ -55,7 +55,7 @@ export default function DashboardLayout() {
   const { token } = theme.useToken();
 
   const user = readStoredUser();
-  const isSuperAdmin = user.role === 'SUPER_ADMIN';
+  const isSuperAdmin = user.role?.toLowerCase() === 'super_admin';
 
   const menuItems = useMemo(
     () => (isSuperAdmin ? [...MENU_ITEMS_BASE, MENU_ITEM_ADMIN] : MENU_ITEMS_BASE),

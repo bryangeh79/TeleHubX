@@ -35,6 +35,35 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
     private readonly moduleRef: ModuleRef,
   ) {}
 
+  /**
+   * Build a contextual system prompt for smart reply.
+   * If KB context found, inject it so AI answers from real product knowledge.
+   * Otherwise fall back to a natural conversational assistant prompt.
+   */
+  private buildSmartReplyPrompt(kbContext: string): string {
+    const basePersonality = `你是一位专业、自然的客服助手。
+风格要求：
+- 像真实的人在聊天，不要机器人式重复固定格式
+- 回复简短有力（1-3 句为佳），不要写长篇大论
+- 如果不确定答案，诚实说"让我帮你确认一下"，绝对不要编造信息
+- 如果客户明显想投诉或有纠纷，主动提出转人工处理
+- 语言风格和客户保持一致（对方中文就中文，英文就英文，马来文就马来文）`;
+
+    if (!kbContext) {
+      return basePersonality + '\n\n如果客户问的问题超出你的了解范围，诚实告知并建议转人工。';
+    }
+
+    return `${basePersonality}
+
+${kbContext}
+
+回复规则：
+1. 优先用上方知识库内容回答，但不要照抄原文，用自己的话自然表达
+2. 如果知识库内容和问题相关性低，可以用通用常识回答，但不要捏造产品细节
+3. 保留原文中的任何联系方式（电话、链接、账号）不改变
+4. 不要在回复里透露"我有一份知识库"或"根据文档"等内部表达`;
+  }
+
   /** TakeoverGateway 解耦查找 — avoids hard import to break circular dep with TakeoverModule. */
   private getTakeover(): TakeoverGatewayLike | null {
     try {
@@ -165,8 +194,22 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
             this.logger.warn(`BotGateway: no AI config for tenant=${bot.tenantId}, skipping AI reply`);
             break;
           }
+
+          // Inject knowledge base context for truly intelligent replies
+          const { contextText } = await this.knowledge.searchForContext(
+            msg.text,
+            bot.tenantId,
+            5,
+          );
+
+          const systemPrompt = this.buildSmartReplyPrompt(contextText);
+
           const result = await this.aiAgent.reply(
-            { chatId: msg.chatId, userMessage: msg.text },
+            {
+              chatId: msg.chatId,
+              userMessage: msg.text,
+              systemPrompt,
+            },
             {
               apiKey: aiConfig.apiKey,
               baseUrl: aiConfig.baseUrl,
@@ -175,7 +218,7 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
             },
           );
           replyText = result.reply;
-          this.logger.debug(`BotGateway: AI reply via ${aiConfig.source} key, tenant=${bot.tenantId}`);
+          this.logger.debug(`BotGateway: AI reply via ${aiConfig.source} key, tenant=${bot.tenantId}, hasKbContext=${!!contextText}`);
           break;
         }
 

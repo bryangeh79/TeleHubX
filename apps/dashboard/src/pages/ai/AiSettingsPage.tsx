@@ -8,7 +8,7 @@ import {
   CheckCircleOutlined, CloseCircleOutlined, KeyOutlined,
   PlusOutlined, ReloadOutlined, SaveOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
-import { aiApi, tenantsApi } from '../../services/api';
+import { aiApi, tenantsApi, platformConfigApi } from '../../services/api';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -175,35 +175,70 @@ function TenantAiModal({
 
 // ── 平台 Provider 新增/编辑 Modal（Admin Only）────────────────────────────
 function PlatformProviderModal({
-  open, onClose, onSuccess,
+  open, editRecord, onClose, onSuccess,
 }: {
   open: boolean;
+  editRecord?: any;
   onClose: () => void;
   onSuccess: () => void;
 }) {
   const [form] = Form.useForm();
+  const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const isEdit = !!editRecord;
 
   useEffect(() => {
-    if (!open) { form.resetFields(); setTestResult(null); }
-  }, [open, form]);
+    if (!open) { form.resetFields(); setTestResult(null); return; }
+    if (editRecord) {
+      form.setFieldsValue({
+        provider: editRecord.provider,
+        name: editRecord.name,
+        model: editRecord.model,
+        baseUrl: editRecord.baseUrl,
+        isDefault: editRecord.isDefault,
+        apiKey: '',
+      });
+    }
+  }, [open, editRecord, form]);
 
-  const handleTest = async () => {
+  const handleSave = async () => {
     let values: any;
     try { values = await form.validateFields(); } catch { return; }
+    setSaving(true);
+    try {
+      const payload: any = {
+        provider: values.provider,
+        name: values.name || values.provider,
+        model: values.model || undefined,
+        baseUrl: values.baseUrl || undefined,
+        isDefault: values.isDefault ?? false,
+      };
+      if (values.apiKey?.trim()) payload.apiKey = values.apiKey.trim();
+      if (isEdit) {
+        await platformConfigApi.updateAiProvider(editRecord.id, payload);
+      } else {
+        if (!payload.apiKey) { antdMessage.error('首次添加必须填写 API Key'); return; }
+        await platformConfigApi.createAiProvider(payload);
+      }
+      antdMessage.success(isEdit ? '已更新' : '已添加');
+      onSuccess();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    if (!editRecord?.id) { antdMessage.warning('请先保存后再测试'); return; }
     setTesting(true);
     setTestResult(null);
     try {
-      await aiApi.reply({
-        chatId: `_platform_test_${Date.now()}`,
-        userMessage: '测试连接',
-        provider: values.provider === 'custom' ? 'openai' : values.provider,
-        model: values.model || undefined,
-      });
-      setTestResult({ ok: true, msg: '连接成功 ✓' });
+      const res = await platformConfigApi.testAiProvider(editRecord.id);
+      setTestResult({ ok: res.data.ok, msg: res.data.message });
     } catch (err: any) {
-      setTestResult({ ok: false, msg: err?.response?.data?.message ?? '连接失败' });
+      setTestResult({ ok: false, msg: err?.response?.data?.message ?? '测试失败' });
     } finally {
       setTesting(false);
     }
@@ -212,35 +247,63 @@ function PlatformProviderModal({
   return (
     <Modal
       open={open}
-      title="新增 AI Provider"
+      title={isEdit ? '编辑平台 AI Provider' : '新增平台 AI Provider'}
       onCancel={onClose}
-      width={540}
+      width={560}
       footer={
         <Space style={{ justifyContent: 'flex-end', width: '100%' }}>
+          {isEdit && <Button loading={testing} onClick={handleTest}>测试连接</Button>}
           <Button onClick={onClose}>取消</Button>
-          <Button loading={testing} onClick={handleTest}>测试连接</Button>
-          <Button type="primary" onClick={() => { antdMessage.info('平台 Provider 通过 .env 配置，重启后生效'); onSuccess(); }}>
-            确认
-          </Button>
+          <Button type="primary" loading={saving} onClick={handleSave} icon={<SaveOutlined />}>保存</Button>
         </Space>
       }
     >
       <Alert
-        type="warning"
+        type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="平台 Provider 的 API Key 在服务器 .env 文件中配置，修改后需重启服务生效。此处仅用于查看和测试。"
+        message="平台兜底 Key — 用于广告变体生成、开场白评分等内部 AI 任务，费用由平台承担。"
       />
       <Form form={form} layout="vertical">
-        <Form.Item name="provider" label="提供商" rules={[{ required: true }]}>
-          <Select options={[
-            { value: 'openai',   label: 'OpenAI' },
-            { value: 'deepseek', label: 'DeepSeek' },
-            { value: 'gemini',   label: 'Google Gemini' },
-          ]} />
+        <Row gutter={12}>
+          <Col span={12}>
+            <Form.Item name="provider" label="提供商" rules={[{ required: true }]}>
+              <Select options={[
+                { value: 'openai',   label: 'OpenAI' },
+                { value: 'deepseek', label: 'DeepSeek' },
+                { value: 'gemini',   label: 'Google Gemini' },
+                { value: 'custom',   label: '自定义 (OpenAI 兼容)' },
+              ]} />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="name" label="名称 (备注)">
+              <Input placeholder="例: DeepSeek 主力 Key" />
+            </Form.Item>
+          </Col>
+        </Row>
+        <Form.Item
+          name="apiKey"
+          label="API Key"
+          extra={isEdit ? '留空则保留现有 Key（不会显示明文）' : '必填'}
+          rules={isEdit ? [] : [{ required: true, message: '必填' }]}
+        >
+          <Input.Password placeholder={isEdit ? '••••••••（保留现有）' : 'sk-...'} autoComplete="off" />
         </Form.Item>
-        <Form.Item name="model" label="模型 (可选)">
-          <Input placeholder="使用 .env AI_MODEL 默认值" />
+        <Row gutter={12}>
+          <Col span={12}>
+            <Form.Item name="model" label="模型 (可选)">
+              <Input placeholder="deepseek-chat / gpt-4o-mini" />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="baseUrl" label="Base URL (自定义时填)">
+              <Input placeholder="https://api.deepseek.com/v1" />
+            </Form.Item>
+          </Col>
+        </Row>
+        <Form.Item name="isDefault" valuePropName="checked">
+          <Switch /> <Text style={{ marginLeft: 8 }}>设为默认平台 Key（其他 Key 自动取消默认）</Text>
         </Form.Item>
       </Form>
       {testResult && (
@@ -248,7 +311,7 @@ function PlatformProviderModal({
           type={testResult.ok ? 'success' : 'error'}
           showIcon
           message={testResult.msg}
-          style={{ marginTop: 12 }}
+          style={{ marginTop: 8 }}
         />
       )}
     </Modal>
@@ -328,16 +391,18 @@ function MarketingPromptModal({
 
 export default function AiSettingsPage() {
   const user = getCurrentUser();
-  const isSuperAdmin = user.role === 'SUPER_ADMIN';
+  const isSuperAdmin = user.role?.toLowerCase() === 'super_admin';
 
   const [info, setInfo] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [tenantAi, setTenantAi] = useState<any>(null);
   const [tenantId, setTenantId] = useState<string>('');
+  const [dbProviders, setDbProviders] = useState<any[]>([]);
 
   // Modals
   const [tenantModalOpen, setTenantModalOpen] = useState(false);
   const [platformModalOpen, setPlatformModalOpen] = useState(false);
+  const [editingProvider, setEditingProvider] = useState<any>(null);
   const [marketingModalOpen, setMarketingModalOpen] = useState(false);
 
   // AI master toggle (local)
@@ -348,25 +413,30 @@ export default function AiSettingsPage() {
   const loadInfo = useCallback(async () => {
     setLoading(true);
     try {
-      // 先拿真实 tenant UUID，再并行加载 AI info + settings
       const defaultTenant = await tenantsApi.getDefault();
       const realTenantId: string = defaultTenant.data?.id ?? '';
       if (realTenantId) setTenantId(realTenantId);
 
-      const [infoRes, settingsRes] = await Promise.all([
+      const promises: Promise<any>[] = [
         aiApi.info(),
         realTenantId
           ? tenantsApi.getSettings(realTenantId).catch(() => ({ data: null }))
           : Promise.resolve({ data: null }),
-      ]);
+      ];
+      if (isSuperAdmin) {
+        promises.push(platformConfigApi.listAiProviders().catch(() => ({ data: [] })));
+      }
+
+      const [infoRes, settingsRes, dbRes] = await Promise.all(promises);
       setInfo(infoRes.data ?? null);
       setTenantAi(settingsRes.data);
+      if (dbRes) setDbProviders(Array.isArray(dbRes.data) ? dbRes.data : []);
     } catch (err: any) {
       antdMessage.error(err?.response?.data?.message ?? '加载失败');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isSuperAdmin]);
 
   useEffect(() => { void loadInfo(); }, [loadInfo]);
 
@@ -383,67 +453,85 @@ export default function AiSettingsPage() {
     openai: 'blue', deepseek: 'purple', gemini: 'orange',
   };
 
+  const handleDeleteProvider = async (id: string) => {
+    try {
+      await platformConfigApi.deleteAiProvider(id);
+      antdMessage.success('已删除');
+      void loadInfo();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '删除失败');
+    }
+  };
+
   const platformColumns = [
     {
       title: '类型',
-      dataIndex: 'id',
-      width: 100,
-      render: (id: string) => (
-        <Tag color={PROVIDER_COLORS[id] ?? 'default'}>{PROVIDER_LABELS[id] ?? id}</Tag>
+      dataIndex: 'provider',
+      width: 110,
+      render: (p: string) => (
+        <Tag color={PROVIDER_COLORS[p] ?? 'default'}>{PROVIDER_LABELS[p] ?? p}</Tag>
       ),
     },
     {
-      title: '名称',
-      dataIndex: 'label',
-      render: (label: string, row: any) => (
+      title: '名称 / 模型',
+      render: (_: any, row: any) => (
         <Space>
-          <Text>{label} · {row.defaultModel}</Text>
-          {row.id === info?.defaultProvider && (
-            <Tag color="blue" style={{ fontSize: 10 }}>默认</Tag>
-          )}
+          <Text>{row.name ?? row.provider}</Text>
+          {row.model && <Tag style={{ fontSize: 11 }}>{row.model}</Tag>}
+          {row.isDefault && <Tag color="blue" style={{ fontSize: 10 }}>默认</Tag>}
         </Space>
       ),
     },
     {
-      title: '模型',
-      dataIndex: 'defaultModel',
-      render: (v: string) => <Tag>{v}</Tag>,
+      title: 'Base URL',
+      dataIndex: 'baseUrl',
+      render: (v: string) => v
+        ? <Text code style={{ fontSize: 11 }}>{v}</Text>
+        : <Text type="secondary" style={{ fontSize: 11 }}>默认</Text>,
     },
     {
       title: 'API Key',
-      dataIndex: 'keyEnv',
-      render: (env: string) => (
-        <Text code style={{ fontSize: 11 }}>{env}</Text>
-      ),
+      width: 90,
+      render: () => <Text type="secondary" style={{ fontSize: 11 }}>••••••••</Text>,
     },
     {
       title: '最近测试',
-      dataIndex: 'configured',
-      width: 100,
-      render: (configured: boolean) => configured
-        ? <Tag color="success" icon={<CheckCircleOutlined />}>✓ OK</Tag>
-        : <Tag color="error" icon={<CloseCircleOutlined />}>未配置</Tag>,
+      width: 110,
+      render: (_: any, row: any) => {
+        if (!row.lastTestedAt) return <Text type="secondary" style={{ fontSize: 11 }}>未测试</Text>;
+        return row.lastTestStatus === 'ok'
+          ? <Tag color="success" icon={<CheckCircleOutlined />}>✓ OK</Tag>
+          : <Tag color="error" icon={<CloseCircleOutlined />}>失败</Tag>;
+      },
     },
     {
-      title: '状态',
-      dataIndex: 'configured',
-      width: 80,
-      render: (v: boolean) => (
+      title: '启用',
+      dataIndex: 'isActive',
+      width: 70,
+      render: (v: boolean, row: any) => (
         <Switch
           size="small"
           checked={v}
-          disabled
           style={{ background: v ? '#52c41a' : undefined }}
+          onChange={async checked => {
+            await platformConfigApi.updateAiProvider(row.id, { isActive: checked });
+            void loadInfo();
+          }}
         />
       ),
     },
-    ...(isSuperAdmin ? [{
+    {
       title: '操作',
-      width: 80,
+      width: 130,
       render: (_: any, row: any) => (
-        <Button size="small" onClick={() => setPlatformModalOpen(true)}>测试</Button>
+        <Space size={4}>
+          <Button size="small" onClick={() => { setEditingProvider(row); setPlatformModalOpen(true); }}>编辑</Button>
+          <Popconfirm title="确认删除？" onConfirm={() => handleDeleteProvider(row.id)} okText="删除" cancelText="取消" okButtonProps={{ danger: true }}>
+            <Button size="small" danger>删</Button>
+          </Popconfirm>
+        </Space>
       ),
-    }] : []),
+    },
   ];
 
   const marketingPromptSaved = !!localStorage.getItem('telehubx:marketingPrompt');
@@ -494,13 +582,18 @@ export default function AiSettingsPage() {
           title={
             <Space>
               <KeyOutlined />
-              <span>平台 AI Providers ({info?.providers?.filter((p: any) => p.configured).length ?? 0})</span>
+              <span>平台 AI Providers ({dbProviders.length})</span>
             </Space>
           }
           extra={
             <Space>
               <Button icon={<ReloadOutlined />} size="small" onClick={() => void loadInfo()} loading={loading}>刷新</Button>
-              <Button type="primary" icon={<PlusOutlined />} size="small" onClick={() => setPlatformModalOpen(true)}>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                size="small"
+                onClick={() => { setEditingProvider(null); setPlatformModalOpen(true); }}
+              >
                 新增
               </Button>
             </Space>
@@ -510,16 +603,30 @@ export default function AiSettingsPage() {
             type="info"
             showIcon
             style={{ marginBottom: 12 }}
-            message="平台兜底 Key — 广告变体生成 / 开场白评分 / FAQ 生成等内部任务使用，费用由平台承担。通过服务器 .env 文件配置。"
+            message="平台兜底 Key — 广告变体生成 / 开场白评分 / FAQ 生成等内部任务用，费用由平台承担。配置后无需重启服务，立即生效。"
           />
-          <Table
-            dataSource={info?.providers ?? []}
-            columns={platformColumns}
-            rowKey="id"
-            size="small"
-            pagination={false}
-            loading={loading}
-          />
+          {dbProviders.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '24px 0', color: '#999' }}>
+              <div style={{ fontSize: 24, marginBottom: 8 }}>🔑</div>
+              <div>还没有配置平台 API Key</div>
+              <Button
+                type="primary"
+                style={{ marginTop: 12 }}
+                onClick={() => { setEditingProvider(null); setPlatformModalOpen(true); }}
+              >
+                立即添加
+              </Button>
+            </div>
+          ) : (
+            <Table
+              dataSource={dbProviders}
+              columns={platformColumns}
+              rowKey="id"
+              size="small"
+              pagination={false}
+              loading={loading}
+            />
+          )}
         </Card>
       )}
 
@@ -615,8 +722,9 @@ export default function AiSettingsPage() {
       />
       <PlatformProviderModal
         open={platformModalOpen}
-        onClose={() => setPlatformModalOpen(false)}
-        onSuccess={() => { setPlatformModalOpen(false); void loadInfo(); }}
+        editRecord={editingProvider}
+        onClose={() => { setPlatformModalOpen(false); setEditingProvider(null); }}
+        onSuccess={() => { setPlatformModalOpen(false); setEditingProvider(null); void loadInfo(); }}
       />
       <MarketingPromptModal
         open={marketingModalOpen}

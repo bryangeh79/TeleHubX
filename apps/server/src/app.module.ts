@@ -26,6 +26,7 @@ import { LeadCandidatesModule } from './leads-candidates/leads-candidates.module
 import { CustomerGroupsModule } from './customer-groups/customer-groups.module';
 import { AdTemplatesModule } from './ad-templates/ad-templates.module';
 import { GreetingTemplatesModule } from './greeting-templates/greeting-templates.module';
+import { PlatformConfigModule } from './platform-config/platform-config.module';
 
 @Module({
   imports: [
@@ -73,6 +74,7 @@ import { GreetingTemplatesModule } from './greeting-templates/greeting-templates
     CustomerGroupsModule,
     AdTemplatesModule,
     GreetingTemplatesModule,
+    PlatformConfigModule,
   ],
   controllers: [HealthController],
 })

@@ -376,6 +376,14 @@ export const leadCandidatesApi = {
   remove: (id: string) => api.delete(`/lead-candidates/${id}`),
 };
 
+export const platformConfigApi = {
+  listAiProviders: () => api.get('/platform-config/ai'),
+  createAiProvider: (data: any) => api.post('/platform-config/ai', data),
+  updateAiProvider: (id: string, data: any) => api.patch(`/platform-config/ai/${id}`, data),
+  deleteAiProvider: (id: string) => api.delete(`/platform-config/ai/${id}`),
+  testAiProvider: (id: string) => api.post(`/platform-config/ai/${id}/test`),
+};
+
 export const statsApi = {
   get: () => api.get('/accounts/health-stats').catch(() => ({
     data: FALLBACK_OVERVIEW,
