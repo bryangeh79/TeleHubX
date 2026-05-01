@@ -181,7 +181,7 @@ export default function SchedulerPage() {
 
   // 剧本列表（仅在创建 chat_script 类任务时加载）
   const [scriptOptions, setScriptOptions] = useState<Array<{ value: string; label: string; type: string; category: string | null }>>([]);
-  const [scriptPacks, setScriptPacks] = useState<Array<{ packId: string; count: number }>>([]);
+  const [scriptPacks, setScriptPacks] = useState<Array<{ packId: string; count: number; types: string[] }>>([]);
 
   const loadAccounts = useCallback(async () => {
     try {
@@ -646,7 +646,7 @@ export default function SchedulerPage() {
         onOk={() => form.submit()}
         confirmLoading={submitting}
         destroyOnClose
-        width={560}
+        width={760}
       >
         <Form form={form} layout="vertical" onFinish={handleCreate} initialValues={{ scheduledAt: dayjs().add(5, 'minute') }}>
           <Form.Item name="name" label="任务名称" rules={[{ required: true }]}>
@@ -741,7 +741,9 @@ export default function SchedulerPage() {
                   }>
                     <Form.Item name="packId" label="按剧本包随机抽" extra="留空 = 从所有同类型剧本随机抽">
                       <Select allowClear placeholder="不限剧本包"
-                        options={scriptPacks.map((p) => ({ value: p.packId, label: `${p.packId} (${p.count} 个)` }))}
+                        options={scriptPacks
+                          .filter((p) => p.types.includes(isAB ? 'A+B' : 'A+B+C+D'))
+                          .map((p) => ({ value: p.packId, label: `${p.packId} (${p.count} 个)` }))}
                       />
                     </Form.Item>
                     <Form.Item name="scriptId" label="或：指定具体剧本（可选）" extra="选定后将固定跑这一个剧本，content_pool 仍会随机抽变体">
@@ -777,13 +779,6 @@ export default function SchedulerPage() {
               <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: '100%' }} />
             </Form.Item>
           )}
-          <Alert
-            type="success"
-            showIcon
-            message="任务 worker 已上线 — agent 每 15 秒拉一次任务自动执行"
-            description="计划时间到达后, agent 会按 BehaviorSimulator (Gaussian 间隔 / typing 指示器) 模拟真人执行"
-            style={{ marginTop: 8 }}
-          />
         </Form>
       </Modal>
     </div>
