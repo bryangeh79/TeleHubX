@@ -1490,13 +1490,6 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
   if (t === 'keyword_lead_hunt') {
     return (
       <>
-        <Form.Item label="任务说明" style={{ marginBottom: 8 }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            🎯 目标: 通过加目标群 + 爬成员，<b>累计收集到指定数量的候选人</b>。
-            收集到的候选人写入「候选人池」(/lead-candidates)，含来源群名 / TG id / username / 手机号(若可见) / 最近在线时间 / Premium 标记。
-            <b>触达不在此任务范围</b> — 用 CAMPAIGN_SINGLE / CONTACT_ADD 单独跑。
-          </Text>
-        </Form.Item>
         <Form.Item name="huntKeywords" label="关键词 (一行一个)" rules={[{ required: true }]}
           extra="例: 外汇 / 加密货币 / 区块链 — 系统按这些词搜公开群作为补充">
           <Input.TextArea rows={2} placeholder="外汇" />
@@ -1511,75 +1504,6 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
         <Form.Item name="huntDurationDays" label="执行天数" rules={[{ required: true }]} initialValue={10}
           extra="3-90 天. 系统按 (目标人数 / 天数) 自动算每天加群速度">
           <InputNumber min={3} max={90} style={{ width: 160 }} />
-        </Form.Item>
-        <Form.Item shouldUpdate noStyle>
-          {({ getFieldValue }) => {
-            const target = getFieldValue('huntTargetCandidates') || 300;
-            const days = getFieldValue('huntDurationDays') || 10;
-            const seedGroupsText = getFieldValue('huntSeedGroups') ?? '';
-            const seedGroups = linesToArr(seedGroupsText);
-            const AVG = 30;
-            const SAFE_MAX = 2;
-            const seedYield = seedGroups.length * AVG;
-            const enoughFromSeed = seedYield >= target;
-            const remaining = Math.max(0, target - seedYield);
-            const needGroups = Math.ceil(remaining / AVG);
-            const seedDays = seedGroups.length > 0 ? 2 : 0;  // D1 加 + D2 爬
-            const remainingDays = Math.max(1, days - seedDays);
-            const joinDays = Math.max(1, remainingDays - 1);
-            let groupsPerDay = needGroups > 0 ? Math.max(1, Math.ceil(needGroups / joinDays)) : 0;
-            const capped = groupsPerDay > SAFE_MAX;
-            if (capped) groupsPerDay = SAFE_MAX;
-            const realKwCollect = groupsPerDay * joinDays * AVG;
-            const totalEstimate = seedYield + realKwCollect;
-            const shortage = totalEstimate < target;
-
-            return (
-              <Alert
-                type={capped || shortage ? 'warning' : 'info'}
-                showIcon
-                style={{ marginBottom: 12 }}
-                message="⚙️ 自动节奏预览"
-                description={
-                  <div style={{ fontSize: 12 }}>
-                    {seedGroups.length > 0 ? (
-                      <>
-                        <div><b>阶段 A · 指定群优先</b> ({seedGroups.length} 个群, 估 ~{seedYield} 候选)</div>
-                        <div>• D1 加入指定群 → D2 爬指定群</div>
-                        {enoughFromSeed ? (
-                          <div style={{ color: '#52c41a' }}>• 估算 ~{seedYield} 人 已 ≥ 目标 {target}, D3-D{days} 反复复爬指定群补充新成员</div>
-                        ) : (
-                          <>
-                            <div style={{ marginTop: 6 }}><b>阶段 B · 关键词补足</b> (估算还差 {remaining} 人)</div>
-                            <div>• D{seedDays + 1} - D{seedDays + joinDays} 每天关键词加 {groupsPerDay} 群 (估 +{realKwCollect} 人)</div>
-                            <div>• D{seedDays + 2} - D{days} 每天爬一次新加的群</div>
-                          </>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <div>• 全程靠关键词搜公开群</div>
-                        <div>• 估算需加 <b>{needGroups} 群</b> (每群约 {AVG} 候选)</div>
-                        <div>• D1 - D{joinDays} 每天加 {groupsPerDay} 群</div>
-                        <div>• D2 - D{days} 每天爬一次最近加的群</div>
-                      </>
-                    )}
-                    <div style={{ marginTop: 4 }}>• 累计达 {target} 人 → 提前完成; 天数到期 → 自然结束</div>
-                    {capped && (
-                      <div style={{ color: '#fa8c16', marginTop: 4 }}>
-                        ⚠️ TG 安全线 ≤ {SAFE_MAX} 群/天, 已限速. {days} 天最多 ~{totalEstimate} 人. 建议延长天数或多填指定群.
-                      </div>
-                    )}
-                    {shortage && !capped && (
-                      <div style={{ color: '#fa8c16', marginTop: 4 }}>
-                        ⚠️ 估算最终 ~{totalEstimate} 人, 仍不足 {target}. 多填几个指定群 或 延长天数.
-                      </div>
-                    )}
-                  </div>
-                }
-              />
-            );
-          }}
         </Form.Item>
       </>
     );
