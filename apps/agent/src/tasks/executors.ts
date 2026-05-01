@@ -546,6 +546,111 @@ export async function campaignSingle(ctx: ExecutorCtx): Promise<void> {
   }
 }
 
+// ─── 13. JOIN_GROUPS_BY_KEYWORD ─────────────────────────────────────
+/**
+ * 关键词搜群 + 加群.
+ *
+ * payload: {
+ *   keywords: string[],     // 至少 1 个
+ *   minMembers?: 100,       // 群成员下限
+ *   maxPerDay?: 2,          // 今天最多加几个
+ *   skipUsernames?: string[]  // 已加过的群 (不重复)
+ * }
+ *
+ * 流程:
+ * 1. 对每个 keyword 调 contacts.Search(q, limit=30) 拿到 chats[]
+ * 2. 过滤 megagroup OR basic chat, 成员 >= minMembers
+ * 3. 排序: 按成员数降序 (热门群优先)
+ * 4. 加 maxPerDay 个, 间隔 5-15 分钟
+ * 5. USER_ALREADY_PARTICIPANT 视为成功跳过
+ */
+export async function joinGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
+  const keywords: string[] = (ctx.payload.keywords ?? []) as string[];
+  const minMembers: number = (ctx.payload.minMembers as number) ?? 100;
+  const maxPerDay: number = (ctx.payload.maxPerDay as number) ?? 2;
+  const skipUsernames = new Set(((ctx.payload.skipUsernames ?? []) as string[]).map((s) => s.toLowerCase()));
+
+  if (!keywords.length) throw new Error('payload.keywords 不能为空');
+
+  const candidates: Array<{ entity: any; members: number; title: string; username?: string }> = [];
+
+  for (const kw of keywords) {
+    try {
+      const res: any = await ctx.client.invoke(
+        new Api.contacts.Search({ q: kw.trim(), limit: 30 }),
+      );
+      const chats = res.chats ?? [];
+      for (const c of chats) {
+        // 过滤: 必须是 megagroup (channel.megagroup=true) 或 basic chat
+        const isMega = c.megagroup === true;
+        const isBasic = c.className === 'Chat';
+        if (!isMega && !isBasic) continue;
+        // 排除 frozen/deactivated
+        if (c.deactivated || c.kicked || c.left === false && (c as any).joinDate) {
+          // 如果已经在群里, 跳过
+          // 简化: 不严格判断 left 状态, 让 JoinChannel 自己处理 ALREADY_PARTICIPANT
+        }
+        const members = (c.participantsCount as number) ?? 0;
+        if (members < minMembers) continue;
+        const username = (c.username as string | undefined)?.toLowerCase();
+        if (username && skipUsernames.has(username)) continue;
+        candidates.push({
+          entity: c,
+          members,
+          title: c.title ?? '',
+          username,
+        });
+      }
+      // 关键词之间小间隔 (避 search API 风控)
+      await sleep(gaussianDelayMs(3_000, 8_000));
+    } catch (err) {
+      const msg = (err as Error).message ?? '';
+      // SEARCH_QUERY_EMPTY 或其他, 跳过这个关键词
+      if (!msg.includes('FLOOD')) continue;
+      throw err;  // FloodWait 让上层处理
+    }
+  }
+
+  if (!candidates.length) {
+    throw new Error(`关键词 [${keywords.join(', ')}] 没搜到 ≥ ${minMembers} 成员的群`);
+  }
+
+  // 按成员数降序, 取前 maxPerDay
+  candidates.sort((a, b) => b.members - a.members);
+  const toJoin = candidates.slice(0, maxPerDay);
+
+  let joined = 0;
+  for (let i = 0; i < toJoin.length; i++) {
+    const cand = toJoin[i];
+    try {
+      await ctx.client.invoke(new Api.channels.JoinChannel({ channel: cand.entity as any }));
+      joined++;
+    } catch (err) {
+      const msg = (err as Error).message ?? '';
+      if (msg.includes('ALREADY_PARTICIPANT')) {
+        joined++;
+      } else if (msg.includes('CHANNELS_TOO_MUCH')) {
+        // TG 账号加群上限 (~500), 后续无法再加
+        break;
+      } else if (msg.includes('FLOOD') || msg.includes('A wait of')) {
+        throw err;  // 让 FloodWait 隔离生效
+      } else {
+        // 其他错误 (INVITE_HASH_INVALID / CHANNEL_PRIVATE 等), 跳过这个群继续
+        continue;
+      }
+    }
+    await ctx.reportProgress?.(Math.round(((i + 1) / toJoin.length) * 100));
+    if (i < toJoin.length - 1) {
+      // 加群之间间隔 5-15 分钟 (TG 风控线)
+      await sleep(gaussianDelayMs(5 * 60_000, 15 * 60_000));
+    }
+  }
+
+  if (joined === 0) {
+    throw new Error(`找到 ${candidates.length} 个候选群但全部加群失败`);
+  }
+}
+
 // ─── 13/14/15. MEDIA_PHOTO / MEDIA_VIDEO / MEDIA_VOICE ──────────────
 /**
  * 媒体发送通用执行器。从素材池随机抽 → 拉文件 → sendFile。
@@ -805,4 +910,5 @@ export const EXECUTORS: Record<string, (ctx: ExecutorCtx) => Promise<void>> = {
   media_voice:     mediaVoice,
   chat_script_ab:  chatScriptAb,
   chat_script_4p:  chatScript4p,
+  join_groups_by_keyword: joinGroupsByKeyword,
 };
