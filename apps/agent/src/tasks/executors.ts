@@ -342,8 +342,24 @@ export async function postChannel(ctx: ExecutorCtx): Promise<void> {
  * 需 ctx.tenantId + ctx.accountId 才能落库。
  */
 export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
-  const chatIds: string[] = (ctx.payload.tgChatIds ?? []) as string[];
+  let chatIds: string[] = (ctx.payload.tgChatIds ?? []) as string[];
   const maxPer = (ctx.payload.maxScrapePerGroup as number) ?? 50;
+
+  if (chatIds.length === 0 && ctx.payload.dynamicSource === 'recent_joins') {
+    const dialogs = await ctx.client.getDialogs({ limit: 100 });
+    const recent: string[] = [];
+    const cutoffSec = Date.now() / 1000 - 14 * 86400;
+    for (const d of dialogs) {
+      const ent: any = (d as any).entity;
+      if (!ent?.megagroup) continue;
+      const lastDate = (d as any).message?.date ?? 0;
+      if (lastDate >= cutoffSec) recent.push(String(ent.id));
+      if (recent.length >= 5) break;
+    }
+    if (recent.length) chatIds = recent;
+    else throw new Error('动态查最近加的群: 找不到, 可能账号还没加过群');
+  }
+
   if (!chatIds.length) throw new Error('payload.tgChatIds 为空');
   if (!ctx.tenantId) throw new Error('ctx.tenantId 缺失（爬完无法落库）');
 
