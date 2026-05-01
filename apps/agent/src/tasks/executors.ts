@@ -905,6 +905,176 @@ async function tryImportContact(client: TelegramClient, phone: string): Promise<
 export async function chatScriptAb(ctx: ExecutorCtx): Promise<void> { return chatScriptImpl(ctx, 'A+B'); }
 export async function chatScript4p(ctx: ExecutorCtx): Promise<void> { return chatScriptImpl(ctx, 'A+B+C+D'); }
 
+// ─── 21. GROUP_CREATE ────────────────────────────────────────────────
+/**
+ * 创建自建测试群 / 大群。
+ *
+ * payload: {
+ *   title: string,
+ *   type: 'small' | 'mega',
+ *   initialMemberAccountIds?: string[]  // 本租户其他号 UUID
+ * }
+ *
+ * 流程：用 ctx.accountId 当创建者，取本 agent 内其它 client.getMe() 拿 phone，
+ * 用 ImportContacts 解析成 InputUser，再 CreateChat / CreateChannel + InviteToChannel。
+ */
+export async function groupCreate(ctx: ExecutorCtx): Promise<void> {
+  const title: string = (ctx.payload.title ?? '').trim();
+  const groupType: 'small' | 'mega' = (ctx.payload.type ?? 'small') as any;
+  const memberAccIds: string[] = (ctx.payload.initialMemberAccountIds ?? []) as string[];
+  if (!title) throw new Error('payload.title 为空');
+  if (title.length > 64) throw new Error('群名称超过 64 字');
+
+  // 解析初始成员 → InputUser (用各自 client 拿 phone, 再让 creator import)
+  const inputUsers: any[] = [];
+  if (memberAccIds.length && ctx.clients) {
+    for (const accId of memberAccIds) {
+      if (accId === ctx.accountId) continue; // 创建者自己跳过
+      const memberClient = ctx.clients.get(accId);
+      if (!memberClient) continue; // 不在本 agent 上，跳过
+      try {
+        const me: any = await memberClient.getMe();
+        if (!me?.phone) continue;
+        const phone = me.phone.startsWith('+') ? me.phone : `+${me.phone}`;
+        const res: any = await ctx.client.invoke(
+          new Api.contacts.ImportContacts({
+            contacts: [
+              new Api.InputPhoneContact({
+                clientId: BigInt(Date.now() + inputUsers.length) as any,
+                phone,
+                firstName: me.firstName ?? phone,
+                lastName: me.lastName ?? '',
+              }),
+            ],
+          }),
+        );
+        const u: any = res.users?.[0];
+        if (u) inputUsers.push(new Api.InputUser({ userId: u.id, accessHash: u.accessHash }));
+        await sleep(gaussianDelayMs(800, 1_800));
+      } catch {
+        // 单个成员失败不阻塞整体
+      }
+    }
+  }
+
+  if (groupType === 'small') {
+    if (!inputUsers.length) {
+      throw new Error('普通群需要至少 1 个初始成员（本池号）');
+    }
+    await ctx.client.invoke(
+      new Api.messages.CreateChat({ users: inputUsers, title }),
+    );
+  } else {
+    const created: any = await ctx.client.invoke(
+      new Api.channels.CreateChannel({ title, about: '', megagroup: true }),
+    );
+    // 从 updates 提取新建频道
+    const channel: any = created?.chats?.[0];
+    if (!channel) throw new Error('CreateChannel 返回未带 chats');
+    if (inputUsers.length) {
+      await sleep(gaussianDelayMs(2_000, 4_000));
+      await ctx.client.invoke(
+        new Api.channels.InviteToChannel({
+          channel: new Api.InputChannel({ channelId: channel.id, accessHash: channel.accessHash }),
+          users: inputUsers,
+        }),
+      );
+    }
+  }
+
+  await ctx.reportProgress?.(100);
+}
+
+// ─── 22. GROUP_INVITE_MEMBERS ────────────────────────────────────────
+/**
+ * 把本池其它账号邀请进已有群。
+ *
+ * payload: {
+ *   tgChatId: string,                // 群 id / @username / 邀请链接
+ *   targetAccountIds: string[],      // 本池 account UUID
+ * }
+ *
+ * 一次最多邀请 6 人, Gaussian 间隔。
+ */
+export async function groupInviteMembers(ctx: ExecutorCtx): Promise<void> {
+  const tgChatId: string = (ctx.payload.tgChatId ?? '').trim();
+  const targetAccIds: string[] = (ctx.payload.targetAccountIds ?? []) as string[];
+  if (!tgChatId) throw new Error('payload.tgChatId 为空');
+  if (!targetAccIds.length) throw new Error('payload.targetAccountIds 为空');
+  if (!ctx.clients) throw new Error('group_invite_members 需要 ctx.clients');
+
+  const limited = targetAccIds.slice(0, 6);
+  const groupEntity: any = await ctx.client.getEntity(tgChatId);
+  const isChannel = groupEntity?.megagroup === true || groupEntity?.broadcast === true;
+
+  let done = 0;
+  for (let i = 0; i < limited.length; i++) {
+    const accId = limited[i];
+    if (accId === ctx.accountId) { done++; continue; }
+    const memberClient = ctx.clients.get(accId);
+    if (!memberClient) continue;
+    try {
+      const me: any = await memberClient.getMe();
+      if (!me?.phone) continue;
+      const phone = me.phone.startsWith('+') ? me.phone : `+${me.phone}`;
+
+      // creator 端 import 出 InputUser
+      const res: any = await ctx.client.invoke(
+        new Api.contacts.ImportContacts({
+          contacts: [
+            new Api.InputPhoneContact({
+              clientId: BigInt(Date.now() + i) as any,
+              phone,
+              firstName: me.firstName ?? phone,
+              lastName: me.lastName ?? '',
+            }),
+          ],
+        }),
+      );
+      const u: any = res.users?.[0];
+      if (!u) continue;
+      const inputUser = new Api.InputUser({ userId: u.id, accessHash: u.accessHash });
+
+      if (isChannel) {
+        await ctx.client.invoke(
+          new Api.channels.InviteToChannel({
+            channel: new Api.InputChannel({ channelId: groupEntity.id, accessHash: groupEntity.accessHash }),
+            users: [inputUser],
+          }),
+        );
+      } else {
+        await ctx.client.invoke(
+          new Api.messages.AddChatUser({
+            chatId: groupEntity.id,
+            userId: inputUser,
+            fwdLimit: 50,
+          }),
+        );
+      }
+      done++;
+    } catch (err) {
+      const msg = (err as Error).message ?? '';
+      if (
+        msg.includes('USER_PRIVACY_RESTRICTED') ||
+        msg.includes('USER_NOT_MUTUAL_CONTACT') ||
+        msg.includes('PEER_ID_INVALID') ||
+        msg.includes('USER_ALREADY_PARTICIPANT')
+      ) {
+        // 静默跳过
+      } else {
+        throw err;
+      }
+    }
+
+    await ctx.reportProgress?.(Math.round(((i + 1) / limited.length) * 100));
+    if (i < limited.length - 1) {
+      await sleep(gaussianDelayMs(20_000, 60_000));
+    }
+  }
+
+  if (done === 0) throw new Error('一个成员都没邀请进去（可能全部隐私限制 / 已在群里）');
+}
+
 // ─── Dispatcher ─────────────────────────────────────────────────────
 export const EXECUTORS: Record<string, (ctx: ExecutorCtx) => Promise<void>> = {
   idle_keepalive:  idleKeepalive,
@@ -925,4 +1095,6 @@ export const EXECUTORS: Record<string, (ctx: ExecutorCtx) => Promise<void>> = {
   chat_script_ab:  chatScriptAb,
   chat_script_4p:  chatScript4p,
   join_groups_by_keyword: joinGroupsByKeyword,
+  group_create:    groupCreate,
+  group_invite_members: groupInviteMembers,
 };
