@@ -1,17 +1,21 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import OpenAI from 'openai';
 import { AdTemplate } from './ad-template.entity';
 import { CreateAdTemplateDto } from './dto/create-ad-template.dto';
 import { UpdateAdTemplateDto } from './dto/update-ad-template.dto';
-import { AiAgentService } from '../ai-agent/ai-agent.service';
+import { PlatformConfigService } from '../platform-config/platform-config.service';
+import { AI_PROVIDERS, isAiProviderId } from '../ai-agent/ai-providers';
 
 @Injectable()
 export class AdTemplatesService {
+  private readonly logger = new Logger(AdTemplatesService.name);
+
   constructor(
     @InjectRepository(AdTemplate)
     private readonly repo: Repository<AdTemplate>,
-    private readonly ai: AiAgentService,
+    private readonly platformConfig: PlatformConfigService,
   ) {}
 
   create(dto: CreateAdTemplateDto): Promise<AdTemplate> {
@@ -40,6 +44,35 @@ export class AdTemplatesService {
     await this.repo.remove(t);
   }
 
+  /** 直接用平台 DB 配置调 AI，不经过 AiAgentService 的复杂路由 */
+  private async callPlatformAi(system: string, user: string, maxTokens = 3000): Promise<string> {
+    const cfg = await this.platformConfig.getDefaultProvider();
+    if (!cfg?.apiKey) {
+      throw new ServiceUnavailableException(
+        '平台 AI Key 未配置。请前往 设置 → AI 配置 → 平台 AI Providers 添加一条记录并设为默认。',
+      );
+    }
+
+    const providerId = isAiProviderId(cfg.provider) ? cfg.provider : 'openai';
+    const providerDef = AI_PROVIDERS[providerId];
+    const baseUrl = cfg.baseUrl || providerDef.baseUrl;
+    const model = cfg.model || providerDef.defaultModel;
+
+    this.logger.log(`generateVariants using provider=${providerId} model=${model}`);
+
+    const client = new OpenAI({ apiKey: cfg.apiKey, baseURL: baseUrl });
+    const completion = await client.chat.completions.create({
+      model,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      max_tokens: maxTokens,
+      temperature: 0.9,
+    });
+    return completion.choices[0]?.message?.content ?? '';
+  }
+
   /**
    * 用平台 AI key 生成 10 条变体，写入 template.variants。
    * 变体要求：句式/表情/标点/格式 微差异，相似度 < 70%，语言与原文一致。
@@ -61,12 +94,10 @@ ${t.content}
 
 直接输出变体内容，不要其他文字：`;
 
-    const raw = await this.ai.complete({
-      system: '你是广告文案生成助手，只输出变体内容，用 |||SPLIT||| 分隔，不输出任何解释。',
-      user: prompt,
-      maxTokens: 3000,
-      temperature: 0.9,
-    });
+    const raw = await this.callPlatformAi(
+      '你是广告文案生成助手，只输出变体内容，用 |||SPLIT||| 分隔，不输出任何解释。',
+      prompt,
+    );
 
     const rawVariants = raw
       .split('|||SPLIT|||')
