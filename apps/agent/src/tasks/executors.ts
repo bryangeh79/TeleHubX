@@ -1,6 +1,13 @@
 import { Api, type TelegramClient } from 'telegram';
+import { CustomFile } from 'telegram/client/uploads';
 import { gaussianDelayMs, sendMessageLikeHuman, simulateReading, sleep } from './behavior-simulator';
-import { bulkUpsertCandidates, markCandidateContacted } from './server-callback';
+import {
+  bulkUpsertCandidates,
+  fetchAssetFile,
+  markCandidateContacted,
+  pickRandomAsset,
+  pickRandomChatScript,
+} from './server-callback';
 
 /**
  * 每个 executor 的合约：
@@ -508,6 +515,175 @@ export async function campaignSingle(ctx: ExecutorCtx): Promise<void> {
   }
 }
 
+// ─── 13/14/15. MEDIA_PHOTO / MEDIA_VIDEO / MEDIA_VOICE ──────────────
+/**
+ * 媒体发送通用执行器。从素材池随机抽 → 拉文件 → sendFile。
+ *
+ * payload: {
+ *   targetType: 'group' | 'channel' | 'user',
+ *   targetId: string,
+ *   poolName?: string,        // 优先按 pool 名抽（如 _builtin_voices_casual）
+ *   category?: 'photo'|'video'|'voice',  // 否则按分类抽（自动按 task.type 推断）
+ *   caption?: string,         // 可选文案
+ * }
+ */
+async function mediaSendImpl(
+  ctx: ExecutorCtx,
+  defaultCategory: 'photo' | 'video' | 'voice',
+): Promise<void> {
+  const { targetId, poolName, caption } = ctx.payload as {
+    targetId: string; poolName?: string; caption?: string;
+  };
+  const category = (ctx.payload.category as string) ?? defaultCategory;
+  if (!targetId) throw new Error('payload.targetId 必填');
+
+  const asset = await pickRandomAsset({
+    poolName,
+    category,
+    tenantId: ctx.tenantId,
+  });
+  if (!asset) throw new Error(`没有匹配的素材 (poolName=${poolName ?? '?'}, category=${category})`);
+  await ctx.reportProgress?.(20);
+
+  const buffer = await fetchAssetFile(asset.id);
+  if (!buffer) throw new Error(`无法拉取 asset.id=${asset.id} 的文件`);
+  await ctx.reportProgress?.(60);
+
+  const entity = await ctx.client.getEntity(targetId);
+  const file = new CustomFile(asset.fileName, buffer.length, '', buffer);
+
+  // voice 走单独路径（强制 voice attribute 让 TG 显示语音条而不是音频文件）
+  if (defaultCategory === 'voice') {
+    await ctx.client.sendFile(entity, {
+      file,
+      voiceNote: true,
+      caption,
+    });
+  } else {
+    await ctx.client.sendFile(entity, {
+      file,
+      caption,
+      forceDocument: false,
+    });
+  }
+  await ctx.reportProgress?.(100);
+}
+
+export async function mediaPhoto(ctx: ExecutorCtx): Promise<void> { return mediaSendImpl(ctx, 'photo'); }
+export async function mediaVideo(ctx: ExecutorCtx): Promise<void> { return mediaSendImpl(ctx, 'video'); }
+export async function mediaVoice(ctx: ExecutorCtx): Promise<void> { return mediaSendImpl(ctx, 'voice'); }
+
+// ─── 16/17. CHAT_SCRIPT_AB / CHAT_SCRIPT_4P ─────────────────────────
+/**
+ * 双角色 / 四角色剧本执行。从 packId 随机抽剧本 → 按 rawScript 跑 turns。
+ *
+ * 关键设计：每个 turn 的 content_pool 随机抽一个变体（不是固定的 lines[].text），
+ * 媒体 turn 通过 asset_pool 名查 builtin pool 拉素材。
+ *
+ * payload:
+ *   chat_script_ab:  { tgChatId, packId?, scriptId?, accountAId, accountBId }
+ *   chat_script_4p:  { tgChatId, packId?, scriptId?, accountIds: [4 个] }
+ *
+ * NOTE: 多账号分工目前由 server 在 task.payload 里指定不同账号 id，
+ *       agent 端单 task 只跑一个 role 的 turns（A 或 B）。
+ *       完整 N 账号协作需要 server 端 orchestrator 串行下发 N 个 sub-task。
+ *       本 executor 是单账号视角：只发 ctx.accountId 对应的 role turns。
+ */
+async function chatScriptImpl(
+  ctx: ExecutorCtx,
+  expectedType: 'A+B' | 'A+B+C+D',
+): Promise<void> {
+  const { tgChatId, packId, scriptId } = ctx.payload as {
+    tgChatId: string; packId?: string; scriptId?: string;
+  };
+  if (!tgChatId) throw new Error('payload.tgChatId 必填');
+
+  // 角色映射：哪个 accountId 对应哪个 role label
+  // 简化：任务 payload 里直接传 myRole（'A'/'B'/'C'/'D'）
+  const myRole = (ctx.payload.myRole as 'A'|'B'|'C'|'D') ?? 'A';
+
+  let script: any;
+  if (scriptId) {
+    // 显式指定 scriptId → 后续可加 GET /chat-scripts/:id 单独调（暂不实现）
+    throw new Error('scriptId 显式指定暂未实现，请用 packId 随机抽');
+  } else {
+    script = await pickRandomChatScript({ packId, type: expectedType });
+    if (!script) throw new Error(`没有匹配的剧本 (packId=${packId ?? '*'}, type=${expectedType})`);
+  }
+
+  const raw = script.rawScript;
+  if (!raw?.sessions?.length) {
+    throw new Error(`剧本 ${script.id} 没有 rawScript.sessions[]`);
+  }
+
+  const entity = await ctx.client.getEntity(tgChatId);
+  const allTurns: any[] = [];
+  for (const sess of raw.sessions) {
+    for (const t of sess.turns ?? []) allTurns.push(t);
+  }
+
+  // 只跑 myRole 的回合
+  const myTurns = allTurns.filter((t) => t.role === myRole);
+  if (!myTurns.length) {
+    // 这个 role 没回合，直接结束
+    await ctx.reportProgress?.(100);
+    return;
+  }
+
+  for (let i = 0; i < myTurns.length; i++) {
+    const t = myTurns[i];
+
+    // 等到 turn 起点（用 send_delay_sec 累加近似，不与其他 role 真正同步 — 简化版）
+    if (i > 0) {
+      const [a, b] = (t.send_delay_sec as [number, number]) ?? [30, 90];
+      await sleep(gaussianDelayMs(a * 1000, b * 1000));
+    }
+
+    if (t.type === 'voice' && t.asset_pool) {
+      // 语音 turn：按 asset_pool 名查 _builtin_voices_<pool>
+      const fullPool = t.asset_pool.startsWith('_builtin_') ? t.asset_pool : `_builtin_${t.asset_pool}`;
+      const asset = await pickRandomAsset({ poolName: fullPool });
+      if (asset) {
+        const buf = await fetchAssetFile(asset.id);
+        if (buf) {
+          const file = new CustomFile(asset.fileName, buf.length, '', buf);
+          await ctx.client.sendFile(entity, { file, voiceNote: true });
+        }
+      } else if (t.caption_fallback) {
+        // 找不到素材 → 用文字兜底
+        await sendMessageLikeHuman(ctx.client, entity, t.caption_fallback);
+      }
+    } else if ((t.type === 'image' || t.type === 'video') && t.asset_pool) {
+      const fullPool = t.asset_pool.startsWith('_builtin_') ? t.asset_pool : `_builtin_${t.asset_pool}`;
+      const asset = await pickRandomAsset({ poolName: fullPool });
+      const captionPool: string[] = t.caption_pool ?? [];
+      const caption = captionPool.length
+        ? captionPool[Math.floor(Math.random() * captionPool.length)]
+        : undefined;
+      if (asset) {
+        const buf = await fetchAssetFile(asset.id);
+        if (buf) {
+          const file = new CustomFile(asset.fileName, buf.length, '', buf);
+          await ctx.client.sendFile(entity, { file, caption });
+        }
+      } else if (caption) {
+        await sendMessageLikeHuman(ctx.client, entity, caption);
+      }
+    } else {
+      // 文本 turn：从 content_pool 随机抽变体
+      const pool: string[] = t.content_pool ?? [];
+      if (!pool.length) continue;
+      const text = pool[Math.floor(Math.random() * pool.length)];
+      await sendMessageLikeHuman(ctx.client, entity, text);
+    }
+
+    await ctx.reportProgress?.(Math.round(((i + 1) / myTurns.length) * 100));
+  }
+}
+
+export async function chatScriptAb(ctx: ExecutorCtx): Promise<void> { return chatScriptImpl(ctx, 'A+B'); }
+export async function chatScript4p(ctx: ExecutorCtx): Promise<void> { return chatScriptImpl(ctx, 'A+B+C+D'); }
+
 // ─── Dispatcher ─────────────────────────────────────────────────────
 export const EXECUTORS: Record<string, (ctx: ExecutorCtx) => Promise<void>> = {
   idle_keepalive:  idleKeepalive,
@@ -522,4 +698,9 @@ export const EXECUTORS: Record<string, (ctx: ExecutorCtx) => Promise<void>> = {
   group_scrape:    groupScrape,
   contact_add:     contactAdd,
   campaign_single: campaignSingle,
+  media_photo:     mediaPhoto,
+  media_video:     mediaVideo,
+  media_voice:     mediaVoice,
+  chat_script_ab:  chatScriptAb,
+  chat_script_4p:  chatScript4p,
 };

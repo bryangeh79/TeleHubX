@@ -33,6 +33,21 @@ export class ChatScriptsController {
     return this.service.findAll(type, status);
   }
 
+  /** Agent 端 chat_script_* 任务调用：随机抽一个 active 剧本（含 rawScript）。 */
+  @Get('random')
+  async pickRandom(
+    @Query('packId') packId?: string,
+    @Query('category') category?: string,
+    @Query('type') type?: ChatScriptType,
+  ) {
+    const s = await this.service.pickRandom({ packId, category, type });
+    if (!s) {
+      // 不抛 404 — 让 agent 优雅处理 null
+      return null;
+    }
+    return s;
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.findOne(id);

@@ -86,6 +86,24 @@ export class ChatScriptsService {
     return this.repo.find({ where, order: { createdAt: 'DESC' } });
   }
 
+  /**
+   * Agent 端 chat_script_* executor 调用：随机抽 1 个剧本（含 rawScript 完整结构）。
+   * 默认只抽 ACTIVE 状态。可选过滤：packId, category, type。
+   */
+  async pickRandom(opts: {
+    packId?: string;
+    category?: string;
+    type?: ChatScriptType;
+  } = {}): Promise<ChatScript | null> {
+    const where: Record<string, unknown> = { status: ChatScriptStatus.ACTIVE };
+    if (opts.packId) where.packId = opts.packId;
+    if (opts.category) where.category = opts.category;
+    if (opts.type) where.type = opts.type;
+    const list = await this.repo.find({ where });
+    if (!list.length) return null;
+    return list[Math.floor(Math.random() * list.length)];
+  }
+
   async findOne(id: string): Promise<ChatScript> {
     const script = await this.repo.findOneBy({ id });
     if (!script) throw new NotFoundException(`ChatScript ${id} not found`);

@@ -36,6 +36,70 @@ export async function bulkUpsertCandidates(
   }
 }
 
+function authHeaders(): Record<string, string> {
+  return process.env.AGENT_TOKEN ? { 'X-Agent-Token': process.env.AGENT_TOKEN } : {};
+}
+
+export interface RandomAsset {
+  id: string;
+  category: 'photo' | 'video' | 'voice' | 'document' | 'text_snippet';
+  fileName: string;
+  mimeType: string | null;
+  byteSize: number;
+  poolName: string | null;
+  relativePath: string | null;
+}
+
+export async function pickRandomAsset(opts: {
+  poolName?: string;
+  category?: string;
+  tenantId?: string;
+}): Promise<RandomAsset | null> {
+  const params = new URLSearchParams();
+  if (opts.poolName) params.set('poolName', opts.poolName);
+  if (opts.category) params.set('category', opts.category);
+  if (opts.tenantId) params.set('tenantId', opts.tenantId);
+  const url = `${API_BASE}/assets/random?${params.toString()}`;
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) return null;
+  return (await res.json()) as RandomAsset;
+}
+
+/** Stream asset bytes from server. agent 不缓存到磁盘，直接拿到 Buffer 给 GramJS。 */
+export async function fetchAssetFile(assetId: string): Promise<Buffer | null> {
+  const res = await fetch(`${API_BASE}/assets/${assetId}/file`, { headers: authHeaders() });
+  if (!res.ok) return null;
+  const ab = await res.arrayBuffer();
+  return Buffer.from(ab);
+}
+
+export interface RandomChatScript {
+  id: string;
+  name: string;
+  type: 'A+B' | 'A+B+C+D';
+  packId: string | null;
+  category: string | null;
+  rawScript: any;
+  lines: any[];
+}
+
+export async function pickRandomChatScript(opts: {
+  packId?: string;
+  category?: string;
+  type?: string;
+}): Promise<RandomChatScript | null> {
+  const params = new URLSearchParams();
+  if (opts.packId) params.set('packId', opts.packId);
+  if (opts.category) params.set('category', opts.category);
+  if (opts.type) params.set('type', opts.type);
+  const res = await fetch(`${API_BASE}/chat-scripts/random?${params.toString()}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as RandomChatScript | null;
+  return data ?? null;
+}
+
 export async function markCandidateContacted(
   candidateId: string,
   contactedByAccountId: string,

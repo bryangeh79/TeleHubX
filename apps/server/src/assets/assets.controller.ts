@@ -18,6 +18,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
+import * as fs from 'fs';
 import { AssetCategory } from './asset.entity';
 import { AssetsService } from './assets.service';
 import { TenantsService } from '../tenants/tenants.service';
@@ -74,19 +75,59 @@ export class AssetsController {
     });
   }
 
+  /**
+   * Agent 端 media_* executor 调用：随机抽一个 asset 元数据。
+   * 优先 poolName；否则 tenant+category；空则回落 builtin 池。
+   * 返回 row（不含 content）— agent 拿到 id 后再用 GET /assets/:id/file 拉文件。
+   */
+  @Get('random')
+  async pickRandom(
+    @Query('poolName') poolName?: string,
+    @Query('category') category?: AssetCategory,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    const a = await this.service.pickRandomAdvanced({
+      tenantId: tenantId ?? null,
+      poolName,
+      category,
+    });
+    if (!a) throw new NotFoundException('No asset matches criteria');
+    return a;
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.findOne(id);
   }
 
-  /** 下载原始字节 */
-  @Get(':id/content')
-  async download(@Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
+  /** 下载原始字节（DB bytea 或 builtin 磁盘文件，统一透出）。 */
+  @Get(':id/file')
+  async streamFile(@Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
+    const a = await this.service.findOne(id);
+
+    // builtin / 文件型：直接 stream 磁盘
+    if (a.relativePath) {
+      const abs = this.service.resolveAbsolutePath(a);
+      if (!abs) throw new NotFoundException(`File missing on disk: ${a.relativePath}`);
+      res.setHeader('Content-Type', a.mimeType ?? 'application/octet-stream');
+      res.setHeader('Content-Length', String(a.byteSize));
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(a.fileName)}"`);
+      fs.createReadStream(abs).pipe(res);
+      return;
+    }
+
+    // upload 型：DB bytea
     const c = await this.service.getContent(id);
     if (!c) throw new NotFoundException('Asset has no binary content');
     res.setHeader('Content-Type', c.mimeType);
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(c.fileName)}"`);
     res.send(c.buffer);
+  }
+
+  /** 老路径保留兼容 */
+  @Get(':id/content')
+  async download(@Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
+    return this.streamFile(id, res);
   }
 
   @Patch(':id')

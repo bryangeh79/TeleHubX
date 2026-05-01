@@ -1,7 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, Repository } from 'typeorm';
-import { Asset, AssetCategory } from './asset.entity';
+import { FindOptionsWhere, IsNull, Repository } from 'typeorm';
+import * as fs from 'fs';
+import * as path from 'path';
+import { Asset, AssetCategory, AssetSource } from './asset.entity';
+
+const PROJECT_ROOT = path.resolve(__dirname, '..', '..', '..', '..');
+const DATA_ROOT = path.join(PROJECT_ROOT, 'data');
 
 const MAX_INLINE_BYTES = 5 * 1024 * 1024; // 5MB before warning, but we accept up to 50MB
 
@@ -93,6 +98,43 @@ export class AssetsService {
     // 增加使用计数
     await this.repo.increment({ id: pick.id }, 'usageCount', 1);
     return pick;
+  }
+
+  /**
+   * 高级随机抽取（agent 端 media_* 任务调用）。
+   * 优先级：先按 poolName，没有则按 tenantId+category，最后回落到 builtin 池。
+   */
+  async pickRandomAdvanced(opts: {
+    tenantId?: string | null;
+    poolName?: string;
+    category?: AssetCategory;
+  }): Promise<Asset | null> {
+    const where: FindOptionsWhere<Asset> = { enabled: true };
+    if (opts.poolName) {
+      where.poolName = opts.poolName;
+    } else {
+      if (opts.tenantId) where.tenantId = opts.tenantId;
+      if (opts.category) where.category = opts.category;
+    }
+    let list = await this.repo.find({ where });
+    // 回退：tenant 自有池为空 → 用 builtin 池
+    if (!list.length && opts.category) {
+      list = await this.repo.find({
+        where: { source: AssetSource.BUILTIN, category: opts.category, enabled: true, tenantId: IsNull() },
+      });
+    }
+    if (!list.length) return null;
+    const pick = list[Math.floor(Math.random() * list.length)];
+    await this.repo.increment({ id: pick.id }, 'usageCount', 1);
+    return pick;
+  }
+
+  /** 解析 builtin 资源的磁盘绝对路径；upload 资源读 bytea。 */
+  resolveAbsolutePath(asset: Asset): string | null {
+    if (!asset.relativePath) return null;
+    const abs = path.join(DATA_ROOT, asset.relativePath);
+    if (!fs.existsSync(abs)) return null;
+    return abs;
   }
 
   async update(id: string, dto: Partial<Asset>): Promise<Asset> {
