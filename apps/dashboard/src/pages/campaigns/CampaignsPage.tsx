@@ -1,17 +1,18 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   Table, Button, Tag, Progress, Space, Typography, Card, Col, Row, Statistic,
-  Popconfirm, Badge, Dropdown, message as antdMessage,
+  Popconfirm, Badge, Dropdown, Input, Select, message as antdMessage,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, SendOutlined,
   ReloadOutlined, TeamOutlined, FileTextOutlined, DownOutlined,
   HistoryOutlined, ClockCircleOutlined, ThunderboltOutlined,
-  CheckCircleFilled, CloseCircleFilled, SyncOutlined,
+  CheckCircleFilled, SyncOutlined, SearchOutlined,
+  RedoOutlined, CopyOutlined, UserOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { campaignsApi, tenantsApi } from '../../services/api';
+import { campaignsApi, customerGroupsApi, tenantsApi } from '../../services/api';
 import CampaignWizard from './CampaignWizard';
 import AdTemplateDrawer from './AdTemplateDrawer';
 import GreetingDrawer from './GreetingDrawer';
@@ -34,10 +35,19 @@ interface ApiCampaign {
   messageVariants: Array<{ text: string; mediaUrl?: string }> | null;
   sentCount: number;
   replyCount: number;
+  totalTargetCount: number;
+  adAccountIds: string[] | null;
+  accountSourceMode: string | null;
   pacePreset: string | null;
   scheduleMode: string | null;
   createdAt: string;
 }
+
+const PACE_TEXT: Record<string, { label: string; en: string }> = {
+  conservative: { label: '保守', en: 'Conservative' },
+  balanced:     { label: '平衡', en: 'Balanced' },
+  aggressive:   { label: '投放', en: 'Aggressive' },
+};
 
 const STATUS_BADGE: Record<CampaignStatus, 'default' | 'warning' | 'processing' | 'success' | 'error'> = {
   draft:     'default',
@@ -69,6 +79,13 @@ export default function CampaignsPage() {
   const [logCampaign, setLogCampaign] = useState<{ id: string; name: string } | null>(null);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // 筛选 + 搜索
+  const [statusFilter, setStatusFilter] = useState<CampaignStatus | 'all'>('all');
+  const [search, setSearch] = useState('');
+
+  // 客户群 lookup (id → name + memberCount)
+  const [groupLookup, setGroupLookup] = useState<Map<string, { name: string; memberCount: number }>>(new Map());
+
   // 统计
   const stats = useMemo(() => {
     return {
@@ -83,6 +100,16 @@ export default function CampaignsPage() {
 
   const hasRunning = useMemo(() => campaigns.some(c => c.status === 'running'), [campaigns]);
   const [tenantId, setTenantId] = useState<string>('');
+
+  // 加载客户群供 lookup
+  useEffect(() => {
+    if (!tenantId) return;
+    customerGroupsApi.list(tenantId).then(r => {
+      const map = new Map();
+      for (const g of (r.data ?? [])) map.set(g.id, { name: g.name, memberCount: g.memberCount ?? 0 });
+      setGroupLookup(map);
+    }).catch(() => {});
+  }, [tenantId]);
 
   useEffect(() => {
     tenantsApi.getDefault().then(r => {
@@ -139,71 +166,163 @@ export default function CampaignsPage() {
   const openEdit = (id: string) => { setEditId(id); setWizardOpen(true); };
   const onWizardSuccess = () => { setWizardOpen(false); void reload(); };
 
-  const targetCount = (r: ApiCampaign) =>
-    (r.targets?.length ?? 0) + (r.customerGroupIds?.length ? 1 : 0);
+  // 计算总目标数：优先用 dispatch 写入的 totalTargetCount，没有就用客户群成员数 + 手动号码
+  const computeTotal = (r: ApiCampaign): number => {
+    if (r.totalTargetCount > 0) return r.totalTargetCount;
+    let n = r.targets?.length ?? 0;
+    for (const gid of r.customerGroupIds ?? []) {
+      n += groupLookup.get(gid)?.memberCount ?? 0;
+    }
+    return n;
+  };
+
+  // 过滤后的 campaigns
+  const filteredCampaigns = useMemo(() => {
+    let arr = campaigns;
+    if (statusFilter !== 'all') arr = arr.filter(c => c.status === statusFilter);
+    if (search.trim()) {
+      const q = search.toLowerCase().trim();
+      arr = arr.filter(c =>
+        c.name.toLowerCase().includes(q) ||
+        c.description?.toLowerCase().includes(q) ||
+        (c.customerGroupIds ?? []).some(gid => groupLookup.get(gid)?.name.toLowerCase().includes(q)),
+      );
+    }
+    return arr;
+  }, [campaigns, statusFilter, search, groupLookup]);
+
+  const handleCopyId = (id: string) => {
+    navigator.clipboard?.writeText(id).catch(() => {});
+    antdMessage.success('已复制 ID');
+  };
+
+  const handleRerun = async (c: ApiCampaign) => {
+    try {
+      // 复制原 campaign 的配置创建新的，跳过 status / id / sentCount / replyCount
+      const { id, status, sentCount, replyCount, totalTargetCount, createdAt, ...rest } = c as any;
+      await campaignsApi.create({ ...rest, name: `${c.name} (副本)` });
+      antdMessage.success(`✓ 已复制「${c.name}」为新草稿`);
+      void reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '操作失败');
+    }
+  };
 
   const columns: ColumnsType<ApiCampaign> = [
     {
-      title: '名称',
+      title: '投放名称',
       dataIndex: 'name',
       key: 'name',
       width: 220,
-      ellipsis: true,
       render: (v: string, r) => (
         <div>
-          <Text strong>{v}</Text>
+          <div><Text strong style={{ fontSize: 13 }}>{v}</Text></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Text type="secondary" style={{ fontSize: 11 }}>ID: {r.id.slice(0, 8)}</Text>
+            <CopyOutlined
+              style={{ fontSize: 11, color: '#999', cursor: 'pointer' }}
+              onClick={() => handleCopyId(r.id)}
+            />
+          </div>
           {r.description && (
-            <div><Text type="secondary" style={{ fontSize: 11 }}>{r.description}</Text></div>
+            <Text type="secondary" style={{ fontSize: 11 }}>{r.description}</Text>
           )}
         </div>
       ),
     },
     {
-      title: '类型',
-      dataIndex: 'type',
-      key: 'type',
-      width: 70,
-      render: (t: CampaignType) => (
-        <Tag color={t === 'broadcast' ? 'blue' : 'purple'}>{TYPE_TEXT[t] ?? t}</Tag>
-      ),
+      title: '投放类型 / 节奏档位',
+      key: 'typePace',
+      width: 150,
+      render: (_, r) => {
+        const pace = PACE_TEXT[r.pacePreset ?? 'conservative'] ?? PACE_TEXT.conservative;
+        return (
+          <Space direction="vertical" size={2}>
+            <Tag color={r.type === 'broadcast' ? 'blue' : 'purple'} style={{ marginRight: 0 }}>
+              {TYPE_TEXT[r.type] ?? r.type}
+            </Tag>
+            <Text style={{ fontSize: 11 }}>
+              {pace.label} <Text type="secondary" style={{ fontSize: 11 }}>({pace.en})</Text>
+            </Text>
+          </Space>
+        );
+      },
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 90,
-      render: (s: CampaignStatus) => <Badge status={STATUS_BADGE[s]} text={STATUS_TEXT[s] ?? s} />,
+      width: 100,
+      render: (s: CampaignStatus) => (
+        <div>
+          <Badge status={STATUS_BADGE[s]} text={<Text style={{ fontSize: 12 }}>{STATUS_TEXT[s] ?? s}</Text>} />
+        </div>
+      ),
     },
     {
-      title: '节奏',
-      dataIndex: 'pacePreset',
-      key: 'pacePreset',
-      width: 60,
-      render: (v: string | null) => {
-        const map: Record<string, string> = { conservative: '保守', balanced: '平衡', aggressive: '投放' };
-        return v ? <Tag>{map[v] ?? v}</Tag> : '—';
+      title: '进度 (已发 / 总目标)',
+      key: 'progress',
+      width: 200,
+      render: (_, r) => {
+        const total = computeTotal(r);
+        if (total === 0) return <Tag>无目标</Tag>;
+        const pct = Math.min(100, Math.round((r.sentCount / total) * 100));
+        const color = pct >= 100 ? '#52c41a'
+          : pct >= 50 ? '#52c41a'
+          : pct >= 30 ? '#faad14'
+          : r.status === 'paused' ? '#ff4d4f'
+          : '#1677ff';
+        return (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, marginBottom: 4 }}>
+              <Text style={{ fontSize: 12 }}>{r.sentCount} / {total}</Text>
+              <Text strong style={{ fontSize: 12, color }}>{pct}%</Text>
+            </div>
+            <Progress percent={pct} size="small" showInfo={false} strokeColor={color} />
+          </div>
+        );
       },
     },
     {
-      title: '进度',
-      key: 'progress',
+      title: '回复数',
+      dataIndex: 'replyCount',
+      key: 'replyCount',
+      width: 80,
+      align: 'center' as const,
+      render: (v: number) => {
+        const color = v === 0 ? '#bfbfbf' : v >= 10 ? '#52c41a' : '#fa8c16';
+        return <Text strong style={{ fontSize: 18, color }}>{v}</Text>;
+      },
+    },
+    {
+      title: '发送号 / 客户群',
+      key: 'targets',
+      width: 170,
       render: (_, r) => {
-        const manualTargets = r.targets?.length ?? 0;
-        const groupCount = r.customerGroupIds?.length ?? 0;
-        const hasAnyTarget = manualTargets > 0 || groupCount > 0;
-        if (!hasAnyTarget) return <Tag>无目标</Tag>;
-        const desc = groupCount > 0
-          ? `${groupCount} 个群${manualTargets > 0 ? ` + ${manualTargets} 号` : ''}`
-          : `${manualTargets} 号`;
+        const accountCount = r.accountSourceMode === 'manual'
+          ? (r.adAccountIds?.length ?? 0)
+          : null; // auto 模式无固定数量
+        const groupNames = (r.customerGroupIds ?? [])
+          .map(gid => groupLookup.get(gid)?.name)
+          .filter(Boolean);
+        const manualCount = r.targets?.length ?? 0;
+
         return (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
-              <span>已发 {r.sentCount}</span><span>{desc}</span>
+          <div style={{ fontSize: 12 }}>
+            <div>
+              <Text type="secondary" style={{ fontSize: 11 }}>📤 </Text>
+              {accountCount !== null
+                ? <Text>{accountCount} 个发送号</Text>
+                : <Text type="secondary" style={{ fontSize: 11 }}>系统智能</Text>}
             </div>
-            <Progress percent={r.sentCount > 0 ? Math.min(100, r.sentCount) : 0} size="small" showInfo={false} />
-            {r.replyCount > 0 && (
-              <Text type="secondary" style={{ fontSize: 11 }}>{r.replyCount} 条回复</Text>
-            )}
+            <div>
+              <UserOutlined style={{ fontSize: 11, color: '#999', marginRight: 2 }} />
+              {groupNames.length > 0
+                ? <Text style={{ fontSize: 12 }}>{groupNames.join(', ')}</Text>
+                : manualCount > 0
+                  ? <Text type="secondary" style={{ fontSize: 11 }}>{manualCount} 个手动号码</Text>
+                  : <Text type="secondary" style={{ fontSize: 11 }}>—</Text>}
+            </div>
           </div>
         );
       },
@@ -212,37 +331,47 @@ export default function CampaignsPage() {
       title: '创建时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      width: 110,
-      render: (v: string) => dayjs(v).format('YYYY-MM-DD'),
+      width: 130,
+      render: (v: string) => (
+        <div>
+          <div style={{ fontSize: 12 }}>{dayjs(v).format('YYYY-MM-DD HH:mm')}</div>
+          <Text type="secondary" style={{ fontSize: 11 }}>by admin</Text>
+        </div>
+      ),
     },
     {
       title: '操作',
       key: 'actions',
-      width: 160,
+      width: 200,
       render: (_, record) => {
         const canSend = record.status === 'draft' || record.status === 'scheduled' || record.status === 'paused';
         const hasTargets = (record.targets?.length ?? 0) > 0 || (record.customerGroupIds?.length ?? 0) > 0;
         const isRunningOrDone = record.status === 'running' || record.status === 'completed';
         return (
-          <Space size={4}>
+          <Space size={2} wrap>
             {canSend && hasTargets && (
-              <Button size="small" type="primary" icon={<SendOutlined />} onClick={() => handleSend(record)}>
+              <Button size="small" type="link" icon={<SendOutlined />} onClick={() => handleSend(record)}>
                 发送
               </Button>
             )}
             {isRunningOrDone && (
-              <Button size="small" icon={<HistoryOutlined />}
+              <Button size="small" type="link" icon={<HistoryOutlined />}
                 onClick={() => setLogCampaign({ id: record.id, name: record.name })}>
                 日志
               </Button>
             )}
-            <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record.id)} />
+            <Button size="small" type="link" icon={<RedoOutlined />} onClick={() => handleRerun(record)}>
+              再次执行
+            </Button>
+            <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(record.id)}>
+              编辑
+            </Button>
             <Popconfirm
               title={`删除「${record.name}」?`}
               onConfirm={() => handleDelete(record)}
               okText="删除" cancelText="取消" okButtonProps={{ danger: true }}
             >
-              <Button size="small" danger icon={<DeleteOutlined />} />
+              <Button size="small" type="link" danger icon={<DeleteOutlined />}>删除</Button>
             </Popconfirm>
           </Space>
         );
@@ -319,13 +448,40 @@ export default function CampaignsPage() {
         </Col>
       </Row>
 
+      {/* 筛选条 */}
+      <Card size="small" style={{ marginBottom: 12 }} bodyStyle={{ padding: '10px 12px' }}>
+        <Space wrap>
+          <Select
+            value={statusFilter}
+            onChange={v => setStatusFilter(v)}
+            style={{ width: 130 }}
+            options={[
+              { value: 'all',       label: '全部状态' },
+              { value: 'draft',     label: '草稿' },
+              { value: 'running',   label: '运行中' },
+              { value: 'paused',    label: '已暂停' },
+              { value: 'completed', label: '已完成' },
+            ]}
+          />
+          <Input
+            prefix={<SearchOutlined style={{ color: '#999' }} />}
+            placeholder="搜索投放名称 / 客户群 / 备注"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            allowClear
+            style={{ width: 280 }}
+          />
+        </Space>
+      </Card>
+
       <Table
         columns={columns}
-        dataSource={campaigns}
+        dataSource={filteredCampaigns}
         rowKey="id"
         loading={loading}
-        pagination={{ pageSize: 20, hideOnSinglePage: true }}
+        pagination={{ pageSize: 10, showSizeChanger: false, showQuickJumper: true, showTotal: (total) => `共 ${total} 条` }}
         size="middle"
+        scroll={{ x: 1100 }}
       />
 
       <CampaignWizard

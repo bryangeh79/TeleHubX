@@ -140,6 +140,10 @@ export class Campaign {
   @Column({ type: 'int', default: 0 })
   replyCount: number;
 
+  /** Dispatch 时记录的总目标数量（去重后），用于 UI 进度展示 */
+  @Column({ type: 'int', default: 0 })
+  totalTargetCount: number;
+
   @Column({ nullable: true })
   completedAt: Date;
 

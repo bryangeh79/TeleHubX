@@ -144,8 +144,9 @@ export class CampaignDispatchService {
       `Campaign ${campaign.id} dispatched: ${tasks.length} tasks, ${days} day(s), ${accounts.length} accounts, ${targets.length} targets`,
     );
 
-    // 7. 更新 campaign 状态
+    // 7. 更新 campaign 状态 + 记录总目标数
     campaign.status = CampaignStatus.RUNNING;
+    campaign.totalTargetCount = targets.length;
     await this.campaignRepo.save(campaign);
 
     return {
