@@ -31,7 +31,6 @@ import {
   CloseCircleFilled,
   DeleteOutlined,
   EyeOutlined,
-  HistoryOutlined,
   LoadingOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
@@ -687,7 +686,6 @@ export default function SchedulerPage() {
           >
             <Button danger icon={<StopOutlined />}>立即终止全部</Button>
           </Popconfirm>
-          <Button icon={<HistoryOutlined />}>历史记录</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新建任务</Button>
         </Space>
       </div>
