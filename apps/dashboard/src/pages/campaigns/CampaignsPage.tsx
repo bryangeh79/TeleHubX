@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   Table, Button, Tag, Progress, Space, Typography, Card, Col, Row, Statistic,
-  Popconfirm, Badge, Dropdown, Input, Select, message as antdMessage,
+  Popconfirm, Badge, Dropdown, Input, Select, Tooltip, message as antdMessage,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, SendOutlined,
@@ -364,9 +364,11 @@ export default function CampaignsPage() {
                 日志
               </Button>
             )}
-            <Button size="small" icon={<RedoOutlined />} onClick={() => handleRerun(record)}>
-              再次执行
-            </Button>
+            <Tooltip title="复制此投放配置创建新草稿（会重发给所有目标）。如只想重试失败的，请打开「日志」单独重试。">
+              <Button size="small" icon={<CopyOutlined />} onClick={() => handleRerun(record)}>
+                复制
+              </Button>
+            </Tooltip>
             <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record.id)} />
             <Popconfirm
               title={`删除「${record.name}」?`}

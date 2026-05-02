@@ -11,7 +11,7 @@ import {
 } from './campaign.entity';
 import { Account, AccountRole } from '../accounts/account.entity';
 import { CustomerGroup } from '../customer-groups/customer-group.entity';
-import { Task } from '../tasks/task.entity';
+import { Task, TaskStatus } from '../tasks/task.entity';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
 import { UpdateCampaignDto } from './dto/update-campaign.dto';
 
@@ -69,6 +69,38 @@ export class CampaignsService {
     });
 
     return { summary, tasks: items };
+  }
+
+  /**
+   * 批量重试 campaign 内所有 failed 任务。
+   * 状态 failed → pending，清错误信息，scheduledAt 设为 NOW，
+   * agent 下轮 dispatch 自动重新执行。
+   */
+  async retryFailedTasks(campaignId: string): Promise<{ retried: number }> {
+    const res = await this.taskRepo
+      .createQueryBuilder()
+      .update(Task)
+      .set({
+        status: TaskStatus.PENDING,
+        errorMsg: null,
+        progress: 0,
+        startedAt: null,
+        finishedAt: null,
+        scheduledAt: () => 'NOW()',
+      })
+      .where('status = :s', { s: TaskStatus.FAILED })
+      .andWhere(`payload->>'campaignId' = :cid`, { cid: campaignId })
+      .execute();
+
+    // 如果 campaign 已经被标 completed，重新激活回 running
+    const c = await this.repo.findOneBy({ id: campaignId });
+    if (c && (res.affected ?? 0) > 0 && c.status === CampaignStatus.COMPLETED) {
+      c.status = CampaignStatus.RUNNING;
+      (c as any).completedAt = null;
+      await this.repo.save(c);
+    }
+
+    return { retried: res.affected ?? 0 };
   }
 
   create(dto: CreateCampaignDto): Promise<Campaign> {

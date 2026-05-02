@@ -668,7 +668,32 @@ export class TasksService implements OnModuleInit {
     t.progress = 0;
     t.startedAt = null;
     t.finishedAt = null;
+    // 立即可被 agent 拉取（避免 scheduledAt 还停留在旧值导致延迟）
+    t.scheduledAt = new Date();
     return this.repo.save(t);
+  }
+
+  /**
+   * 批量重试某个 campaign 下所有 failed 任务。
+   * 把它们改回 pending + 清空错误 + scheduledAt=now，
+   * agent 下轮 dispatch 自动拉取重新执行。
+   */
+  async retryAllFailedOfCampaign(campaignId: string): Promise<{ retried: number }> {
+    const res = await this.repo
+      .createQueryBuilder()
+      .update(Task)
+      .set({
+        status: TaskStatus.PENDING,
+        errorMsg: null,
+        progress: 0,
+        startedAt: null,
+        finishedAt: null,
+        scheduledAt: () => 'NOW()',
+      })
+      .where('status = :s', { s: TaskStatus.FAILED })
+      .andWhere(`payload->>'campaignId' = :cid`, { cid: campaignId })
+      .execute();
+    return { retried: res.affected ?? 0 };
   }
 
   /**

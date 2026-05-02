@@ -75,6 +75,13 @@ export class CampaignsController {
     return this.service.remove(id);
   }
 
+  /** 批量重试 campaign 内所有 failed 任务 */
+  @Post(':id/retry-failed')
+  @HttpCode(HttpStatus.OK)
+  retryFailed(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.retryFailedTasks(id);
+  }
+
   /** 启动投放 — 真正调度 */
   @Post(':id/send')
   @HttpCode(HttpStatus.OK)

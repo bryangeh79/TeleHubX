@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Badge, Button, Col, Empty, Modal, Progress, Row, Space, Statistic,
+  Alert, Badge, Button, Col, Empty, Modal, Progress, Row, Space, Statistic,
   Table, Tabs, Tag, Tooltip, Typography, message as antdMessage,
 } from 'antd';
-import { HistoryOutlined, ReloadOutlined, ScheduleOutlined } from '@ant-design/icons';
+import {
+  HistoryOutlined, ReloadOutlined, RedoOutlined, ScheduleOutlined,
+} from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { campaignsApi } from '../../services/api';
+import { campaignsApi, tasksApi } from '../../services/api';
 
 const { Text } = Typography;
 
@@ -49,17 +51,24 @@ function humanizeError(msg: string | null): string {
   if (m.includes('user_privacy_restricted')) return '对方设置了隐私限制，无法私聊';
   if (m.includes('peer_id_invalid')) return '号码无效或已注销';
   if (m.includes('username_not_occupied')) return '用户名不存在';
+  if (m.includes('username_invalid')) return '用户名格式无效';
+  if (m.includes('user_is_bot')) return '目标是机器人，不能给机器人发广告';
+  if (m.includes('user_blocked_by_admin')) return '该号被对方屏蔽';
+  if (m.includes('user_is_blocked')) return '已被对方屏蔽';
+  if (m.includes('input_user_deactivated')) return '对方账号已注销';
+  if (m.includes('chat_write_forbidden')) return '群组禁言，账号无权发送';
+  if (m.includes('chat_send_plain_forbidden')) return '群组禁止纯文本消息';
   if (m.includes('flood_wait')) {
     const sec = msg.match(/(\d+)/)?.[1];
     return `频率限制${sec ? `，需等 ${sec} 秒` : ''}`;
   }
   if (m.includes('peer_flood')) return '账号触发风控，今天暂停';
-  if (m.includes('user_blocked_by_admin')) return '该号被对方屏蔽';
   if (m.includes('could not find the input entity')) return '解析联系人失败 (可能需先 import contact)';
   if (msg.includes('解析目标') && msg.includes('超时')) return 'TG 解析联系人超时，账号网络/代理可能不稳';
-  if (msg.includes('发送消息') && msg.includes('超时')) return 'TG 发送消息超时，可点「再次执行」重试';
-  if (msg.includes('任务执行超时')) return '任务超时（>10 分钟未完成）';
-  return msg.length > 100 ? msg.slice(0, 100) + '…' : msg;
+  if (msg.includes('发送消息') && msg.includes('超时')) return 'TG 发送消息超时，建议重试';
+  if (msg.includes('任务执行超时')) return '任务超时（>10 分钟未完成），可重试';
+  if (m.includes('not connected')) return '执行账号未在线，请检查代理/登录状态';
+  return msg.length > 120 ? msg.slice(0, 120) + '…' : msg;
 }
 
 /** 时段窗口定义（与后端 conservative/balanced 一致） */
@@ -191,6 +200,8 @@ export default function CampaignLogDrawer({ open, campaignId, campaignName, onCl
     tasks: TaskRow[];
   } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [retryingAll, setRetryingAll] = useState(false);
 
   const load = useCallback(async () => {
     if (!campaignId) return;
@@ -207,6 +218,34 @@ export default function CampaignLogDrawer({ open, campaignId, campaignName, onCl
   }, [campaignId]);
 
   useEffect(() => { if (open && campaignId) void load(); }, [open, campaignId, load]);
+
+  const handleRetryOne = async (taskId: string) => {
+    setRetryingId(taskId);
+    try {
+      await tasksApi.retry(taskId);
+      antdMessage.success('已加入重试队列，稍后会重新执行');
+      await load();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '重试失败');
+    } finally {
+      setRetryingId(null);
+    }
+  };
+
+  const handleRetryAllFailed = async () => {
+    if (!campaignId) return;
+    setRetryingAll(true);
+    try {
+      const res = await campaignsApi.retryFailed(campaignId);
+      const n = res.data?.retried ?? 0;
+      antdMessage.success(`已重新激活 ${n} 条失败任务`);
+      await load();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '批量重试失败');
+    } finally {
+      setRetryingAll(false);
+    }
+  };
 
   const columns = [
     {
@@ -251,14 +290,45 @@ export default function CampaignLogDrawer({ open, campaignId, campaignName, onCl
     {
       title: '错误信息',
       dataIndex: 'errorMsg',
-      ellipsis: true,
+      width: 280,
+      // 不加 ellipsis，让长文本换行展示
       render: (v: string | null) => {
         if (!v) return <Text type="secondary">—</Text>;
         const friendly = humanizeError(v);
+        const showRaw = friendly !== v && v.length < 200;
         return (
-          <Tooltip title={v}>
-            <Text type="danger" style={{ fontSize: 12 }}>{friendly}</Text>
+          <Tooltip title={v} placement="topLeft">
+            <div>
+              <Text type="danger" style={{ fontSize: 12, display: 'block', whiteSpace: 'normal' }}>
+                {friendly}
+              </Text>
+              {showRaw && (
+                <Text type="secondary" style={{ fontSize: 10, display: 'block', wordBreak: 'break-all', marginTop: 2 }}>
+                  原始：{v}
+                </Text>
+              )}
+            </div>
           </Tooltip>
+        );
+      },
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 80,
+      fixed: 'right' as const,
+      render: (_: any, record: TaskRow) => {
+        if (record.status !== 'failed') return null;
+        return (
+          <Button
+            size="small"
+            danger
+            icon={<RedoOutlined />}
+            loading={retryingId === record.id}
+            onClick={() => handleRetryOne(record.id)}
+          >
+            重试
+          </Button>
         );
       },
     },
@@ -320,6 +390,28 @@ export default function CampaignLogDrawer({ open, campaignId, campaignName, onCl
             </Col>
           </Row>
 
+          {/* 失败横幅：当有失败任务时提示并提供批量重试 */}
+          {data.summary.failed > 0 && (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={`${data.summary.failed} 条任务失败`}
+              description="可点击下方任务表中失败行的「重试」按钮单独重试，或一键批量重试全部失败的任务。"
+              action={
+                <Button
+                  size="small"
+                  danger
+                  icon={<RedoOutlined />}
+                  onClick={handleRetryAllFailed}
+                  loading={retryingAll}
+                >
+                  批量重试 ({data.summary.failed})
+                </Button>
+              }
+            />
+          )}
+
           {/* Tabs: 任务明细 + 调度分布 */}
           <Tabs
             size="small"
@@ -335,6 +427,7 @@ export default function CampaignLogDrawer({ open, campaignId, campaignName, onCl
                     size="small"
                     pagination={{ pageSize: 50, showSizeChanger: false, hideOnSinglePage: true }}
                     loading={loading}
+                    scroll={{ x: 1080 }}
                   />
                 ),
               },

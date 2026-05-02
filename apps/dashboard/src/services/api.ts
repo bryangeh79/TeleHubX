@@ -70,6 +70,7 @@ export const campaignsApi = {
   delete: (id: string) => api.delete(`/campaigns/${id}`),
   send: (id: string) => api.post(`/campaigns/${id}/send`),
   listTasks: (id: string) => api.get(`/campaigns/${id}/tasks`),
+  retryFailed: (id: string) => api.post(`/campaigns/${id}/retry-failed`),
   capacityCheck: (params: {
     targetCount?: number;
     pacePreset?: string;
