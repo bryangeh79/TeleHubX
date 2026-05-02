@@ -507,7 +507,20 @@ export class TasksService {
       t.scheduledAt = new Date(dto.scheduledAt);
     }
     if (dto.name !== undefined) t.name = dto.name;
-    if (dto.status !== undefined) t.status = dto.status;
+    if (dto.status !== undefined) {
+      // 首次进入 running → 记 startedAt
+      if (dto.status === TaskStatus.RUNNING && !t.startedAt) {
+        t.startedAt = new Date();
+      }
+      // 终态 done/failed → 记 finishedAt
+      if (
+        (dto.status === TaskStatus.DONE || dto.status === TaskStatus.FAILED) &&
+        !t.finishedAt
+      ) {
+        t.finishedAt = new Date();
+      }
+      t.status = dto.status;
+    }
     if (dto.payload !== undefined) t.payload = dto.payload;
     if (dto.progress !== undefined) t.progress = dto.progress;
     if (dto.errorMsg !== undefined) t.errorMsg = dto.errorMsg;
