@@ -56,6 +56,9 @@ function humanizeError(msg: string | null): string {
   if (m.includes('peer_flood')) return '账号触发风控，今天暂停';
   if (m.includes('user_blocked_by_admin')) return '该号被对方屏蔽';
   if (m.includes('could not find the input entity')) return '解析联系人失败 (可能需先 import contact)';
+  if (msg.includes('解析目标') && msg.includes('超时')) return 'TG 解析联系人超时，账号网络/代理可能不稳';
+  if (msg.includes('发送消息') && msg.includes('超时')) return 'TG 发送消息超时，可点「再次执行」重试';
+  if (msg.includes('任务执行超时')) return '任务超时（>10 分钟未完成）';
   return msg.length > 100 ? msg.slice(0, 100) + '…' : msg;
 }
 

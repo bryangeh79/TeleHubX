@@ -561,18 +561,27 @@ export async function campaignSingle(ctx: ExecutorCtx): Promise<void> {
     try {
       // 手机号: 先 ImportContact (TG 协议要求)
       if (isPhoneFormat(value)) {
-        await tryImportContact(ctx.client, value);
+        await withTimeout(tryImportContact(ctx.client, value), 30_000, 'ImportContact 超时');
       }
 
-      // 解析 entity (用 getEntity, 支持 username/phone/tgUserId)
-      const entity = await ctx.client.getEntity(value.replace(/^@/, ''));
+      // 解析 entity (用 getEntity, 支持 username/phone/tgUserId) — 30s 超时防卡死
+      const entity = await withTimeout(
+        ctx.client.getEntity(value.replace(/^@/, '')),
+        30_000,
+        `解析目标 ${value} 超时`,
+      );
 
       // 选 variant (随机抽)
       const variant = variants[Math.floor(Math.random() * variants.length)];
 
       // 拼装消息: greeting + \n\n + variant (如果有 greeting)
       const message = greeting ? `${greeting}\n\n${variant}` : variant;
-      await sendMessageLikeHuman(ctx.client, entity, message);
+      // 整个 sendMessageLikeHuman（含 typing + sendMessage）60s 超时
+      await withTimeout(
+        sendMessageLikeHuman(ctx.client, entity, message),
+        60_000,
+        `发送消息到 ${value} 超时`,
+      );
 
       // 回写: campaign sentCount +1
       if (campaignId) {

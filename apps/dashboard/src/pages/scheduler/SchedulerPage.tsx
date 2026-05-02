@@ -139,7 +139,10 @@ const TASK_TYPE_LABELS: Record<TaskType, TaskTypeMeta> = {
 /** 把 22 个任务按 group 分组成 antd Select 的 options（带 emoji）。 */
 function buildGroupedTaskOptions() {
   const grouped: Record<string, Array<{ value: string; label: string }>> = {};
+  // campaign_single 是「广告投放」自动产生的子任务，不在通用调度里展示/创建
+  const HIDDEN_TYPES = new Set(['campaign_single']);
   for (const [k, m] of Object.entries(TASK_TYPE_LABELS)) {
+    if (HIDDEN_TYPES.has(k)) continue;
     if (!grouped[m.group]) grouped[m.group] = [];
     grouped[m.group].push({ value: k, label: `${m.icon}  ${m.label}` });
   }
@@ -235,7 +238,9 @@ export default function SchedulerPage() {
         tasksApi.list({ status: filterStatus, type: filterType }),
         tasksApi.stats(),
       ]);
-      setTasks(Array.isArray(tasksRes.data) ? tasksRes.data : []);
+      // 过滤掉广告投放产生的 campaign_single 任务（在「广告投放」页面单独管理）
+      const all = Array.isArray(tasksRes.data) ? tasksRes.data : [];
+      setTasks(all.filter((t: any) => t.type !== 'campaign_single'));
       setStats(statsRes.data ?? { total: 0, pending: 0, running: 0, failed: 0, done: 0 });
     } catch (err: any) {
       antdMessage.error(err?.response?.data?.message ?? '加载任务失败');
