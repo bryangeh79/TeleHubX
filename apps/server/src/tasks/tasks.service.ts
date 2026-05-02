@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, In, Repository } from 'typeorm';
+import { FindOptionsWhere, In, LessThan, Repository } from 'typeorm';
 import { Account } from '../accounts/account.entity';
 import { LeadCandidatesService } from '../leads-candidates/leads-candidates.service';
 import { CreateTaskDto, UpdateTaskDto } from './task.dto';
@@ -26,13 +26,59 @@ function randomDayTime(base: Date, dayOffset: number, startHour: number, endHour
   return new Date(day.getTime() + spanMs * g);
 }
 
+/** 任务卡在 running 超过此毫秒数 → watchdog 强制 fail */
+const STUCK_TASK_TIMEOUT_MS = 15 * 60 * 1000; // 15 分钟
+
 @Injectable()
-export class TasksService {
+export class TasksService implements OnModuleInit {
+  private readonly logger = new Logger(TasksService.name);
+  private watchdogTimer?: ReturnType<typeof setInterval>;
+
   constructor(
     @InjectRepository(Task) private readonly repo: Repository<Task>,
     @InjectRepository(Account) private readonly accountRepo: Repository<Account>,
     private readonly leadCandidates: LeadCandidatesService,
   ) {}
+
+  onModuleInit() {
+    // 每 5 分钟扫描一次，清理卡住的 running 任务
+    this.watchdogTimer = setInterval(() => { void this.cleanStuckTasks(); }, 5 * 60 * 1000);
+    // 启动时也跑一次（可能上次宕机留下了 running）
+    void this.cleanStuckTasks();
+  }
+
+  /**
+   * Watchdog：把 running 超过 15 分钟的叶子任务强制标记为 failed。
+   * 只清理没有子任务的叶子任务（父/编排任务合理地长期处于 running，不处理）。
+   * 场景：agent 崩溃/网络断开导致任务永久挂起。
+   */
+  async cleanStuckTasks(): Promise<void> {
+    const cutoff = new Date(Date.now() - STUCK_TASK_TIMEOUT_MS);
+    // 找到 running 超时、且 startedAt 有值（agent 真正领取过）的任务
+    const candidates = await this.repo.find({
+      where: { status: TaskStatus.RUNNING, startedAt: LessThan(cutoff) },
+      select: ['id', 'type'],
+    });
+    if (!candidates.length) return;
+
+    // 过滤掉有子任务的父/编排任务（preset_*, keyword_lead_hunt 等）
+    const leafTasks: Task[] = [];
+    for (const t of candidates) {
+      const childCount = await this.repo.count({ where: { parentTaskId: t.id } });
+      if (childCount === 0) leafTasks.push(t);
+    }
+    if (!leafTasks.length) return;
+
+    this.logger.warn(`Watchdog: found ${leafTasks.length} stuck running task(s), force-failing`);
+    for (const t of leafTasks) {
+      await this.repo.update(t.id, {
+        status: TaskStatus.FAILED,
+        errorMsg: '任务超时：执行超过 15 分钟未完成（agent 可能已断线）',
+        finishedAt: new Date(),
+      });
+      this.logger.warn(`Watchdog: force-failed task ${t.id.slice(0, 8)} type=${t.type}`);
+    }
+  }
 
   async create(dto: CreateTaskDto, tenantId?: string): Promise<Task> {
     let payload = dto.payload as any;

@@ -23,6 +23,20 @@ export interface ServerCallbacks {
   log: { info: (m: string) => void; warn: (m: string) => void; error: (m: string) => void };
 }
 
+/** 各任务类型最长允许执行时间（ms）。超时视为失败。 */
+const TASK_TIMEOUT_MS: Record<string, number> = {
+  campaign_single:        10 * 60 * 1000,  // 10 分钟
+  contact_add:            10 * 60 * 1000,
+  group_scrape:           15 * 60 * 1000,  // 爬群稍长
+  join_groups_by_keyword: 10 * 60 * 1000,
+  chat_script_ab:         15 * 60 * 1000,
+  chat_script_4p:         15 * 60 * 1000,
+  media_photo:            10 * 60 * 1000,
+  media_video:            10 * 60 * 1000,
+  media_voice:            10 * 60 * 1000,
+};
+const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 其他类型默认 10 分钟
+
 /**
  * 解析 GramJS 错误，识别 FloodWait（应该隔离账号一段时间）。
  * GramJS 的 FloodWait 错误消息格式：'A wait of N seconds is required (caused by ...)'.
@@ -59,10 +73,21 @@ export async function executeTask(
     clients,
   };
 
+  const timeoutMs = TASK_TIMEOUT_MS[task.type] ?? DEFAULT_TIMEOUT_MS;
+
   cb.log.info(`[task ${task.id.slice(0, 8)}] start type=${task.type} account=${task.accountLabel ?? task.accountId?.slice(0, 8)}`);
 
   try {
-    await exec(ctx);
+    // 给每个任务加强制超时，防止 GramJS 网络调用无限挂起
+    await Promise.race([
+      exec(ctx),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`任务执行超时 (>${timeoutMs / 60000} 分钟)`)),
+          timeoutMs,
+        ),
+      ),
+    ]);
     await cb.markDone(task.id);
     cb.log.info(`[task ${task.id.slice(0, 8)}] done ✓`);
   } catch (err) {
