@@ -4,6 +4,12 @@ import { Repository } from 'typeorm';
 import { PlatformAiConfig } from './platform-ai-config.entity';
 import { PlatformSetting } from './platform-setting.entity';
 
+/** 广告号默认话术（读取 env，未设置则用英文兜底） */
+export const DEFAULT_AD_GROUP_FAQ =
+  process.env.AD_GROUP_FAQ_REPLY ?? 'For more details please DM our bot!';
+export const DEFAULT_AD_PRIVATE_DIVERT =
+  process.env.AD_PRIVATE_DIVERT_MSG ?? 'Hi! For assistance please contact our team via our official bot.';
+
 /** 默认变体生成 Prompt，用 {content} / {count} 占位 */
 export const DEFAULT_VARIANT_PROMPT = `你是专业广告文案优化师。
 原始文案：
@@ -137,5 +143,27 @@ export class PlatformConfigService {
   /** 重置变体 Prompt 为内置默认 */
   async resetVariantPrompt(): Promise<void> {
     await this.setSetting('variant_prompt_template', DEFAULT_VARIANT_PROMPT);
+  }
+
+  // ── 广告号话术 ─────────────────────────────────────────────────────
+
+  async getAdFaqConfig(): Promise<{ groupFaq: string; privateDivert: string }> {
+    const [groupFaq, privateDivert] = await Promise.all([
+      this.getSetting('ad_group_faq_reply'),
+      this.getSetting('ad_private_divert_msg'),
+    ]);
+    return {
+      groupFaq: groupFaq ?? DEFAULT_AD_GROUP_FAQ,
+      privateDivert: privateDivert ?? DEFAULT_AD_PRIVATE_DIVERT,
+    };
+  }
+
+  async setAdFaqConfig(data: { groupFaq?: string; privateDivert?: string }): Promise<void> {
+    if (data.groupFaq !== undefined) {
+      await this.setSetting('ad_group_faq_reply', data.groupFaq.trim());
+    }
+    if (data.privateDivert !== undefined) {
+      await this.setSetting('ad_private_divert_msg', data.privateDivert.trim());
+    }
   }
 }

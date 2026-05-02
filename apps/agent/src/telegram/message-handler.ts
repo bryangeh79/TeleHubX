@@ -7,6 +7,11 @@ import { logger } from '../logger';
 
 export type AccountRole = 'ad' | 'cs' | 'hybrid';
 
+export type StringOrGetter = string | (() => string);
+function resolveStr(v: StringOrGetter): string {
+  return typeof v === 'function' ? v() : v;
+}
+
 export interface MessageHandlerConfig {
   role: AccountRole;
   accountId: string;
@@ -14,8 +19,10 @@ export interface MessageHandlerConfig {
   selfTgUserId?: string | null;
   // Placeholder bot username for ad-account private divert message
   botUsername: string;
-  // Short reply sent by ad account in group when directly mentioned
-  adGroupFaqReply: string;
+  // Short reply sent by ad account in group when directly mentioned（支持 getter 动态读取）
+  adGroupFaqReply: StringOrGetter;
+  // Private chat divert message（支持 getter 动态读取）
+  adPrivateDivertMsg?: StringOrGetter;
   // If provided, cs role uses AI to reply; otherwise falls back to a static ack
   aiReplyService?: AiReplyService;
   /** 自己人白名单获取器：返回当前所有本租户已绑账号的 tgUserId 集合 */
@@ -153,14 +160,15 @@ async function handleAdMessage(
   const isPrivate = msg.peerId instanceof Api.PeerUser;
 
   if (isPrivate) {
-    await client.sendMessage(msg.peerId, {
-      message: `Hi! For assistance please contact our team: @${config.botUsername}`,
-    });
+    const divertMsg = config.adPrivateDivertMsg
+      ? resolveStr(config.adPrivateDivertMsg)
+      : `Hi! For assistance please contact our team: @${config.botUsername}`;
+    await client.sendMessage(msg.peerId, { message: divertMsg });
     logger.info(`[AD:${config.accountId}] Diverted private DM to bot @${config.botUsername}`);
   } else if (msg.mentioned) {
     // Group / channel: reply only when directly mentioned to avoid spam
     await client.sendMessage(msg.peerId, {
-      message: config.adGroupFaqReply,
+      message: resolveStr(config.adGroupFaqReply),
       replyTo: msg.id,
     });
     logger.info(`[AD:${config.accountId}] Group FAQ reply sent`);

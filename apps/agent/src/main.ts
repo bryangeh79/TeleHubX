@@ -147,6 +147,28 @@ async function bootstrap(): Promise<void> {
   const ownNetwork = new Set<string>();
   const getOwnNetwork = () => ownNetwork;
 
+  // 广告号话术动态配置（从 server platform_settings 拉取，每 30s 刷新）
+  const adFaqConfig = {
+    groupFaq: process.env.AD_GROUP_FAQ_REPLY ?? 'For more details please DM our bot!',
+    privateDivert: process.env.AD_PRIVATE_DIVERT_MSG ?? 'Hi! For assistance please contact our team via our official bot.',
+  };
+  async function syncAdFaqConfig() {
+    try {
+      const res = await fetch(`${API_BASE}/platform-config/ai/settings/ad-faq`, {
+        headers: AGENT_AUTH_HEADER,
+      });
+      if (res.ok) {
+        const data = await res.json() as { groupFaq: string; privateDivert: string };
+        adFaqConfig.groupFaq = data.groupFaq ?? adFaqConfig.groupFaq;
+        adFaqConfig.privateDivert = data.privateDivert ?? adFaqConfig.privateDivert;
+      }
+    } catch {
+      // 静默失败，保持上次的值
+    }
+  }
+  // 启动时立即拉一次
+  void syncAdFaqConfig();
+
   // Optional CS-role AI reply (shared across all cs accounts)
   let aiReplyService: AiReplyService | undefined;
   if (process.env.AI_API_KEY ?? process.env.OPENAI_API_KEY ?? process.env.DEEPSEEK_API_KEY) {
@@ -242,7 +264,9 @@ async function bootstrap(): Promise<void> {
       accountId: account.id,
       selfTgUserId: account.tgUserId ?? null,
       botUsername: process.env.BOT_USERNAME ?? 'your_bot',
-      adGroupFaqReply: process.env.AD_GROUP_FAQ_REPLY ?? 'For more details please DM our bot!',
+      // getter 模式：每次消息到来时读取最新话术，无需重启 agent
+      adGroupFaqReply: () => adFaqConfig.groupFaq,
+      adPrivateDivertMsg: () => adFaqConfig.privateDivert,
       aiReplyService: account.role === 'cs' ? aiReplyService : undefined,
       getOwnNetwork,
     });
@@ -329,6 +353,7 @@ async function bootstrap(): Promise<void> {
 
   const pollTimer = setInterval(() => {
     void syncFromDb();
+    void syncAdFaqConfig(); // 每 30s 同时刷新广告话术
   }, POLL_INTERVAL_MS);
 
   // ── Task dispatcher ────────────────────────────────────────────────────

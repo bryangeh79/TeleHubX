@@ -4,7 +4,10 @@ import {
 } from '@nestjs/common';
 import OpenAI from 'openai';
 import { AI_PROVIDERS, isAiProviderId } from '../ai-agent/ai-providers';
-import { DEFAULT_VARIANT_PROMPT, PlatformConfigService } from './platform-config.service';
+import {
+  DEFAULT_AD_GROUP_FAQ, DEFAULT_AD_PRIVATE_DIVERT,
+  DEFAULT_VARIANT_PROMPT, PlatformConfigService,
+} from './platform-config.service';
 import { AiAgentService } from '../ai-agent/ai-agent.service';
 
 @Controller('platform-config/ai')
@@ -111,5 +114,28 @@ export class PlatformConfigController {
   async resetVariantPrompt() {
     await this.svc.resetVariantPrompt();
     return { ok: true, value: DEFAULT_VARIANT_PROMPT };
+  }
+
+  // ── 广告号话术 ─────────────────────────────────────────────────────
+
+  @Get('settings/ad-faq')
+  getAdFaq() {
+    return this.svc.getAdFaqConfig();
+  }
+
+  @Put('settings/ad-faq')
+  async setAdFaq(@Body() body: { groupFaq?: string; privateDivert?: string }) {
+    await this.svc.setAdFaqConfig(body);
+    return { ok: true };
+  }
+
+  @Post('settings/ad-faq/reset')
+  @HttpCode(HttpStatus.OK)
+  async resetAdFaq() {
+    await this.svc.setAdFaqConfig({
+      groupFaq: DEFAULT_AD_GROUP_FAQ,
+      privateDivert: DEFAULT_AD_PRIVATE_DIVERT,
+    });
+    return { ok: true, groupFaq: DEFAULT_AD_GROUP_FAQ, privateDivert: DEFAULT_AD_PRIVATE_DIVERT };
   }
 }
