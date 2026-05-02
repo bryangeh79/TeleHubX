@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/com
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, In, LessThan, Repository } from 'typeorm';
 import { Account } from '../accounts/account.entity';
+import { Campaign, CampaignStatus } from '../campaigns/campaign.entity';
 import { LeadCandidatesService } from '../leads-candidates/leads-candidates.service';
 import { CreateTaskDto, UpdateTaskDto } from './task.dto';
 import { Task, TaskStatus, TaskType } from './task.entity';
@@ -37,8 +38,41 @@ export class TasksService implements OnModuleInit {
   constructor(
     @InjectRepository(Task) private readonly repo: Repository<Task>,
     @InjectRepository(Account) private readonly accountRepo: Repository<Account>,
+    @InjectRepository(Campaign) private readonly campaignRepo: Repository<Campaign>,
     private readonly leadCandidates: LeadCandidatesService,
   ) {}
+
+  /**
+   * 检查 campaign 所有子任务是否都已终结（done/failed）→ 是则标记 completed。
+   * 在 update() 中任务进入终态时调用，用于让"全部失败"或"部分成功部分失败"的 campaign 也能正确转 completed。
+   */
+  private async maybeCompleteCampaign(campaignId: string): Promise<void> {
+    const stats = await this.repo
+      .createQueryBuilder('t')
+      .select('t.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .where(`t.payload->>'campaignId' = :id`, { id: campaignId })
+      .groupBy('t.status')
+      .getRawMany();
+    if (!stats.length) return;
+
+    let total = 0;
+    let finished = 0;
+    for (const s of stats) {
+      const n = parseInt(s.count, 10);
+      total += n;
+      if (s.status === TaskStatus.DONE || s.status === TaskStatus.FAILED) {
+        finished += n;
+      }
+    }
+
+    if (total > 0 && finished >= total) {
+      await this.campaignRepo.update(
+        { id: campaignId, status: CampaignStatus.RUNNING },
+        { status: CampaignStatus.COMPLETED, completedAt: new Date() },
+      );
+    }
+  }
 
   onModuleInit() {
     // 每 5 分钟扫描一次，清理卡住的 running 任务
@@ -574,6 +608,17 @@ export class TasksService implements OnModuleInit {
     // 子任务状态/进度变化 → 反推父任务汇总
     if (t.parentTaskId && (dto.status !== undefined || dto.progress !== undefined)) {
       await this.recalcParentAggregate(t.parentTaskId).catch(() => {});
+    }
+    // campaign_single 进入终态 → 触发 campaign 完成检测
+    // （包括失败场景：原本 incrementSent 只在成功时触发，失败时 campaign 永远停 running）
+    if (
+      saved.type === TaskType.CAMPAIGN_SINGLE &&
+      (saved.status === TaskStatus.DONE || saved.status === TaskStatus.FAILED)
+    ) {
+      const campaignId = (saved.payload as any)?.campaignId;
+      if (campaignId) {
+        this.maybeCompleteCampaign(campaignId).catch(() => {});
+      }
     }
     return saved;
   }
