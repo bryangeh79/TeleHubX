@@ -347,18 +347,21 @@ export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
   const maxPer = (ctx.payload.maxScrapePerGroup as number) ?? 50;
 
   if (chatIds.length === 0 && ctx.payload.dynamicSource === 'recent_joins') {
-    const dialogs = await ctx.client.getDialogs({ limit: 100 });
-    const recent: string[] = [];
-    const cutoffSec = Date.now() / 1000 - 14 * 86400;
+    // 取账号所在的所有 megagroup，不限消息日期（冷群也要爬）
+    // Telegram dialogs 默认按最近消息倒序，取前5个即为最活跃的
+    const dialogs = await ctx.client.getDialogs({ limit: 200 });
+    const found: string[] = [];
     for (const d of dialogs) {
       const ent: any = (d as any).entity;
       if (!ent?.megagroup) continue;
-      const lastDate = (d as any).message?.date ?? 0;
-      if (lastDate >= cutoffSec) recent.push(String(ent.id));
-      if (recent.length >= 5) break;
+      found.push(String(ent.id));
+      if (found.length >= 5) break;
     }
-    if (recent.length) chatIds = recent;
-    else throw new Error('动态查最近加的群: 找不到, 可能账号还没加过群');
+    if (found.length) {
+      chatIds = found;
+    } else {
+      throw new Error('动态查最近加的群: 账号尚未加入任何超级群，请先执行「关键词搜群+加」任务');
+    }
   }
 
   if (!chatIds.length) throw new Error('payload.tgChatIds 为空');
