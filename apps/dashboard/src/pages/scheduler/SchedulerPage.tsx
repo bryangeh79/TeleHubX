@@ -21,6 +21,7 @@ import {
   Statistic,
   Table,
   Tag,
+  Tooltip,
   Typography,
   message as antdMessage,
 } from 'antd';
@@ -472,6 +473,21 @@ export default function SchedulerPage() {
     }
   };
 
+  const handleReactivate = async (id: string) => {
+    try {
+      await tasksApi.reactivate(id);
+      antdMessage.success('已重新激活，子任务会按原计划继续');
+      // 同步刷新当前打开的任务详情
+      try {
+        const fresh = (await tasksApi.get(id)).data;
+        if (fresh) setLogTask(fresh);
+      } catch {}
+      void reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '重新激活失败');
+    }
+  };
+
   const handleCancel = async (id: string) => {
     try {
       await tasksApi.cancel(id);
@@ -773,7 +789,32 @@ export default function SchedulerPage() {
         }
         open={!!logTask}
         onCancel={() => setLogTask(null)}
-        footer={[<Button key="close" onClick={() => setLogTask(null)}>关闭</Button>]}
+        footer={(() => {
+          const showReactivate = logTask?.status === 'failed' && (
+            logChildren.length > 0 ||
+            logTask.type?.startsWith('preset_') ||
+            logTask.type === 'keyword_lead_hunt'
+          );
+          const buttons: React.ReactNode[] = [];
+          if (showReactivate && logTask) {
+            buttons.push(
+              <Tooltip
+                key="reactivate"
+                title="把父任务恢复为运行中，子任务会按原计划继续。适用于父任务被错误标失败的情况。"
+              >
+                <Button
+                  type="primary"
+                  icon={<ReloadOutlined />}
+                  onClick={() => void handleReactivate(logTask.id)}
+                >
+                  重新激活
+                </Button>
+              </Tooltip>,
+            );
+          }
+          buttons.push(<Button key="close" onClick={() => setLogTask(null)}>关闭</Button>);
+          return buttons;
+        })()}
         width={640}
       >
         {logTask && (

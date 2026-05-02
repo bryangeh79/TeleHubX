@@ -316,6 +316,7 @@ export const tasksApi = {
   pause: (id: string) => api.post(`/tasks/${id}/pause`),
   resume: (id: string) => api.post(`/tasks/${id}/resume`),
   retry: (id: string) => api.post(`/tasks/${id}/retry`),
+  reactivate: (id: string) => api.post(`/tasks/${id}/reactivate`),
   cancel: (id: string) => api.post(`/tasks/${id}/cancel`),
   children: (id: string) => api.get(`/tasks/${id}/children`),
   cancelAll: () => api.post('/tasks/cancel-all'),

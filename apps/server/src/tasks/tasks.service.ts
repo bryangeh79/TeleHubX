@@ -719,6 +719,40 @@ export class TasksService implements OnModuleInit {
   }
 
   /**
+   * 重新激活父级编排任务（preset_*, keyword_lead_hunt 等）。
+   * 父任务被误标 failed 时，恢复为 running 让其子任务按原计划继续。
+   * 不重置 startedAt（保留首次开始时间），仅清 errorMsg/finishedAt。
+   * 也会把同一父任务下因「上级任务目标已达, 跳过」而被取消的子任务恢复 pending。
+   */
+  async reactivate(id: string): Promise<Task> {
+    const t = await this.findOne(id);
+    if (t.status !== TaskStatus.FAILED) return t;
+
+    t.status = TaskStatus.RUNNING;
+    t.errorMsg = null;
+    t.finishedAt = null;
+    const saved = await this.repo.save(t);
+
+    // 父任务被恢复 → 它跑过 cancelChildren 把子任务标 failed 的，全部恢复回 pending
+    await this.repo
+      .createQueryBuilder()
+      .update(Task)
+      .set({
+        status: TaskStatus.PENDING,
+        errorMsg: null,
+        progress: 0,
+        startedAt: null,
+        finishedAt: null,
+      })
+      .where('parentTaskId = :pid', { pid: id })
+      .andWhere('status = :s', { s: TaskStatus.FAILED })
+      .andWhere(`"errorMsg" = :msg`, { msg: '上级任务目标已达, 跳过' })
+      .execute();
+
+    return saved;
+  }
+
+  /**
    * 批量重试某个 campaign 下所有 failed 任务。
    * 把它们改回 pending + 清空错误 + scheduledAt=now，
    * agent 下轮 dispatch 自动拉取重新执行。

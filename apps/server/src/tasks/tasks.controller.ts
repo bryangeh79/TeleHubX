@@ -93,6 +93,12 @@ export class TasksController {
     return this.service.retry(id);
   }
 
+  /** 重新激活父级编排任务：failed → running，让子任务按原计划继续 */
+  @Post(':id/reactivate')
+  reactivate(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.reactivate(id);
+  }
+
   /** 强制停止：无论当前状态都标 failed + errorMsg='Cancelled by user'. */
   @Post(':id/cancel')
   cancel(@Param('id', ParseUUIDPipe) id: string) {
