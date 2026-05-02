@@ -790,12 +790,13 @@ export async function mediaVoice(ctx: ExecutorCtx): Promise<void> { return media
  */
 async function chatScriptImpl(
   ctx: ExecutorCtx,
-  expectedType: 'A+B' | 'A+B+C+D',
+  expectedType: 'A+B' | 'A+B+C+D' | 'A+B+C+D+E+F',
 ): Promise<void> {
   const p = ctx.payload as {
     tgChatId?: string;
     chatMode?: 'private' | 'group';
     accountAId?: string; accountBId?: string; accountCId?: string; accountDId?: string;
+    accountEId?: string; accountFId?: string;
     accountAPhone?: string; accountBPhone?: string;
     accountCPhone?: string; accountDPhone?: string;
     packId?: string; scriptId?: string;
@@ -809,11 +810,13 @@ async function chatScriptImpl(
   if (p.accountBId) roleAcc.B = p.accountBId;
   if (p.accountCId) roleAcc.C = p.accountCId;
   if (p.accountDId) roleAcc.D = p.accountDId;
+  if (p.accountEId) roleAcc.E = p.accountEId;
+  if (p.accountFId) roleAcc.F = p.accountFId;
   const rolesPresent = Object.keys(roleAcc);
   if (rolesPresent.length < 2) throw new Error('chat_script 至少需 2 个账号');
 
-  if (!isGroup && expectedType === 'A+B+C+D') {
-    throw new Error('4 人剧本必须用群聊模式 (4 人 N×N 私聊太复杂, 暂不支持)');
+  if (!isGroup && (expectedType === 'A+B+C+D' || expectedType === 'A+B+C+D+E+F')) {
+    throw new Error('4 人 / 6 人剧本必须用群聊模式 (N×N 私聊太复杂, 暂不支持)');
   }
 
   // 静默所有参与账号的自动回复（cs 智能客服 / ad FAQ）
@@ -830,7 +833,7 @@ async function chatScriptImpl(
 
 async function runChatScriptInner(
   ctx: ExecutorCtx,
-  expectedType: 'A+B' | 'A+B+C+D',
+  expectedType: 'A+B' | 'A+B+C+D' | 'A+B+C+D+E+F',
   p: any,
   roleAcc: Record<string, string>,
   rolesPresent: string[],
@@ -977,6 +980,7 @@ async function tryImportContact(client: TelegramClient, phone: string): Promise<
 
 export async function chatScriptAb(ctx: ExecutorCtx): Promise<void> { return chatScriptImpl(ctx, 'A+B'); }
 export async function chatScript4p(ctx: ExecutorCtx): Promise<void> { return chatScriptImpl(ctx, 'A+B+C+D'); }
+export async function chatScript6p(ctx: ExecutorCtx): Promise<void> { return chatScriptImpl(ctx, 'A+B+C+D+E+F'); }
 
 // ─── 21. GROUP_CREATE ────────────────────────────────────────────────
 /**
@@ -1167,6 +1171,7 @@ export const EXECUTORS: Record<string, (ctx: ExecutorCtx) => Promise<void>> = {
   media_voice:     mediaVoice,
   chat_script_ab:  chatScriptAb,
   chat_script_4p:  chatScript4p,
+  chat_script_6p:  chatScript6p,
   join_groups_by_keyword: joinGroupsByKeyword,
   group_create:    groupCreate,
   group_invite_members: groupInviteMembers,

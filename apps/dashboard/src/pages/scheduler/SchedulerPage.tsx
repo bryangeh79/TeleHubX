@@ -55,7 +55,7 @@ type TaskType =
   // 自建群
   | 'group_create' | 'group_invite_members'
   // 群组活动
-  | 'group_bubble' | 'chat_script_ab' | 'chat_script_4p'
+  | 'group_bubble' | 'chat_script_ab' | 'chat_script_4p' | 'chat_script_6p'
   // 拉新
   | 'keyword_lead_hunt' | 'group_scrape'
   // 触达
@@ -114,6 +114,7 @@ const TASK_TYPE_LABELS: Record<TaskType, TaskTypeMeta> = {
   group_bubble:           { icon: '💡', label: '群内冒泡',                 color: 'gold',     group: '群组活动' },
   chat_script_ab:         { icon: '💬', label: 'A+B 双角色剧本',           color: 'purple',   group: '群组活动' },
   chat_script_4p:         { icon: '💬', label: '4 人剧本',                 color: 'purple',   group: '群组活动' },
+  chat_script_6p:         { icon: '💬', label: '6 人剧本',                 color: 'purple',   group: '群组活动' },
 
   // 拉新引流
   keyword_lead_hunt:      { icon: '🎯', label: '关键词智能引流',           color: 'magenta',  group: '拉新引流' },
@@ -353,8 +354,12 @@ export default function SchedulerPage() {
     try {
       const scheduledAt = runNow ? new Date().toISOString() : values.scheduledAt.toISOString();
 
-      // chat_script_ab / chat_script_4p：服务端会自动拆 N 个子任务
-      if (values.type === 'chat_script_ab' || values.type === 'chat_script_4p') {
+      // chat_script_ab / 4p / 6p
+      if (
+        values.type === 'chat_script_ab' ||
+        values.type === 'chat_script_4p' ||
+        values.type === 'chat_script_6p'
+      ) {
         const chatMode = values.chatMode ?? 'private';
         const payload: any = {
           chatMode,
@@ -363,9 +368,13 @@ export default function SchedulerPage() {
           aiOptimize: values.aiOptimize ?? false,
         };
         if (chatMode === 'group') payload.tgChatId = values.tgChatId;
-        if (values.type === 'chat_script_4p') {
+        if (values.type === 'chat_script_4p' || values.type === 'chat_script_6p') {
           payload.accountCId = values.accountCId;
           payload.accountDId = values.accountDId;
+        }
+        if (values.type === 'chat_script_6p') {
+          payload.accountEId = values.accountEId;
+          payload.accountFId = values.accountFId;
         }
         if (values.scriptId) payload.scriptId = values.scriptId;
         else if (values.packId) payload.packId = values.packId;
@@ -379,7 +388,9 @@ export default function SchedulerPage() {
           scheduledAt,
           payload,
         } as any);
-        antdMessage.success(`已创建剧本任务（${values.type === 'chat_script_4p' ? '4 个' : '2 个'}子任务并行排队）`);
+        const nLabel = values.type === 'chat_script_6p' ? '6 个'
+          : values.type === 'chat_script_4p' ? '4 个' : '2 个';
+        antdMessage.success(`已创建剧本任务（${nLabel}账号）`);
       } else if (
         values.type === 'media_photo' || values.type === 'media_video' ||
         values.type === 'media_voice' || values.type === 'post_channel'
@@ -959,7 +970,8 @@ export default function SchedulerPage() {
               const t = getFieldValue('type');
               const isAB = t === 'chat_script_ab';
               const is4P = t === 'chat_script_4p';
-              const isChatScript = isAB || is4P;
+              const is6P = t === 'chat_script_6p';
+              const isChatScript = isAB || is4P || is6P;
               const isMedia = t === 'media_photo' || t === 'media_video' || t === 'media_voice' || t === 'post_channel';
               const mediaCategory = t === 'media_photo' ? 'photo'
                 : t === 'media_video' ? 'video'
@@ -997,13 +1009,15 @@ export default function SchedulerPage() {
                 );
               }
 
-              // chat_script_ab / 4p — 多账号 + 剧本选择 + AI 优化
-              const filteredScripts = scriptOptions.filter((s) => s.type === (isAB ? 'A+B' : 'A+B+C+D'));
+              // chat_script_ab / 4p / 6p — 多账号 + 剧本选择 + AI 优化
+              const expectedType = isAB ? 'A+B' : is4P ? 'A+B+C+D' : 'A+B+C+D+E+F';
+              const filteredScripts = scriptOptions.filter((s) => s.type === expectedType);
+              const rolesLabel = isAB ? 'A ⇄ B' : is4P ? 'A + B + C + D' : 'A + B + C + D + E + F';
               return (
                 <>
                   <Card size="small" style={{ marginBottom: 12, background: '#f0f7ff' }} title={
                     <Space size={6}>
-                      <Text strong>💬 聊天账号设置 ({isAB ? 'A ⇄ B' : 'A + B + C + D'} 角色扮演)</Text>
+                      <Text strong>💬 聊天账号设置 ({rolesLabel} 角色扮演)</Text>
                     </Space>
                   }>
                     <Row gutter={12}>
@@ -1021,7 +1035,7 @@ export default function SchedulerPage() {
                             options={accountOptions} />
                         </Form.Item>
                       </Col>
-                      {is4P && (
+                      {(is4P || is6P) && (
                         <>
                           <Col span={12}>
                             <Form.Item name="accountCId" label="账号 C" rules={[{ required: true }]}>
@@ -1033,6 +1047,24 @@ export default function SchedulerPage() {
                           <Col span={12}>
                             <Form.Item name="accountDId" label="账号 D" rules={[{ required: true }]}>
                               <Select placeholder="选择扮演 D 角色的账号" showSearch optionFilterProp="phone"
+                                filterOption={(input, option) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
+                                options={accountOptions} />
+                            </Form.Item>
+                          </Col>
+                        </>
+                      )}
+                      {is6P && (
+                        <>
+                          <Col span={12}>
+                            <Form.Item name="accountEId" label="账号 E" rules={[{ required: true }]}>
+                              <Select placeholder="选择扮演 E 角色的账号" showSearch optionFilterProp="phone"
+                                filterOption={(input, option) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
+                                options={accountOptions} />
+                            </Form.Item>
+                          </Col>
+                          <Col span={12}>
+                            <Form.Item name="accountFId" label="账号 F" rules={[{ required: true }]}>
+                              <Select placeholder="选择扮演 F 角色的账号" showSearch optionFilterProp="phone"
                                 filterOption={(input, option) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
                                 options={accountOptions} />
                             </Form.Item>

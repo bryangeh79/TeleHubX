@@ -45,6 +45,8 @@ export enum TaskType {
   CHAT_SCRIPT_AB           = 'chat_script_ab',
   /** 💬 4 人剧本。payload: { tgChatId, scriptId, accountIds: [4 个] } */
   CHAT_SCRIPT_4P           = 'chat_script_4p',
+  /** 💬 6 人剧本。payload: { tgChatId, scriptId, accountAId..accountFId } */
+  CHAT_SCRIPT_6P           = 'chat_script_6p',
 
   // ── 拉新引流（pipeline） ──
   /** 🎯 关键词智能引流（4 阶段：搜→加→等→爬→可选触达）。默认 30 天。

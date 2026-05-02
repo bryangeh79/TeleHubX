@@ -9,6 +9,7 @@ import {
 export enum ChatScriptType {
   AB = 'A+B',
   ABCD = 'A+B+C+D',
+  ABCDEF = 'A+B+C+D+E+F',
 }
 
 export enum ChatScriptStatus {
@@ -19,7 +20,7 @@ export enum ChatScriptStatus {
 }
 
 export interface ScriptLine {
-  roleLabel: 'A' | 'B' | 'C' | 'D';
+  roleLabel: 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
   text: string;
   allowEmoji: boolean;
   delayAfterMs: number;

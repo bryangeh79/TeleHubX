@@ -13,7 +13,7 @@ import { ChatScriptType } from '../chat-script.entity';
 
 export class ScriptLineDto {
   @IsString()
-  roleLabel: 'A' | 'B' | 'C' | 'D';
+  roleLabel: 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
 
   @IsString()
   text: string;
@@ -58,8 +58,13 @@ export class CreateChatScriptDto {
   @IsString({ each: true })
   accountIds?: string[];
 
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ScriptLineDto)
-  lines: ScriptLineDto[];
+  lines?: ScriptLineDto[];
+
+  /** 完整 rawScript blob (sessions + turns)，自建剧本编辑器使用 */
+  @IsOptional()
+  rawScript?: any;
 }

@@ -297,6 +297,8 @@ export const chatScriptsApi = {
       timeout: 60000,
     });
   },
+  create: (data: any) => api.post('/chat-scripts', data),
+  update: (id: string, data: any) => api.patch(`/chat-scripts/${id}`, data),
 };
 
 export const testGroupsApi = {

@@ -29,6 +29,7 @@ import {
   VideoCameraOutlined,
 } from '@ant-design/icons';
 import { chatScriptsApi } from '../../services/api';
+import ChatScriptEditor from './ChatScriptEditor';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -101,6 +102,8 @@ export default function ChatScriptsPage({ embedded = false }: Props) {
   const [filterCategory, setFilterCategory] = useState<string | undefined>();
   const [search, setSearch] = useState('');
   const [detail, setDetail] = useState<ChatScript | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editing, setEditing] = useState<ChatScript | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -183,13 +186,22 @@ export default function ChatScriptsPage({ embedded = false }: Props) {
         style={{ marginBottom: 16 }}
         title={<Space><Text strong>📦 剧本包管理</Text></Space>}
         extra={
-          <Upload
-            showUploadList={false}
-            accept=".json"
-            beforeUpload={(file) => { void handleUploadPack(file as File); return false; }}
-          >
-            <Button type="primary" icon={<UploadOutlined />} size="small">上传剧本包 (JSON)</Button>
-          </Upload>
+          <Space size={6}>
+            <Button
+              type="primary"
+              size="small"
+              onClick={() => { setEditing(null); setEditorOpen(true); }}
+            >
+              + 新建剧本
+            </Button>
+            <Upload
+              showUploadList={false}
+              accept=".json"
+              beforeUpload={(file) => { void handleUploadPack(file as File); return false; }}
+            >
+              <Button icon={<UploadOutlined />} size="small">上传剧本包 (JSON)</Button>
+            </Upload>
+          </Space>
         }
       >
         {packs.length === 0 ? (
@@ -412,6 +424,18 @@ export default function ChatScriptsPage({ embedded = false }: Props) {
           </Card>
         )}
       </Drawer>
+
+      <ChatScriptEditor
+        open={editorOpen}
+        onClose={() => setEditorOpen(false)}
+        initial={editing ? {
+          id: editing.id,
+          name: editing.name,
+          type: editing.type as any,
+          rawScript: editing.rawScript,
+        } : undefined}
+        onSaved={() => { void reload(); }}
+      />
     </div>
   );
 }
