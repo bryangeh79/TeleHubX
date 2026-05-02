@@ -568,6 +568,7 @@ interface DispatchPreview {
   tasksTotal: number;
   dailyLimit: number;
   pacePreset: string;
+  fastPath?: boolean;
   schedule: Array<{
     day: number;
     date: string;
@@ -589,6 +590,7 @@ function DispatchPreviewCard({ state }: { state: WizardState }) {
       pacePreset: state.pacePreset,
       accountSourceMode: state.accountSourceMode,
       adAccountIds: state.adAccountIds,
+      scheduleMode: state.scheduleMode,
     });
     if (key === prevKeyRef.current) return;
     prevKeyRef.current = key;
@@ -608,12 +610,13 @@ function DispatchPreviewCard({ state }: { state: WizardState }) {
       pacePreset: state.pacePreset,
       accountSourceMode: state.accountSourceMode,
       adAccountIds: state.adAccountIds,
+      scheduleMode: state.scheduleMode,
     }).then(res => {
       setPreview(res.data);
     }).catch(() => {
       setErr('预览加载失败（可确保账号配置正确后重试）');
     }).finally(() => setLoading(false));
-  }, [state.customerGroupIds, state.targets, state.pacePreset, state.accountSourceMode, state.adAccountIds]);
+  }, [state.customerGroupIds, state.targets, state.pacePreset, state.accountSourceMode, state.adAccountIds, state.scheduleMode]);
 
   const fmt = (iso: string) => {
     const d = new Date(iso);
@@ -642,20 +645,23 @@ function DispatchPreviewCard({ state }: { state: WizardState }) {
           <div style={{ fontSize: 12, color: '#555', marginBottom: 8 }}>
             <Tag color="green">目标 {preview.targetCount} 人</Tag>
             <Tag color="blue">{preview.accountsUsed} 个账号</Tag>
-            <Tag color="purple">跨 {preview.days} 天</Tag>
+            {preview.fastPath
+              ? <Tag color="orange" icon={<ThunderboltOutlined />}>立即发送</Tag>
+              : <Tag color="purple">跨 {preview.days} 天</Tag>}
             <Tag>共 {preview.tasksTotal} 条任务</Tag>
-            <span style={{ color: '#999' }}>·&nbsp;每号每天最多 {preview.dailyLimit} 条</span>
+            {!preview.fastPath && <span style={{ color: '#999' }}>·&nbsp;每号每天最多 {preview.dailyLimit} 条</span>}
+            {preview.fastPath && <span style={{ color: '#fa8c16' }}>·&nbsp;数量小，跳过时段窗口直接发出</span>}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {preview.schedule.map(day => (
               <div key={day.day} style={{ border: '1px solid #d9f7be', borderRadius: 6, padding: '6px 10px', background: '#fff' }}>
                 <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 4 }}>
-                  第 {day.day + 1} 天 ({day.date})
+                  {preview.fastPath ? '即将发送' : `第 ${day.day + 1} 天 (${day.date})`}
                   <span style={{ fontWeight: 400, color: '#999', marginLeft: 8 }}>{day.dayTotal} 条</span>
                 </div>
                 {day.windows.map((w, wi) => (
                   <div key={wi} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#555', marginBottom: 2 }}>
-                    <span style={{ color: '#1677ff', minWidth: 110 }}>{w.label}</span>
+                    <span style={{ color: w.label === '立即发送' ? '#fa8c16' : '#1677ff', minWidth: 110 }}>{w.label}</span>
                     <span>{w.count} 条</span>
                     <span style={{ color: '#aaa' }}>首发 {fmt(w.firstAt)} · 末发 {fmt(w.lastAt)}</span>
                   </div>

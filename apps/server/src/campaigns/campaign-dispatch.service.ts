@@ -9,6 +9,7 @@ import {
   MATURE_MIN_HEALTH,
   PACE_LIMITS,
   PacePreset,
+  ScheduleMode,
 } from './campaign.entity';
 import { Account, AccountRole, AccountStatus } from '../accounts/account.entity';
 import { CustomerGroup } from '../customer-groups/customer-group.entity';
@@ -109,17 +110,19 @@ export class CampaignDispatchService {
     if (!adVariants.length) throw new Error('没有可用的广告文案');
     const greetings = await this.loadGreetings(campaign);
 
-    // 5. 分配目标到 (account, day, window)
-    const sendUnits = this.distribute({
-      targets,
-      accounts,
-      days,
-      dailyLimit,
-      pace,
-      adVariants,
-      greetings,
-      greetingMode: (campaign.greetingMode as GreetingMode) ?? GreetingMode.NONE,
-    });
+    // 5. 分配目标 — 立即模式 + 小批量(≤账号数×5) 走 fast-path 立即发
+    const isImmediate = (campaign.scheduleMode ?? ScheduleMode.IMMEDIATE) === ScheduleMode.IMMEDIATE;
+    const useFastPath = isImmediate && targets.length <= accounts.length * 5;
+
+    const sendUnits = useFastPath
+      ? this.fastImmediateDistribute({
+          targets, accounts, adVariants, greetings,
+          greetingMode: (campaign.greetingMode as GreetingMode) ?? GreetingMode.NONE,
+        })
+      : this.distribute({
+          targets, accounts, days, dailyLimit, pace, adVariants, greetings,
+          greetingMode: (campaign.greetingMode as GreetingMode) ?? GreetingMode.NONE,
+        });
 
     // 6. 落库为 CAMPAIGN_SINGLE 任务
     const tasks = sendUnits.map(u => this.taskRepo.create({
@@ -140,8 +143,11 @@ export class CampaignDispatchService {
     }));
     await this.taskRepo.save(tasks);
 
+    // 实际跨天数（用 sendUnits 算，可能因为 fast-path 或 past-windows 调整后变少/多）
+    const actualDays = this.countDays(sendUnits.map(u => u.scheduledAt));
+
     this.logger.log(
-      `Campaign ${campaign.id} dispatched: ${tasks.length} tasks, ${days} day(s), ${accounts.length} accounts, ${targets.length} targets`,
+      `Campaign ${campaign.id} dispatched: ${tasks.length} tasks, ${actualDays} day(s), ${accounts.length} accounts, ${targets.length} targets, fastPath=${useFastPath}`,
     );
 
     // 7. 更新 campaign 状态 + 记录总目标数
@@ -151,10 +157,62 @@ export class CampaignDispatchService {
 
     return {
       tasksCreated: tasks.length,
-      days,
+      days: actualDays,
       accountsUsed: accounts.length,
       targetCount: targets.length,
     };
+  }
+
+  /** 计算这批任务跨了多少天（按本地日期） */
+  private countDays(dates: Date[]): number {
+    if (!dates.length) return 0;
+    const set = new Set(dates.map(d => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`));
+    return set.size;
+  }
+
+  /**
+   * 立即模式 + 小批量 fast-path：每个目标分配一个账号，
+   * scheduledAt = now + Gaussian(60s ~ 180s)，让 2 个账号不同时发送。
+   * 不受时段窗口和夜间保护限制（用户已选立即开始，明确意图）。
+   */
+  private fastImmediateDistribute(opts: {
+    targets: ResolvedTarget[];
+    accounts: Account[];
+    adVariants: string[];
+    greetings: string[];
+    greetingMode: GreetingMode;
+  }): SendUnit[] {
+    const { targets, accounts, adVariants, greetings, greetingMode } = opts;
+    const result: SendUnit[] = [];
+    const baseTime = Date.now();
+
+    for (let i = 0; i < targets.length; i++) {
+      const acc = accounts[i % accounts.length];
+      // 同账号的多条之间间隔 60-120s；不同账号之间错开 0-60s
+      const sameAccIndex = Math.floor(i / accounts.length);
+      const accStagger = (i % accounts.length) * 30 + Math.random() * 20; // 0-60s 错开
+      const sameAccGap = sameAccIndex * 90 + (Math.random() - 0.5) * 30;  // 90s/条 ± 15s
+      const offsetMs = (60 + accStagger + sameAccGap) * 1000;
+      const scheduledAt = new Date(baseTime + offsetMs);
+
+      const ad = adVariants[Math.floor(Math.random() * adVariants.length)];
+      let greeting: string | null = null;
+      if (greetingMode === GreetingMode.FIXED && greetings.length) {
+        greeting = greetings[0];
+      } else if (greetingMode === GreetingMode.RANDOM && greetings.length) {
+        greeting = greetings[Math.floor(Math.random() * greetings.length)];
+      }
+
+      result.push({
+        accountId: acc.id,
+        accountLabel: acc.phoneNumber ?? acc.id.slice(0, 8),
+        scheduledAt,
+        target: targets[i].value,
+        greeting,
+        adContent: ad,
+      });
+    }
+    return result;
   }
 
   // ── Preview (dry-run) ───────────────────────────────────────────────
@@ -169,6 +227,7 @@ export class CampaignDispatchService {
     pacePreset?: string;
     accountSourceMode?: string;
     adAccountIds?: string[];
+    scheduleMode?: string;
   }): Promise<{
     targetCount: number;
     accountsUsed: number;
@@ -176,6 +235,7 @@ export class CampaignDispatchService {
     tasksTotal: number;
     dailyLimit: number;
     pacePreset: string;
+    fastPath: boolean;
     schedule: Array<{
       day: number;
       date: string;
@@ -198,31 +258,66 @@ export class CampaignDispatchService {
 
     const targets = await this.resolveTargets(fake);
     if (!targets.length) {
-      return { targetCount: 0, accountsUsed: 0, days: 0, tasksTotal: 0, dailyLimit: 0, pacePreset: paceStr, schedule: [] };
+      return { targetCount: 0, accountsUsed: 0, days: 0, tasksTotal: 0, dailyLimit: 0, pacePreset: paceStr, fastPath: false, schedule: [] };
     }
 
     const accounts = await this.selectAccounts(fake);
     if (!accounts.length) {
-      return { targetCount: targets.length, accountsUsed: 0, days: 0, tasksTotal: 0, dailyLimit: 0, pacePreset: paceStr, schedule: [] };
+      return { targetCount: targets.length, accountsUsed: 0, days: 0, tasksTotal: 0, dailyLimit: 0, pacePreset: paceStr, fastPath: false, schedule: [] };
     }
 
     const dailyLimit = Math.min(PACE_LIMITS[pace].dailyLimit, HARD_DAILY_CAP);
     const perAccountTotal = Math.ceil(targets.length / accounts.length);
     const days = Math.max(1, Math.ceil(perAccountTotal / dailyLimit));
 
-    // dry-run distribute（文案内容不影响时间分布）
-    const sendUnits = this.distribute({
-      targets,
-      accounts,
-      days,
-      dailyLimit,
-      pace,
-      adVariants: ['[preview]'],
-      greetings: [],
-      greetingMode: GreetingMode.NONE,
-    });
+    // 与 dispatch() 保持完全一致的 fast-path 判断
+    const isImmediate = (dto.scheduleMode ?? 'immediate') === 'immediate';
+    const useFastPath = isImmediate && targets.length <= accounts.length * 5;
 
-    // 聚合：按日期分组，每天内按时段分组
+    const sendUnits = useFastPath
+      ? this.fastImmediateDistribute({
+          targets, accounts,
+          adVariants: ['[preview]'],
+          greetings: [],
+          greetingMode: GreetingMode.NONE,
+        })
+      : this.distribute({
+          targets, accounts, days, dailyLimit, pace,
+          adVariants: ['[preview]'],
+          greetings: [],
+          greetingMode: GreetingMode.NONE,
+        });
+
+    const pad = (n: number) => String(n).padStart(2, '0');
+
+    // Fast-path 特殊处理：所有任务集中在 1-3 分钟内，单独一个「立即」标签
+    if (useFastPath) {
+      const sorted = sendUnits.map(u => u.scheduledAt).sort((a, b) => a.getTime() - b.getTime());
+      const firstDate = sorted[0];
+      const date = `${firstDate.getFullYear()}-${pad(firstDate.getMonth() + 1)}-${pad(firstDate.getDate())}`;
+      return {
+        targetCount: targets.length,
+        accountsUsed: accounts.length,
+        days: 1,
+        tasksTotal: sendUnits.length,
+        dailyLimit,
+        pacePreset: paceStr,
+        fastPath: true,
+        schedule: [{
+          day: 0,
+          date,
+          windows: [{
+            label: '立即发送',
+            count: sorted.length,
+            firstAt: sorted[0].toISOString(),
+            lastAt: sorted[sorted.length - 1].toISOString(),
+          }],
+          dayTotal: sorted.length,
+        }],
+      };
+    }
+
+    // 标准路径：按日期分组，每天内按时段分组
     const windows = PACE_WINDOWS[pace];
     const todayMs = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
 
@@ -235,7 +330,7 @@ export class CampaignDispatchService {
 
       const h = u.scheduledAt.getHours();
       const m = u.scheduledAt.getMinutes();
-      // 找对应时段（以 startH 为下界）
+      // 找对应时段（首个满足 endH/endM 的窗口）
       let winIdx = windows.length - 1;
       for (let i = 0; i < windows.length; i++) {
         const w = windows[i];
@@ -251,7 +346,6 @@ export class CampaignDispatchService {
       wm.get(winIdx)!.push(new Date(u.scheduledAt));
     }
 
-    const pad = (n: number) => String(n).padStart(2, '0');
     const schedule = Array.from(agg.entries())
       .sort((a, b) => a[0] - b[0])
       .map(([dayOffset, wm]) => {
@@ -282,10 +376,11 @@ export class CampaignDispatchService {
     return {
       targetCount: targets.length,
       accountsUsed: accounts.length,
-      days,
+      days: schedule.length || days,
       tasksTotal: sendUnits.length,
       dailyLimit,
       pacePreset: paceStr,
+      fastPath: false,
       schedule,
     };
   }
@@ -430,8 +525,17 @@ export class CampaignDispatchService {
     }
 
     const result: SendUnit[] = [];
+    const now = new Date();
     const baseDate = new Date();
-    baseDate.setSeconds(0, 0);
+    baseDate.setHours(0, 0, 0, 0);
+
+    // 检查今天所有时段是否都已结束 → 是则起始日期推到明天
+    const todayLastWinEnd = new Date(now);
+    const lastWin = windows[windows.length - 1];
+    todayLastWinEnd.setHours(lastWin.endH, lastWin.endM, 0, 0);
+    if (now.getTime() > todayLastWinEnd.getTime() - 60_000) {
+      baseDate.setDate(baseDate.getDate() + 1);
+    }
 
     for (const [key, bucketTargets] of buckets) {
       const [accountId, dayStr] = key.split(':');
@@ -452,20 +556,31 @@ export class CampaignDispatchService {
         const winEnd = new Date(winStart);
         winEnd.setHours(win.endH, win.endM, 0, 0);
 
-        const winSecs = (winEnd.getTime() - winStart.getTime()) / 1000;
-        const meanInterval = wTargets.length > 0 ? winSecs / wTargets.length : 0;
+        // 跳过已经结束的时段（窗口剩余 < 1 分钟）
+        if (winEnd.getTime() <= now.getTime() + 60_000) continue;
+
+        // 起点取 max(窗口起点, 当前时间+60s)，避免把任务排到过去
+        const effectiveStart = Math.max(winStart.getTime(), now.getTime() + 60_000);
+        // 如果 effectiveStart 已超 winEnd 缓冲，跳过
+        if (effectiveStart >= winEnd.getTime() - 60_000) continue;
+
+        const winSecs = (winEnd.getTime() - effectiveStart) / 1000;
+        const meanInterval = wTargets.length > 0 ? winSecs / (wTargets.length + 1) : 0;
         const stdev = meanInterval * 0.4;
 
-        let timeCursor = winStart.getTime();
+        let timeCursor = effectiveStart;
         for (const t of wTargets) {
+          // interval 上限：不能让 timeCursor 超出 winEnd（留 60s 缓冲）
+          const remainingSecs = (winEnd.getTime() - timeCursor) / 1000 - 60;
+          const maxInterval = Math.max(MIN_INTERVAL_SEC * 2, remainingSecs);
           const interval = clamp(
             gaussian(meanInterval, stdev),
             MIN_INTERVAL_SEC,
-            Math.max(meanInterval * 2, MIN_INTERVAL_SEC * 2),
+            maxInterval,
           );
           timeCursor += interval * 1000;
 
-          // 夜间保护：如果超过 21:00 → 截到当天 21:00
+          // 夜间保护
           const scheduledAt = new Date(timeCursor);
           if (scheduledAt.getHours() >= SEND_NIGHT_GUARD_END_H) {
             scheduledAt.setHours(SEND_NIGHT_GUARD_END_H - 1, 59, 0, 0);

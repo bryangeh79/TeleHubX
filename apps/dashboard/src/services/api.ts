@@ -89,6 +89,7 @@ export const campaignsApi = {
     pacePreset?: string;
     accountSourceMode?: string;
     adAccountIds?: string[];
+    scheduleMode?: string;
   }) => api.post('/campaigns/dispatch-preview', data, { timeout: 15000 }),
 };
 
