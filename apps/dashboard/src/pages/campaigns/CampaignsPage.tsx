@@ -342,36 +342,34 @@ export default function CampaignsPage() {
     {
       title: '操作',
       key: 'actions',
-      width: 200,
+      width: 220,
       render: (_, record) => {
         const canSend = record.status === 'draft' || record.status === 'scheduled' || record.status === 'paused';
         const hasTargets = (record.targets?.length ?? 0) > 0 || (record.customerGroupIds?.length ?? 0) > 0;
         const isRunningOrDone = record.status === 'running' || record.status === 'completed';
         return (
-          <Space size={2} wrap>
+          <Space size={4} wrap>
             {canSend && hasTargets && (
-              <Button size="small" type="link" icon={<SendOutlined />} onClick={() => handleSend(record)}>
+              <Button size="small" type="primary" icon={<SendOutlined />} onClick={() => handleSend(record)}>
                 发送
               </Button>
             )}
             {isRunningOrDone && (
-              <Button size="small" type="link" icon={<HistoryOutlined />}
+              <Button size="small" icon={<HistoryOutlined />}
                 onClick={() => setLogCampaign({ id: record.id, name: record.name })}>
                 日志
               </Button>
             )}
-            <Button size="small" type="link" icon={<RedoOutlined />} onClick={() => handleRerun(record)}>
+            <Button size="small" icon={<RedoOutlined />} onClick={() => handleRerun(record)}>
               再次执行
             </Button>
-            <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(record.id)}>
-              编辑
-            </Button>
+            <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record.id)} />
             <Popconfirm
               title={`删除「${record.name}」?`}
               onConfirm={() => handleDelete(record)}
               okText="删除" cancelText="取消" okButtonProps={{ danger: true }}
             >
-              <Button size="small" type="link" danger icon={<DeleteOutlined />}>删除</Button>
+              <Button size="small" danger icon={<DeleteOutlined />} />
             </Popconfirm>
           </Space>
         );
