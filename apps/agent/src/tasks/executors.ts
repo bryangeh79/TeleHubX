@@ -1,6 +1,7 @@
 import { Api, type TelegramClient } from 'telegram';
 import { CustomFile } from 'telegram/client/uploads';
 import { gaussianDelayMs, sendMessageLikeHuman, simulateReading, sleep } from './behavior-simulator';
+import { muteAccount, unmuteAccount } from './script-mute';
 import {
   bulkUpsertCandidates,
   fetchAssetById,
@@ -815,6 +816,26 @@ async function chatScriptImpl(
     throw new Error('4 人剧本必须用群聊模式 (4 人 N×N 私聊太复杂, 暂不支持)');
   }
 
+  // 静默所有参与账号的自动回复（cs 智能客服 / ad FAQ）
+  // 让账号专心按剧本说话，即使被 @ 也不会触发自动回复说出剧本之外的话
+  const participatingAccountIds = Object.values(roleAcc);
+  for (const accId of participatingAccountIds) muteAccount(accId);
+
+  try {
+    return await runChatScriptInner(ctx, expectedType, p, roleAcc, rolesPresent, isGroup);
+  } finally {
+    for (const accId of participatingAccountIds) unmuteAccount(accId);
+  }
+}
+
+async function runChatScriptInner(
+  ctx: ExecutorCtx,
+  expectedType: 'A+B' | 'A+B+C+D',
+  p: any,
+  roleAcc: Record<string, string>,
+  rolesPresent: string[],
+  isGroup: boolean,
+): Promise<void> {
   // 取所有 client (必须都在本 agent 上)
   const clients = ctx.clients;
   if (!clients) throw new Error('chat_script 需要 ctx.clients (本 agent 全部 client map)');

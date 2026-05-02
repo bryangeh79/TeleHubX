@@ -2,6 +2,7 @@ import { TelegramClient } from 'telegram';
 import { NewMessage, NewMessageEvent } from 'telegram/events';
 import { Api } from 'telegram';
 import { AiReplyService } from '../ai/ai-reply.service';
+import { isAccountMuted } from '../tasks/script-mute';
 import { logger } from '../logger';
 
 export type AccountRole = 'ad' | 'cs' | 'hybrid';
@@ -73,6 +74,12 @@ async function handleEvent(
   const msg = event.message;
 
   try {
+    // ─── 第 0 道: 剧本静默 ─ 账号正在跑 chat_script，不触发任何自动回复 ──
+    if (isAccountMuted(config.accountId)) {
+      logger.debug(`[MessageHandler:${config.accountId}] muted (chat_script in progress) — skip`);
+      return;
+    }
+
     // ─── 防自我循环 第 1 道: 自己人白名单 ─────────────────────────
     const fromUserId = extractFromUserId(msg);
     const ownSet = config.getOwnNetwork?.();
