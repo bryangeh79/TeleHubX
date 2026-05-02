@@ -398,6 +398,9 @@ export const platformConfigApi = {
   updateAiProvider: (id: string, data: any) => api.patch(`/platform-config/ai/${id}`, data),
   deleteAiProvider: (id: string) => api.delete(`/platform-config/ai/${id}`),
   testAiProvider: (id: string) => api.post(`/platform-config/ai/${id}/test`, {}, { timeout: 30000 }),
+  getVariantPrompt: () => api.get('/platform-config/ai/settings/variant-prompt'),
+  setVariantPrompt: (value: string) => api.put('/platform-config/ai/settings/variant-prompt', { value }),
+  resetVariantPrompt: () => api.post('/platform-config/ai/settings/variant-prompt/reset'),
 };
 
 export const statsApi = {

@@ -13,6 +13,9 @@ import {
   Tabs,
   Tag,
   Typography,
+  Input,
+  message as antdMessage,
+  Tooltip,
 } from 'antd';
 import {
   CrownOutlined,
@@ -20,9 +23,15 @@ import {
   SafetyCertificateOutlined,
   TeamOutlined,
   ToolOutlined,
+  FileTextOutlined,
+  ReloadOutlined,
+  SaveOutlined,
+  UndoOutlined,
 } from '@ant-design/icons';
+import { platformConfigApi } from '../../services/api';
 
 const { Title, Text } = Typography;
+const { TextArea } = Input;
 
 function readUserRole(): string {
   try {
@@ -34,6 +43,121 @@ function readUserRole(): string {
   }
 }
 
+// ── Prompt 配置 Tab ───────────────────────────────────────────────────────
+function VariantPromptTab() {
+  const [value, setValue] = useState('');
+  const [original, setOriginal] = useState('');
+  const [isDefault, setIsDefault] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await platformConfigApi.getVariantPrompt();
+      setValue(res.data.value);
+      setOriginal(res.data.value);
+      setIsDefault(res.data.isDefault);
+    } catch {
+      antdMessage.error('加载失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const handleSave = async () => {
+    if (!value.trim()) { antdMessage.warning('Prompt 不能为空'); return; }
+    setSaving(true);
+    try {
+      await platformConfigApi.setVariantPrompt(value.trim());
+      setOriginal(value.trim());
+      setIsDefault(false);
+      antdMessage.success('已保存');
+    } catch {
+      antdMessage.error('保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReset = async () => {
+    setSaving(true);
+    try {
+      const res = await platformConfigApi.resetVariantPrompt();
+      setValue(res.data.value);
+      setOriginal(res.data.value);
+      setIsDefault(true);
+      antdMessage.success('已恢复为系统默认');
+    } catch {
+      antdMessage.error('重置失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const dirty = value !== original;
+
+  return (
+    <div>
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="变体生成 Prompt 模板"
+        description={
+          <span>
+            控制「AI 生成 10 条变体」功能的指令。使用 <Text code>{'{content}'}</Text> 代表原始文案，
+            <Text code>{'{count}'}</Text> 代表生成数量。修改后对所有广告文案的变体生成立即生效。
+          </span>
+        }
+      />
+
+      <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Space>
+          {isDefault
+            ? <Tag color="default">系统默认</Tag>
+            : <Tag color="blue">已自定义</Tag>
+          }
+          {dirty && <Tag color="orange">未保存</Tag>}
+        </Space>
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={load} loading={loading} size="small">
+            刷新
+          </Button>
+        </Space>
+      </div>
+
+      <TextArea
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        autoSize={{ minRows: 18, maxRows: 36 }}
+        style={{ fontFamily: 'monospace', fontSize: 13 }}
+        placeholder="在此输入 Prompt 模板..."
+      />
+
+      <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <Tooltip title="恢复为系统内置的默认 Prompt">
+          <Button icon={<UndoOutlined />} onClick={handleReset} loading={saving} disabled={isDefault && !dirty}>
+            恢复默认
+          </Button>
+        </Tooltip>
+        <Button
+          type="primary"
+          icon={<SaveOutlined />}
+          onClick={handleSave}
+          loading={saving}
+          disabled={!dirty}
+        >
+          保存
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────
 export default function AdminPage() {
   const [role, setRole] = useState<string>('OPERATOR');
 
@@ -138,6 +262,11 @@ export default function AdminPage() {
                   <Empty description="后续从 .env 迁移到此可视化配置（含使用量/账单统计）" style={{ padding: 40 }} />
                 </div>
               ),
+            },
+            {
+              key: 'prompt-config',
+              label: <span><FileTextOutlined /> Prompt 配置</span>,
+              children: <VariantPromptTab />,
             },
             {
               key: 'system',

@@ -75,27 +75,17 @@ export class AdTemplatesService {
 
   /**
    * 用平台 AI key 生成 10 条变体，写入 template.variants。
-   * 变体要求：句式/表情/标点/格式 微差异，相似度 < 70%，语言与原文一致。
+   * Prompt 模板从 platform_settings 读取，未设置时用内置默认。
+   * 占位符：{content} = 原文，{count} = 条数
    */
   async generateVariants(id: string, count = 10): Promise<AdTemplate> {
     const t = await this.findOne(id);
 
-    const prompt = `你是专业广告文案优化师。
-原始文案：
----
-${t.content}
----
-请生成 ${count} 条变体，要求：
-1. 保持核心卖点不变，在句式、emoji、标点上有明显差异
-2. 每条与原文相似度 < 70%
-3. 语言与原文一致（中文/英文/马来文）
-4. 保留原文所有联系方式（链接/电话/账号）完全不改
-5. 不加编号或前缀
-6. 【重要】严格保留原文的段落结构和换行格式：原文有几个段落，变体也要有几个段落；列表项（✅ 开头的行）每条单独一行，不得合并成一段
-7. JSON 字符串内用 \\n 表示换行，段落之间用 \\n\\n 分隔
-
-以 JSON 数组格式输出，只输出纯 JSON，不要任何解释或 markdown：
-["变体1内容", "变体2内容", ..., "变体${count}内容"]`;
+    // 从数据库取 prompt 模板（admin 可配置）
+    const promptTemplate = await this.platformConfig.getVariantPrompt();
+    const prompt = promptTemplate
+      .replace(/\{content\}/g, t.content)
+      .replace(/\{count\}/g, String(count));
 
     const raw = await this.callPlatformAi(
       '你是广告文案生成助手。只输出纯 JSON 数组，格式：["变体1", "变体2", ...]，不输出任何其他内容。',

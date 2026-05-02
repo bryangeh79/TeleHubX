@@ -1,10 +1,10 @@
 import {
   Body, Controller, Delete, Get, HttpCode, HttpStatus,
-  Param, ParseUUIDPipe, Patch, Post,
+  Param, ParseUUIDPipe, Patch, Post, Put,
 } from '@nestjs/common';
 import OpenAI from 'openai';
 import { AI_PROVIDERS, isAiProviderId } from '../ai-agent/ai-providers';
-import { PlatformConfigService } from './platform-config.service';
+import { DEFAULT_VARIANT_PROMPT, PlatformConfigService } from './platform-config.service';
 import { AiAgentService } from '../ai-agent/ai-agent.service';
 
 @Controller('platform-config/ai')
@@ -87,5 +87,29 @@ export class PlatformConfigController {
       }
       return { ok: false, message: `测试失败: ${msg.slice(0, 100)}` };
     }
+  }
+
+  // ── Platform KV Settings ─────────────────────────────────────────────
+
+  @Get('settings/variant-prompt')
+  async getVariantPrompt() {
+    const value = await this.svc.getVariantPrompt();
+    return { key: 'variant_prompt_template', value, isDefault: value === DEFAULT_VARIANT_PROMPT };
+  }
+
+  @Put('settings/variant-prompt')
+  async setVariantPrompt(@Body() body: { value: string }) {
+    if (!body.value?.trim()) {
+      return { ok: false, message: 'Prompt 不能为空' };
+    }
+    await this.svc.setSetting('variant_prompt_template', body.value.trim());
+    return { ok: true };
+  }
+
+  @Post('settings/variant-prompt/reset')
+  @HttpCode(HttpStatus.OK)
+  async resetVariantPrompt() {
+    await this.svc.resetVariantPrompt();
+    return { ok: true, value: DEFAULT_VARIANT_PROMPT };
   }
 }
