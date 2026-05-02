@@ -686,7 +686,15 @@ export default function SchedulerPage() {
           >
             <Button danger icon={<StopOutlined />}>立即终止全部</Button>
           </Popconfirm>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新建任务</Button>
+          <Button
+            type="primary"
+            size="large"
+            icon={<PlusOutlined />}
+            onClick={() => setCreateOpen(true)}
+            style={{ fontWeight: 500, paddingInline: 22 }}
+          >
+            新建任务
+          </Button>
         </Space>
       </div>
 
