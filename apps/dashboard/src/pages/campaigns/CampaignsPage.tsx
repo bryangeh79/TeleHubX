@@ -198,8 +198,12 @@ export default function CampaignsPage() {
 
   const handleRerun = async (c: ApiCampaign) => {
     try {
-      // 复制原 campaign 的配置创建新的，跳过 status / id / sentCount / replyCount
-      const { id, status, sentCount, replyCount, totalTargetCount, createdAt, ...rest } = c as any;
+      // 复制原 campaign 配置 → 新草稿。剔除所有服务端管理字段（DTO whitelist 会拒绝）
+      const {
+        id, status, sentCount, replyCount, totalTargetCount,
+        createdAt, updatedAt, completedAt, scheduledAt,
+        ...rest
+      } = c as any;
       await campaignsApi.create({ ...rest, name: `${c.name} (副本)` });
       antdMessage.success(`✓ 已复制「${c.name}」为新草稿`);
       void reload();
