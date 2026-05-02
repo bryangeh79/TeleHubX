@@ -86,11 +86,13 @@ export class AdTemplatesService {
 ${t.content}
 ---
 请生成 ${count} 条变体，要求：
-1. 保持核心卖点不变，在句式、emoji、标点、段落格式上明显不同
+1. 保持核心卖点不变，在句式、emoji、标点上有明显差异
 2. 每条与原文相似度 < 70%
 3. 语言与原文一致（中文/英文/马来文）
-4. 保留原文所有联系方式（链接/电话/账号）不改变
+4. 保留原文所有联系方式（链接/电话/账号）完全不改
 5. 不加编号或前缀
+6. 【重要】严格保留原文的段落结构和换行格式：原文有几个段落，变体也要有几个段落；列表项（✅ 开头的行）每条单独一行，不得合并成一段
+7. JSON 字符串内用 \\n 表示换行，段落之间用 \\n\\n 分隔
 
 以 JSON 数组格式输出，只输出纯 JSON，不要任何解释或 markdown：
 ["变体1内容", "变体2内容", ..., "变体${count}内容"]`;
@@ -111,7 +113,13 @@ ${t.content}
         const parsed = JSON.parse(jsonStr);
         if (Array.isArray(parsed)) {
           rawVariants = parsed
-            .map((v: any) => String(v).trim())
+            .map((v: any) => {
+              // 有些模型输出字面量 \n 而非真换行，统一转换
+              const text = String(v)
+                .replace(/\\n/g, '\n')
+                .trim();
+              return text;
+            })
             .filter(v => v.length > 10);
         }
       }
