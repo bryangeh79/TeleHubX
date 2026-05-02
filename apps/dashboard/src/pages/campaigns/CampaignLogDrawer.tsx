@@ -59,11 +59,21 @@ function humanizeError(msg: string | null): string {
   return msg.length > 100 ? msg.slice(0, 100) + '…' : msg;
 }
 
-/** 根据小时判断属于哪个时段标签 */
-function windowLabel(hour: number): string {
-  if (hour < 12) return '09:30 – 11:30';
-  if (hour < 17) return '14:00 – 16:30';
-  return '18:00 – 20:30';
+/** 时段窗口定义（与后端 conservative/balanced 一致） */
+const WINDOWS = [
+  { startH: 9,  startM: 30, endH: 11, endM: 30, label: '09:30 – 11:30' },
+  { startH: 14, startM: 0,  endH: 16, endM: 30, label: '14:00 – 16:30' },
+  { startH: 18, startM: 0,  endH: 20, endM: 30, label: '18:00 – 20:30' },
+];
+
+/** 根据小时+分钟判断属于哪个时段标签；落在窗口外（fast-path）→ 立即发送 */
+function windowLabel(hour: number, minute: number): string {
+  for (const w of WINDOWS) {
+    const inStart = hour > w.startH || (hour === w.startH && minute >= w.startM);
+    const inEnd = hour < w.endH || (hour === w.endH && minute <= w.endM);
+    if (inStart && inEnd) return w.label;
+  }
+  return '立即发送（窗口外）';
 }
 
 // ── 调度分布 Tab ──────────────────────────────────────────────────────────
@@ -85,8 +95,8 @@ function DistributionTab({ tasks }: { tasks: TaskRow[] }) {
         // 每天内按时段分组
         const byWindow = new Map<string, TaskRow[]>();
         for (const t of dayTasks) {
-          const h = dayjs(t.scheduledAt).hour();
-          const label = windowLabel(h);
+          const d = dayjs(t.scheduledAt);
+          const label = windowLabel(d.hour(), d.minute());
           if (!byWindow.has(label)) byWindow.set(label, []);
           byWindow.get(label)!.push(t);
         }
@@ -146,7 +156,11 @@ function DistributionTab({ tasks }: { tasks: TaskRow[] }) {
                 key={win.label}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}
               >
-                <span style={{ color: '#1677ff', minWidth: 110, fontFamily: 'monospace' }}>{win.label}</span>
+                <span style={{
+                  color: win.label.startsWith('立即') ? '#fa8c16' : '#1677ff',
+                  minWidth: 160,
+                  fontFamily: 'monospace',
+                }}>{win.label}</span>
                 <Progress
                   percent={win.count ? Math.round(win.done / win.count * 100) : 0}
                   size="small"
