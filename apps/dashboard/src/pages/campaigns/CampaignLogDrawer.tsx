@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Badge, Button, Col, Empty, Modal, Row, Space, Statistic,
-  Table, Tooltip, Typography, message as antdMessage,
+  Badge, Button, Col, Empty, Modal, Progress, Row, Space, Statistic,
+  Table, Tabs, Tag, Tooltip, Typography, message as antdMessage,
 } from 'antd';
-import { HistoryOutlined, ReloadOutlined } from '@ant-design/icons';
+import { HistoryOutlined, ReloadOutlined, ScheduleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { campaignsApi } from '../../services/api';
 
@@ -59,6 +59,115 @@ function humanizeError(msg: string | null): string {
   return msg.length > 100 ? msg.slice(0, 100) + '…' : msg;
 }
 
+/** 根据小时判断属于哪个时段标签 */
+function windowLabel(hour: number): string {
+  if (hour < 12) return '09:30 – 11:30';
+  if (hour < 17) return '14:00 – 16:30';
+  return '18:00 – 20:30';
+}
+
+// ── 调度分布 Tab ──────────────────────────────────────────────────────────
+function DistributionTab({ tasks }: { tasks: TaskRow[] }) {
+  const schedule = useMemo(() => {
+    if (!tasks.length) return [];
+
+    // 按日期分组
+    const byDay = new Map<string, TaskRow[]>();
+    for (const t of tasks) {
+      const date = dayjs(t.scheduledAt).format('YYYY-MM-DD');
+      if (!byDay.has(date)) byDay.set(date, []);
+      byDay.get(date)!.push(t);
+    }
+
+    return Array.from(byDay.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, dayTasks], di) => {
+        // 每天内按时段分组
+        const byWindow = new Map<string, TaskRow[]>();
+        for (const t of dayTasks) {
+          const h = dayjs(t.scheduledAt).hour();
+          const label = windowLabel(h);
+          if (!byWindow.has(label)) byWindow.set(label, []);
+          byWindow.get(label)!.push(t);
+        }
+
+        const windows = Array.from(byWindow.entries())
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([label, wTasks]) => {
+            const sorted = [...wTasks].sort((a, b) =>
+              new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
+            );
+            const done = wTasks.filter(t => t.status === 'done' || t.status === 'succeeded').length;
+            const failed = wTasks.filter(t => t.status === 'failed').length;
+            const pending = wTasks.filter(t => t.status === 'pending').length;
+            return {
+              label,
+              count: wTasks.length,
+              done, failed, pending,
+              firstAt: sorted[0].scheduledAt,
+              lastAt: sorted[sorted.length - 1].scheduledAt,
+            };
+          });
+
+        const dayDone = dayTasks.filter(t => t.status === 'done' || t.status === 'succeeded').length;
+        const dayFailed = dayTasks.filter(t => t.status === 'failed').length;
+
+        return { date, di, total: dayTasks.length, done: dayDone, failed: dayFailed, windows };
+      });
+  }, [tasks]);
+
+  if (!schedule.length) {
+    return <Empty description="暂无调度数据" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: 32 }} />;
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {schedule.map(day => (
+        <div
+          key={day.date}
+          style={{ border: '1px solid #e8e8e8', borderRadius: 8, padding: '12px 16px', background: '#fafafa' }}
+        >
+          {/* 日期标题 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <Tag color="blue" style={{ fontWeight: 600 }}>第 {day.di + 1} 天</Tag>
+            <span style={{ fontWeight: 600, fontSize: 13 }}>{dayjs(day.date).format('M月D日 (ddd)')}</span>
+            <span style={{ color: '#999', fontSize: 12 }}>共 {day.total} 条</span>
+            {day.done > 0 && <Tag color="success" style={{ fontSize: 11 }}>已发 {day.done}</Tag>}
+            {day.failed > 0 && <Tag color="error" style={{ fontSize: 11 }}>失败 {day.failed}</Tag>}
+            {day.total - day.done - day.failed > 0 &&
+              <Tag color="default" style={{ fontSize: 11 }}>待发 {day.total - day.done - day.failed}</Tag>
+            }
+          </div>
+
+          {/* 时段列表 */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {day.windows.map(win => (
+              <div
+                key={win.label}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}
+              >
+                <span style={{ color: '#1677ff', minWidth: 110, fontFamily: 'monospace' }}>{win.label}</span>
+                <Progress
+                  percent={win.count ? Math.round(win.done / win.count * 100) : 0}
+                  size="small"
+                  style={{ width: 120, margin: 0 }}
+                  strokeColor="#52c41a"
+                  format={() => `${win.done}/${win.count}`}
+                />
+                {win.failed > 0 && <Tag color="error" style={{ fontSize: 10 }}>失败 {win.failed}</Tag>}
+                <span style={{ color: '#aaa' }}>
+                  {dayjs(win.firstAt).format('HH:mm')} – {dayjs(win.lastAt).format('HH:mm')}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Main Modal ─────────────────────────────────────────────────────────────
 export default function CampaignLogDrawer({ open, campaignId, campaignName, onClose }: Props) {
   const [data, setData] = useState<{
     summary: SummaryShape;
@@ -158,7 +267,7 @@ export default function CampaignLogDrawer({ open, campaignId, campaignName, onCl
           <Button type="primary" onClick={onClose}>关闭</Button>
         </Space>
       }
-      styles={{ body: { padding: '16px 20px', maxHeight: '70vh', overflowY: 'auto' } }}
+      styles={{ body: { padding: '16px 20px', maxHeight: '75vh', overflowY: 'auto' } }}
     >
       {!data ? (
         <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
@@ -194,14 +303,35 @@ export default function CampaignLogDrawer({ open, campaignId, campaignName, onCl
             </Col>
           </Row>
 
-          {/* Tasks */}
-          <Table
-            dataSource={data.tasks}
-            columns={columns}
-            rowKey="id"
+          {/* Tabs: 任务明细 + 调度分布 */}
+          <Tabs
             size="small"
-            pagination={{ pageSize: 50, showSizeChanger: false, hideOnSinglePage: true }}
-            loading={loading}
+            items={[
+              {
+                key: 'tasks',
+                label: '任务明细',
+                children: (
+                  <Table
+                    dataSource={data.tasks}
+                    columns={columns}
+                    rowKey="id"
+                    size="small"
+                    pagination={{ pageSize: 50, showSizeChanger: false, hideOnSinglePage: true }}
+                    loading={loading}
+                  />
+                ),
+              },
+              {
+                key: 'distribution',
+                label: (
+                  <Space size={4}>
+                    <ScheduleOutlined />
+                    调度分布
+                  </Space>
+                ),
+                children: <DistributionTab tasks={data.tasks} />,
+              },
+            ]}
           />
         </>
       )}

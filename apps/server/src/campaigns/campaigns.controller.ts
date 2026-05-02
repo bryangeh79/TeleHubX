@@ -25,6 +25,19 @@ export class CampaignsController {
     return this.service.findAll(status);
   }
 
+  /** 预览调度计划（dry-run，不落库） */
+  @Post('dispatch-preview')
+  @HttpCode(HttpStatus.OK)
+  dispatchPreview(@Body() dto: {
+    customerGroupIds?: string[];
+    targets?: string[];
+    pacePreset?: string;
+    accountSourceMode?: string;
+    adAccountIds?: string[];
+  }) {
+    return this.dispatch.preview(dto);
+  }
+
   @Get('capacity-check')
   capacityCheck(
     @Query('targetCount') targetCount?: string,

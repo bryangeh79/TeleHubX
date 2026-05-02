@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Badge, Button, Card, Checkbox, Col, Descriptions, Divider,
-  Form, Input, Modal, Progress, Radio, Row, Select, Space, Steps,
+  Form, Input, Modal, Progress, Radio, Row, Select, Space, Spin, Steps,
   Tag, Tooltip, Typography, message as antdMessage,
 } from 'antd';
 import {
   CalendarOutlined, CloseOutlined, InfoCircleOutlined,
-  ReloadOutlined, SafetyOutlined, ThunderboltOutlined, UserOutlined,
+  ReloadOutlined, SafetyOutlined, ScheduleOutlined, ThunderboltOutlined, UserOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import {
@@ -561,6 +561,117 @@ function Step3({
 
 // ── Step 4: 确认启动 ──────────────────────────────────────────────────
 
+interface DispatchPreview {
+  targetCount: number;
+  accountsUsed: number;
+  days: number;
+  tasksTotal: number;
+  dailyLimit: number;
+  pacePreset: string;
+  schedule: Array<{
+    day: number;
+    date: string;
+    windows: Array<{ label: string; count: number; firstAt: string; lastAt: string }>;
+    dayTotal: number;
+  }>;
+}
+
+function DispatchPreviewCard({ state }: { state: WizardState }) {
+  const [preview, setPreview] = useState<DispatchPreview | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const prevKeyRef = useRef('');
+
+  useEffect(() => {
+    const key = JSON.stringify({
+      customerGroupIds: state.customerGroupIds,
+      targets: state.targets,
+      pacePreset: state.pacePreset,
+      accountSourceMode: state.accountSourceMode,
+      adAccountIds: state.adAccountIds,
+    });
+    if (key === prevKeyRef.current) return;
+    prevKeyRef.current = key;
+
+    const extraTargets = state.targets.trim().split(/\n+/).filter(Boolean);
+    const hasTargets = state.customerGroupIds.length > 0 || extraTargets.length > 0;
+    if (!hasTargets) {
+      setPreview(null);
+      return;
+    }
+
+    setLoading(true);
+    setErr(null);
+    campaignsApi.previewDispatch({
+      customerGroupIds: state.customerGroupIds,
+      targets: extraTargets,
+      pacePreset: state.pacePreset,
+      accountSourceMode: state.accountSourceMode,
+      adAccountIds: state.adAccountIds,
+    }).then(res => {
+      setPreview(res.data);
+    }).catch(() => {
+      setErr('预览加载失败（可确保账号配置正确后重试）');
+    }).finally(() => setLoading(false));
+  }, [state.customerGroupIds, state.targets, state.pacePreset, state.accountSourceMode, state.adAccountIds]);
+
+  const fmt = (iso: string) => {
+    const d = new Date(iso);
+    return `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  };
+
+  return (
+    <Card
+      size="small"
+      style={{ marginTop: 12, background: '#f6ffed', borderColor: '#b7eb8f' }}
+      bodyStyle={{ padding: '10px 14px' }}
+      title={
+        <Space style={{ fontSize: 13 }}>
+          <ScheduleOutlined style={{ color: '#52c41a' }} />
+          <span style={{ fontWeight: 600 }}>调度计划预览</span>
+          {loading && <Spin size="small" />}
+        </Space>
+      }
+    >
+      {err && <div style={{ color: '#ff4d4f', fontSize: 12 }}>{err}</div>}
+      {!loading && !err && preview && preview.tasksTotal === 0 && (
+        <div style={{ color: '#999', fontSize: 12 }}>无账号可用，无法生成计划</div>
+      )}
+      {!loading && !err && preview && preview.tasksTotal > 0 && (
+        <>
+          <div style={{ fontSize: 12, color: '#555', marginBottom: 8 }}>
+            <Tag color="green">目标 {preview.targetCount} 人</Tag>
+            <Tag color="blue">{preview.accountsUsed} 个账号</Tag>
+            <Tag color="purple">跨 {preview.days} 天</Tag>
+            <Tag>共 {preview.tasksTotal} 条任务</Tag>
+            <span style={{ color: '#999' }}>·&nbsp;每号每天最多 {preview.dailyLimit} 条</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {preview.schedule.map(day => (
+              <div key={day.day} style={{ border: '1px solid #d9f7be', borderRadius: 6, padding: '6px 10px', background: '#fff' }}>
+                <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 4 }}>
+                  第 {day.day + 1} 天 ({day.date})
+                  <span style={{ fontWeight: 400, color: '#999', marginLeft: 8 }}>{day.dayTotal} 条</span>
+                </div>
+                {day.windows.map((w, wi) => (
+                  <div key={wi} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#555', marginBottom: 2 }}>
+                    <span style={{ color: '#1677ff', minWidth: 110 }}>{w.label}</span>
+                    <span>{w.count} 条</span>
+                    <span style={{ color: '#aaa' }}>首发 {fmt(w.firstAt)} · 末发 {fmt(w.lastAt)}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {!loading && !err && !preview && (
+        <div style={{ color: '#aaa', fontSize: 12 }}>请先设置投放对象（上一步）</div>
+      )}
+    </Card>
+  );
+}
+
 function Step4({
   state, capacity, customerGroups, adTemplates, greetingTemplates,
 }: {
@@ -650,6 +761,8 @@ function Step4({
           ✓ 同 IP 组互斥 · 夜间窗口保护 · 接管中自动跳过
         </div>
       </Card>
+
+      <DispatchPreviewCard state={state} />
     </div>
   );
 }

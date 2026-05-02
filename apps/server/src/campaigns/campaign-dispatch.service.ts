@@ -157,6 +157,139 @@ export class CampaignDispatchService {
     };
   }
 
+  // ── Preview (dry-run) ───────────────────────────────────────────────
+
+  /**
+   * 预览调度计划：与 dispatch() 逻辑完全相同，但不落库，直接返回摘要。
+   * dto 字段与 Campaign 对应字段同名，无需先 create campaign。
+   */
+  async preview(dto: {
+    customerGroupIds?: string[];
+    targets?: string[];
+    pacePreset?: string;
+    accountSourceMode?: string;
+    adAccountIds?: string[];
+  }): Promise<{
+    targetCount: number;
+    accountsUsed: number;
+    days: number;
+    tasksTotal: number;
+    dailyLimit: number;
+    pacePreset: string;
+    schedule: Array<{
+      day: number;
+      date: string;
+      windows: Array<{ label: string; count: number; firstAt: string; lastAt: string }>;
+      dayTotal: number;
+    }>;
+  }> {
+    const pace = (dto.pacePreset as PacePreset) ?? PacePreset.CONSERVATIVE;
+    const paceStr = pace as string;
+
+    // 构造临时 campaign-like 对象（只需 resolveTargets / selectAccounts 需要的字段）
+    const fake = {
+      customerGroupIds: dto.customerGroupIds ?? [],
+      targets: dto.targets ?? [],
+      pacePreset: pace,
+      accountSourceMode: dto.accountSourceMode ?? 'auto',
+      adAccountIds: dto.adAccountIds ?? [],
+      tenantId: 'preview',
+    } as unknown as Campaign;
+
+    const targets = await this.resolveTargets(fake);
+    if (!targets.length) {
+      return { targetCount: 0, accountsUsed: 0, days: 0, tasksTotal: 0, dailyLimit: 0, pacePreset: paceStr, schedule: [] };
+    }
+
+    const accounts = await this.selectAccounts(fake);
+    if (!accounts.length) {
+      return { targetCount: targets.length, accountsUsed: 0, days: 0, tasksTotal: 0, dailyLimit: 0, pacePreset: paceStr, schedule: [] };
+    }
+
+    const dailyLimit = Math.min(PACE_LIMITS[pace].dailyLimit, HARD_DAILY_CAP);
+    const perAccountTotal = Math.ceil(targets.length / accounts.length);
+    const days = Math.max(1, Math.ceil(perAccountTotal / dailyLimit));
+
+    // dry-run distribute（文案内容不影响时间分布）
+    const sendUnits = this.distribute({
+      targets,
+      accounts,
+      days,
+      dailyLimit,
+      pace,
+      adVariants: ['[preview]'],
+      greetings: [],
+      greetingMode: GreetingMode.NONE,
+    });
+
+    // 聚合：按日期分组，每天内按时段分组
+    const windows = PACE_WINDOWS[pace];
+    const todayMs = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
+
+    // dayOffset → winIdx → times[]
+    const agg = new Map<number, Map<number, Date[]>>();
+    for (const u of sendUnits) {
+      const unitDay = new Date(u.scheduledAt);
+      unitDay.setHours(0, 0, 0, 0);
+      const dayOffset = Math.round((unitDay.getTime() - todayMs) / 86400000);
+
+      const h = u.scheduledAt.getHours();
+      const m = u.scheduledAt.getMinutes();
+      // 找对应时段（以 startH 为下界）
+      let winIdx = windows.length - 1;
+      for (let i = 0; i < windows.length; i++) {
+        const w = windows[i];
+        if (h < w.endH || (h === w.endH && m <= w.endM)) {
+          winIdx = i;
+          break;
+        }
+      }
+
+      if (!agg.has(dayOffset)) agg.set(dayOffset, new Map());
+      const wm = agg.get(dayOffset)!;
+      if (!wm.has(winIdx)) wm.set(winIdx, []);
+      wm.get(winIdx)!.push(new Date(u.scheduledAt));
+    }
+
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const schedule = Array.from(agg.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([dayOffset, wm]) => {
+        const dateObj = new Date(todayMs + dayOffset * 86400000);
+        const date = `${dateObj.getFullYear()}-${pad(dateObj.getMonth() + 1)}-${pad(dateObj.getDate())}`;
+
+        const winSummary = Array.from(wm.entries())
+          .sort((a, b) => a[0] - b[0])
+          .map(([wi, times]) => {
+            const win = windows[wi];
+            const sorted = [...times].sort((a, b) => a.getTime() - b.getTime());
+            return {
+              label: `${pad(win.startH)}:${pad(win.startM)} – ${pad(win.endH)}:${pad(win.endM)}`,
+              count: sorted.length,
+              firstAt: sorted[0].toISOString(),
+              lastAt: sorted[sorted.length - 1].toISOString(),
+            };
+          });
+
+        return {
+          day: dayOffset,
+          date,
+          windows: winSummary,
+          dayTotal: winSummary.reduce((s, w) => s + w.count, 0),
+        };
+      });
+
+    return {
+      targetCount: targets.length,
+      accountsUsed: accounts.length,
+      days,
+      tasksTotal: sendUnits.length,
+      dailyLimit,
+      pacePreset: paceStr,
+      schedule,
+    };
+  }
+
   // ── helper: 目标解析 ────────────────────────────────────────────────
 
   private async resolveTargets(campaign: Campaign): Promise<ResolvedTarget[]> {

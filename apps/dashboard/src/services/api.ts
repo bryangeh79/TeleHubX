@@ -83,6 +83,13 @@ export const campaignsApi = {
       extraTargets: params.extraTargets?.join(','),
     },
   }),
+  previewDispatch: (data: {
+    customerGroupIds?: string[];
+    targets?: string[];
+    pacePreset?: string;
+    accountSourceMode?: string;
+    adAccountIds?: string[];
+  }) => api.post('/campaigns/dispatch-preview', data, { timeout: 15000 }),
 };
 
 export const customerGroupsApi = {
