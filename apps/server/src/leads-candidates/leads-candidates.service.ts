@@ -172,13 +172,26 @@ export class LeadCandidatesService {
     return this.repo.save(c);
   }
 
-  async stats(tenantId: string): Promise<Record<CandidateStatus | 'total', number>> {
+  async stats(tenantId: string): Promise<{
+    total: number;
+    pending: number; contacted: number; replied: number; converted: number; blocked: number; expired: number;
+    todayNew: number;
+    unpackedCount: number;
+  }> {
     const all = await this.repo.find({ where: { tenantId } });
     const out: any = {
       total: all.length,
       pending: 0, contacted: 0, replied: 0, converted: 0, blocked: 0, expired: 0,
+      todayNew: 0,
+      unpackedCount: 0,
     };
-    for (const c of all) out[c.status] = (out[c.status] ?? 0) + 1;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    for (const c of all) {
+      out[c.status] = (out[c.status] ?? 0) + 1;
+      if (c.scrapedAt && new Date(c.scrapedAt) >= todayStart) out.todayNew++;
+      if (!c.packedIntoGroupIds || c.packedIntoGroupIds.length === 0) out.unpackedCount++;
+    }
     return out;
   }
 

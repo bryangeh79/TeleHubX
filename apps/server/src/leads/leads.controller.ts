@@ -38,6 +38,11 @@ export class LeadsController {
     });
   }
 
+  @Get('dashboard-stats')
+  dashboardStats(@Query('tenantId') tenantId?: string) {
+    return this.service.dashboardStats(tenantId);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.findOne(id);

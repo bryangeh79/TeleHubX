@@ -113,6 +113,44 @@ export class CampaignsService {
     return this.repo.find({ where, order: { createdAt: 'DESC' } });
   }
 
+  /**
+   * 仪表盘 KPI: 广告投放概况。
+   * - completedCount: status=COMPLETED 的 campaign 总数
+   * - runningCount: status=RUNNING 的 campaign 数
+   * - totalSent: 所有 campaign 累计 sentCount
+   * - todaySent: 今日新发送的 campaign_single 任务数（status=DONE 且 finishedAt >= 今日）
+   */
+  async dashboardStats(tenantId?: string): Promise<{
+    completedCount: number;
+    runningCount: number;
+    totalSent: number;
+    todaySent: number;
+  }> {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    // campaigns 没有 tenantId 字段（schema 检查后再决定）— 暂全局聚合
+    const all = await this.repo.find();
+    let completedCount = 0;
+    let runningCount = 0;
+    let totalSent = 0;
+    for (const c of all) {
+      if (c.status === CampaignStatus.COMPLETED) completedCount++;
+      if (c.status === CampaignStatus.RUNNING) runningCount++;
+      totalSent += c.sentCount ?? 0;
+    }
+
+    // 今日发送：从 tasks 表统计 campaign_single done 且 finishedAt >= 今日
+    const todaySent = await this.taskRepo
+      .createQueryBuilder('t')
+      .where(`t.type = 'campaign_single'`)
+      .andWhere(`t.status = 'done'`)
+      .andWhere('t.finishedAt >= :today', { today: todayStart })
+      .getCount();
+
+    return { completedCount, runningCount, totalSent, todaySent };
+  }
+
   async findOne(id: string): Promise<Campaign> {
     const campaign = await this.repo.findOneBy({ id });
     if (!campaign) throw new NotFoundException(`Campaign ${id} not found`);

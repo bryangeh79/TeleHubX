@@ -421,6 +421,20 @@ async function fetchOverview(): Promise<DashboardOverview> {
   }
 }
 
+export const dashboardApi = {
+  // 账号健康（含 byStatus 各类计数）
+  accountsStats: () => api.get('/accounts/health-stats'),
+  // 候选人池
+  candidatesStats: (tenantId: string) =>
+    api.get('/lead-candidates/stats', { params: { tenantId } }),
+  // 客户对话
+  leadsStats: (tenantId?: string) =>
+    api.get('/leads/dashboard-stats', { params: tenantId ? { tenantId } : {} }),
+  // 广告投放
+  campaignsStats: (tenantId?: string) =>
+    api.get('/campaigns/dashboard-stats', { params: tenantId ? { tenantId } : {} }),
+};
+
 export const leadCandidatesApi = {
   list: (params?: { tenantId: string; status?: string; huntTaskId?: string }) =>
     api.get('/lead-candidates', { params }),

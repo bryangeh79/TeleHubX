@@ -38,6 +38,11 @@ export class CampaignsController {
     return this.dispatch.preview(dto);
   }
 
+  @Get('dashboard-stats')
+  dashboardStats(@Query('tenantId') tenantId?: string) {
+    return this.service.dashboardStats(tenantId);
+  }
+
   @Get('capacity-check')
   capacityCheck(
     @Query('targetCount') targetCount?: string,

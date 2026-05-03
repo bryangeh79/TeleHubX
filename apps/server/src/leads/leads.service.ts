@@ -118,4 +118,63 @@ export class LeadsService {
     lead.replies = [...(lead.replies || []), item];
     return this.repo.save(lead);
   }
+
+  /**
+   * 仪表盘 KPI: 客户对话指标。
+   * - botTodayMessageCount: 今日 Bot 自动回复条数（sender system/bot）
+   * - userTodayMessageCount: 今日客户消息条数（sender user）
+   * - humanTakeoverCount: takeoverState=human 的 lead 总数（待人工跟进）
+   * - pendingCount: 最近 1h 客户发了消息但没收到 Bot 回复（rate limited / silent）
+   */
+  async dashboardStats(tenantId?: string): Promise<{
+    botTodayMessageCount: number;
+    userTodayMessageCount: number;
+    humanTakeoverCount: number;
+    pendingCount: number;
+  }> {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayMs = todayStart.getTime();
+    const oneHourAgoMs = Date.now() - 60 * 60_000;
+
+    const where: FindOptionsWhere<Lead> = tenantId ? { tenantId } : {};
+    const leads = await this.repo.find({ where });
+
+    let botTodayMessageCount = 0;
+    let userTodayMessageCount = 0;
+    let humanTakeoverCount = 0;
+    let pendingCount = 0;
+
+    for (const lead of leads) {
+      if (lead.takeoverState === LeadTakeover.HUMAN) humanTakeoverCount++;
+
+      const replies = lead.replies ?? [];
+      let hadUserAfterLastBot = false;
+      let lastUserTs: number | null = null;
+      for (const r of replies) {
+        const ts = r.ts ? new Date(r.ts).getTime() : 0;
+        if (ts >= todayMs) {
+          if (r.sentBy === 'user') userTodayMessageCount++;
+          else if (r.sentBy === 'system' || r.sentBy === 'human') botTodayMessageCount++;
+        }
+        if (r.sentBy === 'user') {
+          lastUserTs = ts;
+          hadUserAfterLastBot = true;
+        } else if (r.sentBy === 'system' || r.sentBy === 'human') {
+          hadUserAfterLastBot = false;
+        }
+      }
+      // pending: 最后一条用户消息在最近 1h 内 + 后面没有 bot 回复 + 不是 HUMAN（human 走人工流程不算 pending）
+      if (
+        hadUserAfterLastBot &&
+        lastUserTs !== null &&
+        lastUserTs >= oneHourAgoMs &&
+        lead.takeoverState !== LeadTakeover.HUMAN
+      ) {
+        pendingCount++;
+      }
+    }
+
+    return { botTodayMessageCount, userTodayMessageCount, humanTakeoverCount, pendingCount };
+  }
 }
