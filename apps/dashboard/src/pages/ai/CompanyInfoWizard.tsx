@@ -41,6 +41,27 @@ const INDUSTRY_OPTIONS = [
   '餐饮 / 食品', '医疗 / 健康', '房地产', '制造业', '咨询 / 服务', '其他',
 ];
 
+/**
+ * 从 AI 生成的公司档案 (goalPrompt) 文本里反推 email / website / about
+ * 用于兼容旧 description 字段缺失的记录
+ */
+function extractFromProfile(profile: string): { email?: string; website?: string; about?: string } {
+  if (!profile) return {};
+  // 先去掉 emoji 段落（让正则更准），再提取
+  const emailMatch = profile.match(/[\w.-]+@[\w.-]+\.[\w]{2,}/);
+  const websiteMatch = profile.match(/https?:\/\/[^\s一-龥）)，,。"'<>]+/);
+  // about: 取第一段（emoji/换行前的内容）
+  const cleanProfile = profile
+    .split(/📞|📧|🌐|⏰|📍/)[0]   // 切到第一个 emoji 标志前
+    .trim();
+  const firstPara = cleanProfile.split(/\n\n+/)[0]?.trim().slice(0, 250);
+  return {
+    email: emailMatch?.[0],
+    website: websiteMatch?.[0],
+    about: firstPara && firstPara.length > 10 ? firstPara : undefined,
+  };
+}
+
 export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
   const [step, setStep] = useState(0);
   const [form] = Form.useForm();
@@ -80,7 +101,9 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
         setExistingKbId(existing.id);
         try {
           const saved = JSON.parse(existing.description ?? '{}');
-          // 兼容旧记录：name 形如 "undefined - 公司资料"，从 goalPrompt 第一句猜公司名
+          // 旧记录的 description 可能缺字段，从 goalPrompt 文本反向提取兜底
+          const fromProfile = extractFromProfile(existing.goalPrompt ?? '');
+          // 兼容旧记录：name 形如 "undefined - 公司资料"
           let fallbackName = saved.companyName;
           if (!fallbackName && existing.name && !existing.name.startsWith('undefined')) {
             fallbackName = existing.name.replace(' - 公司资料', '').trim() || undefined;
@@ -88,9 +111,9 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
           const formData = {
             companyName: fallbackName,
             industry: saved.industry,
-            about: saved.about,
-            email: saved.email,
-            website: saved.website,
+            about: saved.about || fromProfile.about,         // ← description 没就用 profile 反推
+            email: saved.email || fromProfile.email,
+            website: saved.website || fromProfile.website,
           };
           form.setFieldsValue(formData);
           setFormMirror(formData);
@@ -217,17 +240,27 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
 
     setSaving(true);
     try {
+      // 加载旧 description 用于局部合并（保留未改字段的旧值）
+      let oldDesc: any = {};
+      if (existingKbId) {
+        try {
+          const cur = await knowledgeApi.getKb(existingKbId);
+          oldDesc = JSON.parse(cur.data?.description ?? '{}');
+        } catch {}
+      }
+
       const dto = {
         name: `${values.companyName} - 公司资料`,
         type: 'company',
         description: JSON.stringify({
+          ...oldDesc,                               // 保留旧字段
           companyName: values.companyName,
-          industry: values.industry,
-          about: values.about,
-          email: values.email,
-          website: values.website,
-          contacts,
-          hoursFrom, hoursTo, timeFrom, timeTo,
+          industry: values.industry ?? oldDesc.industry,
+          about: values.about ?? oldDesc.about,
+          email: values.email ?? oldDesc.email,
+          website: values.website ?? oldDesc.website,
+          contacts,                                 // 来自 useState
+          hoursFrom, hoursTo, timeFrom, timeTo,     // 来自 useState
         }),
         goalPrompt: generatedProfile,
         tenantId,
