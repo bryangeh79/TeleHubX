@@ -1,5 +1,20 @@
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, IsUrl, Matches, Max, MaxLength, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsString, IsUrl, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ReplyMode, TenantAiProvider } from './tenant-settings.entity';
+
+export class HumanAgentDto {
+  @IsString()
+  @MaxLength(64)
+  chatId: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  name?: string;
+
+  @IsBoolean()
+  enabled: boolean;
+}
 
 export class UpdateTenantSettingsDto {
   @IsOptional()
@@ -54,4 +69,11 @@ export class UpdateTenantSettingsDto {
   @Min(0)
   @Max(9)
   groupCount?: number;
+
+  /** 人工接管 operator 列表（jsonb）。整表覆盖。 */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => HumanAgentDto)
+  humanAgents?: HumanAgentDto[];
 }

@@ -63,6 +63,13 @@ export class TenantSettings {
   @Column({ type: 'int', default: 0 })
   groupCount: number;
 
+  /**
+   * 人工接管 operator 列表。触发 handoff 时 Bot 会并发推送通知给所有 enabled=true 的 chatId。
+   * Operator 必须先主动给 Bot 发过 /start，否则 TG 拒绝推送。
+   */
+  @Column({ type: 'jsonb', nullable: true, default: () => "'[]'::jsonb" })
+  humanAgents: Array<{ chatId: string; name?: string; enabled: boolean }> | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

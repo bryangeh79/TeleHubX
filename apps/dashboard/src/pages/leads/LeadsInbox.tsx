@@ -32,6 +32,10 @@ import {
 import dayjs from 'dayjs';
 import { io, Socket } from 'socket.io-client';
 import { leadsApi, takeoverApi } from '../../services/api';
+import {
+  isNotifySupported, notifyDesktop, notifyPermission, playSound,
+  rememberDecline, requestNotificationPermission, userDeclinedPrompt,
+} from '../../utils/notify';
 
 const COMMON_EMOJIS = [
   '😀', '😂', '😍', '🥰', '😘', '😎', '🤔', '😮', '😢', '😭',
@@ -124,6 +128,37 @@ export default function LeadsInbox() {
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [selected?.replies?.length]);
+
+  // ── 桌面通知：检测 AI → HUMAN 转换 → 弹通知 + 响铃 ─────────────────────────
+  const prevStatesRef = useRef<Map<string, TakeoverState>>(new Map());
+  const [showNotifyBanner, setShowNotifyBanner] = useState(false);
+
+  // 初始化通知 banner（仅在尚未授权且未拒绝过时）
+  useEffect(() => {
+    if (!isNotifySupported()) return;
+    const perm = notifyPermission();
+    if (perm === 'default' && !userDeclinedPrompt()) setShowNotifyBanner(true);
+  }, []);
+
+  // 监测 leads 变化，记录 prevStates 并检测 AI→HUMAN
+  useEffect(() => {
+    const prev = prevStatesRef.current;
+    for (const lead of leads) {
+      const prevState = prev.get(lead.id);
+      if (prevState && prevState !== 'human' && lead.takeoverState === 'human') {
+        const name = lead.tgUsername ? `@${lead.tgUsername}` : `id:${lead.tgUserId}`;
+        const recent = (lead.replies ?? []).filter(r => r.sentBy === 'user').slice(-1)[0]?.text ?? '';
+        notifyDesktop({
+          title: `🚨 新人工接管请求 - ${name}`,
+          body: recent ? recent.slice(0, 120) : '客户触发了转人工',
+          tag: `handoff-${lead.id}`,
+          onClick: () => setSelected(lead),
+        });
+        playSound();
+      }
+      prev.set(lead.id, lead.takeoverState);
+    }
+  }, [leads]);
 
   // ── WebSocket: realtime ──────────────────────────────────────────────────
   useEffect(() => {
@@ -284,7 +319,27 @@ export default function LeadsInbox() {
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 160px)', minHeight: 480, gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 160px)', minHeight: 480, gap: 8 }}>
+      {showNotifyBanner && (
+        <div style={{
+          padding: '8px 16px', background: '#e6f7ff', border: '1px solid #91d5ff', borderRadius: 6,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13,
+        }}>
+          <span>🔔 启用桌面通知 → 新人工接管请求实时提醒（即使你不在 leads 页也能听到铃声）</span>
+          <Space size={4}>
+            <Button size="small" type="primary" onClick={async () => {
+              const r = await requestNotificationPermission();
+              setShowNotifyBanner(false);
+              if (r === 'granted') antdMessage.success('已启用桌面通知');
+              else if (r === 'denied') antdMessage.warning('已拒绝。如需启用请去浏览器设置打开通知权限');
+            }}>启用</Button>
+            <Button size="small" type="text" onClick={() => { setShowNotifyBanner(false); rememberDecline(); }}>
+              不再提醒
+            </Button>
+          </Space>
+        </div>
+      )}
+      <div style={{ display: 'flex', flex: 1, gap: 16, minHeight: 0 }}>
       {/* LEFT: lead list */}
       <div style={{ width: 340, borderRight: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '0 8px 12px', borderBottom: '1px solid #f5f5f5' }}>
@@ -566,6 +621,7 @@ export default function LeadsInbox() {
             </div>
           </>
         )}
+      </div>
       </div>
     </div>
   );

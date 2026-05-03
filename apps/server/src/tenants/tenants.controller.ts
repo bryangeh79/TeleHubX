@@ -1,11 +1,15 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import OpenAI from 'openai';
+import { BotReplyService } from '../bot-gateway/bot-reply.service';
 import { UpdateTenantSettingsDto } from './tenant-settings.dto';
 import { TenantsService } from './tenants.service';
 
 @Controller('tenants')
 export class TenantsController {
-  constructor(private readonly service: TenantsService) {}
+  constructor(
+    private readonly service: TenantsService,
+    private readonly botReply: BotReplyService,
+  ) {}
 
   @Get()
   findAll() { return this.service.findAll(); }
@@ -60,6 +64,36 @@ export class TenantsController {
         return { ok: false, message: `模型 "${cfg.model}" 不存在，请检查模型名称` };
       }
       return { ok: false, message: `连接失败: ${msg.slice(0, 100)}` };
+    }
+  }
+
+  /**
+   * 测试推送一条消息给 operator Telegram chatId（验证人工接管通知是否能送达）。
+   * 失败 = operator 没和 Bot 主动 /start 过 / chatId 错 / Bot 被 ban。
+   */
+  @Post(':id/settings/test-notify-agent')
+  @HttpCode(HttpStatus.OK)
+  async testNotifyAgent(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { chatId: string; name?: string },
+  ) {
+    if (!body?.chatId?.trim()) return { ok: false, message: 'chatId 必填' };
+    const bot = await this.service.findActiveBotByTenantWithToken(id);
+    if (!bot) return { ok: false, message: '该租户还没有 active 的 Bot，请先注册并启动 Bot' };
+
+    const text = `🧪 测试通知\n\n你已被加入「${bot.botUsername}」的人工客服列表，可以正常收到接管推送。\n\n（如收到此消息说明配置正确）`;
+    try {
+      await this.botReply.sendText(bot.rawToken, body.chatId.trim(), text);
+      return { ok: true, message: `已推送到 chatId=${body.chatId}，请到 Telegram 检查` };
+    } catch (err: any) {
+      const msg: string = err?.message ?? '';
+      if (msg.includes('chat not found') || msg.includes('400')) {
+        return { ok: false, message: 'chatId 无效或客服未给 Bot 发过 /start（Telegram 限制：必须客服先主动联系 Bot 一次）' };
+      }
+      if (msg.includes('blocked') || msg.includes('403')) {
+        return { ok: false, message: '客服已 block 此 Bot 或没和 Bot 互动过' };
+      }
+      return { ok: false, message: `推送失败: ${msg.slice(0, 100)}` };
     }
   }
 }

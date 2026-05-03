@@ -265,6 +265,88 @@ function GlobalPersonaTab() {
   );
 }
 
+// ── 转接话术 Tab ──────────────────────────────────────────────────────────
+function HandoffNoticeTab() {
+  const [value, setValue] = useState('');
+  const [original, setOriginal] = useState('');
+  const [isDefault, setIsDefault] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await platformConfigApi.getHandoffNotice();
+      setValue(res.data.value);
+      setOriginal(res.data.value);
+      setIsDefault(res.data.isDefault);
+    } catch {
+      antdMessage.error('加载失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const handleSave = async () => {
+    if (!value.trim()) { antdMessage.warning('话术不能为空'); return; }
+    setSaving(true);
+    try {
+      await platformConfigApi.setHandoffNotice(value.trim());
+      setOriginal(value.trim());
+      setIsDefault(false);
+      antdMessage.success('已保存，下次 handoff 触发即生效');
+    } catch {
+      antdMessage.error('保存失败');
+    } finally { setSaving(false); }
+  };
+
+  const handleReset = async () => {
+    setSaving(true);
+    try {
+      const res = await platformConfigApi.resetHandoffNotice();
+      setValue(res.data.value);
+      setOriginal(res.data.value);
+      setIsDefault(true);
+      antdMessage.success('已恢复默认');
+    } catch {
+      antdMessage.error('重置失败');
+    } finally { setSaving(false); }
+  };
+
+  const dirty = value !== original;
+
+  return (
+    <div>
+      <Alert type="info" showIcon style={{ marginBottom: 16 }}
+        message="转接人工话术"
+        description="客户触发『真人客服』『投诉』『律师』等关键字时，Bot 会立刻发这条话术告诉客户『已转人工』，避免干等。同时后台会推送给所有配置的 operator Telegram。" />
+
+      <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
+        <Space>
+          {isDefault ? <Tag color="default">系统默认</Tag> : <Tag color="blue">已自定义</Tag>}
+          {dirty && <Tag color="orange">未保存</Tag>}
+        </Space>
+        <Button icon={<ReloadOutlined />} onClick={load} loading={loading} size="small">刷新</Button>
+      </div>
+
+      <TextArea value={value} onChange={e => setValue(e.target.value)}
+        autoSize={{ minRows: 4, maxRows: 10 }}
+        placeholder="例如：好的，已为你转接人工客服 😊 稍等一下..." />
+
+      <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <Button icon={<UndoOutlined />} onClick={handleReset} loading={saving} disabled={isDefault && !dirty}>
+          恢复默认
+        </Button>
+        <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={saving} disabled={!dirty}>
+          保存
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ── 行业话术 Tab ──────────────────────────────────────────────────────────
 function IndustryPromptTab() {
   const [rows, setRows] = useState<Array<{ industry: string; prompt: string }>>([]);
@@ -552,6 +634,11 @@ export default function AdminPage() {
                       key: 'industry',
                       label: <span><RobotOutlined /> 行业话术</span>,
                       children: <IndustryPromptTab />,
+                    },
+                    {
+                      key: 'handoff',
+                      label: <span><TeamOutlined /> 转接话术</span>,
+                      children: <HandoffNoticeTab />,
                     },
                   ]}
                 />

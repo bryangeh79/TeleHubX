@@ -216,6 +216,9 @@ Telegram / Facebook / Instagram / TikTok / Line / WeChat 账号
 
 最终目标：让客户感觉你像一个专业、友好、懂业务的真人客服，而不是死板机器人。`;
 
+/** 触发 handoff 时 Bot 给客户的固定话术（让客户知道已切到人工，避免干等） */
+export const DEFAULT_HANDOFF_NOTICE = '好的，已为你转接人工客服 😊 稍等一下，会有同事帮你跟进～';
+
 /** 广告号默认话术（读取 env，未设置则用英文兜底） */
 export const DEFAULT_AD_GROUP_FAQ =
   process.env.AD_GROUP_FAQ_REPLY ?? 'For more details please DM our bot!';
@@ -430,5 +433,19 @@ export class PlatformConfigService {
   async getIndustryPrompt(industry: string): Promise<string> {
     const all = await this.getIndustryPrompts();
     return all[industry] ?? all['其他'] ?? '';
+  }
+
+  // ── 转接话术（handoff 触发时 Bot 发给客户）─────────────────────────
+
+  async getHandoffNotice(): Promise<string> {
+    return (await this.getSetting('handoff_notice_msg')) ?? DEFAULT_HANDOFF_NOTICE;
+  }
+
+  async setHandoffNotice(value: string): Promise<void> {
+    await this.setSetting('handoff_notice_msg', value.trim());
+  }
+
+  async resetHandoffNotice(): Promise<void> {
+    await this.setSetting('handoff_notice_msg', DEFAULT_HANDOFF_NOTICE);
   }
 }

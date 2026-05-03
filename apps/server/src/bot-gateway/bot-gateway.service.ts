@@ -95,6 +95,48 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
     return /有(什么|哪些|啥|没有)?(产品|服务|套餐|方案)|哪些(产品|服务)|产品列表|你们卖|介绍.{0,3}产品|product\s*list|^what\s+(do\s+you\s+have|products?|services?)|^products?\??$|^services?\??$/i.test(t);
   }
 
+  /**
+   * 触发 handoff 时把客户上下文 + tg deep link 推送给所有启用的 operator Telegram。
+   * Bot 必须先收到 operator 主动 /start 才有权限推送 — 失败 swallow + log，不阻断主流程。
+   */
+  private async notifyHumanAgents(
+    bot: TenantBot & { rawToken: string },
+    lead: { id: string; tgUserId: string; tgUsername?: string | null; product?: string | null; intent?: string; replies?: Array<{ sentBy: string; text: string }> | null },
+    reason: string,
+  ): Promise<void> {
+    const settings = await this.tenants.getSettings(bot.tenantId);
+    const operators = (settings.humanAgents ?? []).filter(a => a?.enabled && a?.chatId);
+    if (!operators.length) return;
+
+    const recent = (lead.replies ?? []).slice(-5)
+      .map(r => `${r.sentBy === 'user' ? '👤' : '🤖'} ${r.text.slice(0, 100)}`)
+      .join('\n');
+    const dashUrl = process.env.DASHBOARD_URL ?? 'http://localhost:9601';
+    const notice = [
+      `🚨 新人工接管请求`,
+      ``,
+      `客户：@${lead.tgUsername ?? '(无 username)'}`,
+      `Telegram ID：${lead.tgUserId}`,
+      `直接私聊：tg://user?id=${lead.tgUserId}`,
+      lead.product ? `产品意向：${lead.product}` : '',
+      lead.intent ? `意向等级：${lead.intent}` : '',
+      `触发原因：${reason}`,
+      ``,
+      recent ? `最近 5 条对话：\n${recent}` : '',
+      ``,
+      `📋 dashboard: ${dashUrl}/leads/${lead.id}`,
+    ].filter(Boolean).join('\n');
+
+    await Promise.allSettled(
+      operators.map(op =>
+        this.botReply.sendText(bot.rawToken, op.chatId, notice).catch(err =>
+          this.logger.warn(`通知 operator failed chatId=${op.chatId} name=${op.name}: ${(err as Error).message}`),
+        ),
+      ),
+    );
+    this.logger.log(`通知 ${operators.length} 位 operator handoff lead=${lead.id}`);
+  }
+
   /** 构造产品选择 inline keyboard。每行一个按钮（产品名长，竖排好看）。 */
   private buildProductKeyboard(roster: Array<{ id: string; name: string }>) {
     return {
@@ -350,12 +392,21 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
           break;
         }
 
-        case 'handoff':
+        case 'handoff': {
           await this.leads.takeOver(lead.id);
           this.logger.log(
             `BotGateway: chatId=${msg.chatId} handoff triggered reason="${outcome.reason}"`,
           );
+          // (A) 通知客户已转接（避免干等）
+          replyText = await this.platformConfig.getHandoffNotice();
+          // (C) 通知所有启用的 operator Telegram
+          await this.notifyHumanAgents(bot, lead, outcome.reason).catch(err =>
+            this.logger.warn(`通知 operator 失败: ${(err as Error).message}`),
+          );
+          // takeover gateway 推送一次状态更新（dashboard 立刻看到 HUMAN）
+          this.getTakeover()?.emitLeadUpdate(lead.id);
           break;
+        }
 
         case 'rate_limited':
         case 'silent':

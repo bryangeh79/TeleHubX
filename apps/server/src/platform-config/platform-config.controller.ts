@@ -6,7 +6,8 @@ import OpenAI from 'openai';
 import { AI_PROVIDERS, isAiProviderId } from '../ai-agent/ai-providers';
 import {
   DEFAULT_AD_GROUP_FAQ, DEFAULT_AD_PRIVATE_DIVERT,
-  DEFAULT_GLOBAL_PERSONA, DEFAULT_VARIANT_PROMPT, PlatformConfigService,
+  DEFAULT_GLOBAL_PERSONA, DEFAULT_HANDOFF_NOTICE, DEFAULT_VARIANT_PROMPT,
+  PlatformConfigService,
 } from './platform-config.service';
 import { AiAgentService } from '../ai-agent/ai-agent.service';
 
@@ -185,5 +186,27 @@ export class PlatformConfigController {
     await this.svc.resetIndustryPrompts();
     const prompts = await this.svc.getIndustryPrompts();
     return { ok: true, prompts };
+  }
+
+  // ── 转接话术 ───────────────────────────────────────────────────────
+
+  @Get('settings/handoff-notice')
+  async getHandoffNotice() {
+    const value = await this.svc.getHandoffNotice();
+    return { key: 'handoff_notice_msg', value, isDefault: value === DEFAULT_HANDOFF_NOTICE };
+  }
+
+  @Put('settings/handoff-notice')
+  async setHandoffNotice(@Body() body: { value: string }) {
+    if (!body.value?.trim()) return { ok: false, message: '话术不能为空' };
+    await this.svc.setHandoffNotice(body.value.trim());
+    return { ok: true };
+  }
+
+  @Post('settings/handoff-notice/reset')
+  @HttpCode(HttpStatus.OK)
+  async resetHandoffNotice() {
+    await this.svc.resetHandoffNotice();
+    return { ok: true, value: DEFAULT_HANDOFF_NOTICE };
   }
 }

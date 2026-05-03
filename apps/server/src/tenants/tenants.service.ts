@@ -157,6 +157,24 @@ export class TenantsService implements OnModuleInit {
     return Object.assign(bot, { rawToken });
   }
 
+  /** 取该租户当前 active 的 bot（含 rawToken）。多个时返回最新创建的。 */
+  async findActiveBotByTenantWithToken(tenantId: string): Promise<(TenantBot & { rawToken: string }) | null> {
+    if (!this.encKey) return null;
+    const bot = await this.botRepo
+      .createQueryBuilder('b')
+      .addSelect('b.tokenEncrypted')
+      .where('b.tenantId = :tenantId AND b.isActive = true', { tenantId })
+      .orderBy('b.createdAt', 'DESC')
+      .getOne();
+    if (!bot) return null;
+    try {
+      const rawToken = decryptSession(bot.tokenEncrypted, this.encKey);
+      return Object.assign(bot, { rawToken });
+    } catch {
+      return null;
+    }
+  }
+
   async findActiveBotsWithTokens(): Promise<Array<TenantBot & { rawToken: string }>> {
     if (!this.encKey) return [];
     const bots = await this.botRepo

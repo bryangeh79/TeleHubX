@@ -47,6 +47,7 @@ import {
 import CompanyInfoWizard from '../ai/CompanyInfoWizard';
 import ProductSetupWizard from '../ai/ProductSetupWizard';
 import GeneralFaqDrawer from './GeneralFaqDrawer';
+import HumanAgentsCard from './HumanAgentsCard';
 import { aiApi, knowledgeApi, tenantsApi } from '../../services/api';
 
 const { Title, Text, Paragraph } = Typography;
@@ -996,6 +997,11 @@ export default function CsPage() {
               key: 'advanced',
               label: '高级设置',
               children: <AdvancedSettingsTab settings={settings} tenantId={tenant?.id} onSaved={() => void load()} />,
+            },
+            {
+              key: 'human-agents',
+              label: '人工接管',
+              children: <HumanAgentsCard tenantId={tenant?.id} />,
             },
           ]}
         />

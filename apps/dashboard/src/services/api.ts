@@ -208,6 +208,8 @@ export const tenantsApi = {
   updateSettings: (tenantId: string, data: any) =>
     api.patch(`/tenants/${tenantId}/settings`, data),
   testAi: (tenantId: string) => api.post(`/tenants/${tenantId}/settings/test-ai`, {}, { timeout: 30000 }),
+  testNotifyAgent: (tenantId: string, chatId: string, name?: string) =>
+    api.post(`/tenants/${tenantId}/settings/test-notify-agent`, { chatId, name }, { timeout: 15000 }),
 };
 
 export const knowledgeApi = {
@@ -437,6 +439,9 @@ export const platformConfigApi = {
   setIndustryPrompts: (prompts: Record<string, string>) =>
     api.put('/platform-config/ai/settings/industry-prompts', { prompts }),
   resetIndustryPrompts: () => api.post('/platform-config/ai/settings/industry-prompts/reset'),
+  getHandoffNotice: () => api.get('/platform-config/ai/settings/handoff-notice'),
+  setHandoffNotice: (value: string) => api.put('/platform-config/ai/settings/handoff-notice', { value }),
+  resetHandoffNotice: () => api.post('/platform-config/ai/settings/handoff-notice/reset'),
 };
 
 export const statsApi = {
