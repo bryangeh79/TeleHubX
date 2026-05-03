@@ -20,7 +20,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { slotsApi, warmupApi } from '../../services/api';
+import { slotsApi, tasksApi, warmupApi } from '../../services/api';
 
 const { Title, Text } = Typography;
 
@@ -64,9 +64,20 @@ interface WarmupPlan {
   createdAt: string;
 }
 
+/** 通过任务调度启动的 preset 养号任务（区别于旧 warmup_plans 的 P0-P4 渐进） */
+interface PresetWarmupTask {
+  id: string;
+  seq: number | null;
+  type: string; // preset_warmup_7d / preset_full_14d / preset_rampup_7d / preset_mature_ops
+  status: string;
+  progress: number;
+  startedAt: string | null;
+}
+
 interface Row {
   slot: ApiSlot;
   plan: WarmupPlan | null;
+  presetTask: PresetWarmupTask | null;
   loadingPlan: boolean;
 }
 
@@ -101,15 +112,41 @@ export default function WarmupPage() {
       const slots: ApiSlot[] = Array.isArray(slotsRes.data) ? slotsRes.data : [];
       const occupied = slots.filter(s => s.status === 'occupied' && s.account);
 
-      // Fetch each occupied account's warmup plan in parallel
-      const plans = await Promise.all(
-        occupied.map(async s => ({
-          slot: s,
-          plan: await fetchPlanFor(s.account!.id),
-          loadingPlan: false,
-        })),
-      );
-      setRows(plans);
+      // 并行：legacy warmup plans + 通过任务调度启动的 preset 养号任务
+      const [plansData, presetTasksData] = await Promise.all([
+        Promise.all(
+          occupied.map(async s => ({
+            id: s.account!.id,
+            plan: await fetchPlanFor(s.account!.id),
+          })),
+        ),
+        // 拉所有 running 状态的 preset_* 任务（合并多种类型）
+        Promise.all([
+          tasksApi.list({ status: 'running', type: 'preset_warmup_7d' }).catch(() => ({ data: [] })),
+          tasksApi.list({ status: 'running', type: 'preset_full_14d' }).catch(() => ({ data: [] })),
+          tasksApi.list({ status: 'running', type: 'preset_rampup_7d' }).catch(() => ({ data: [] })),
+          tasksApi.list({ status: 'running', type: 'preset_mature_ops' }).catch(() => ({ data: [] })),
+        ]).then(arr => arr.flatMap(r => (Array.isArray(r.data) ? r.data : []))),
+      ]);
+
+      const planByAccountId = new Map(plansData.map(p => [p.id, p.plan]));
+      const presetByAccountId = new Map<string, PresetWarmupTask>();
+      for (const t of presetTasksData) {
+        if (t?.accountId && !presetByAccountId.has(t.accountId)) {
+          presetByAccountId.set(t.accountId, {
+            id: t.id, seq: t.seq, type: t.type, status: t.status,
+            progress: t.progress ?? 0, startedAt: t.startedAt ?? null,
+          });
+        }
+      }
+
+      const rowsBuilt: Row[] = occupied.map(s => ({
+        slot: s,
+        plan: planByAccountId.get(s.account!.id) ?? null,
+        presetTask: presetByAccountId.get(s.account!.id) ?? null,
+        loadingPlan: false,
+      }));
+      setRows(rowsBuilt);
     } catch (err: any) {
       antdMessage.error(err?.response?.data?.message ?? '加载养号状态失败');
     } finally {
@@ -229,23 +266,47 @@ export default function WarmupPage() {
     {
       title: '阶段 & 进度',
       key: 'phase',
+      width: 240,
       render: (_, r) => {
-        if (!r.plan) {
-          return <Text type="secondary">尚未启动养号</Text>;
-        }
-        const phase = (r.plan.currentPhase as WarmupPhase) ?? 0;
-        const meta = PHASE_META[phase] ?? PHASE_META[0];
-        return (
-          <div style={{ minWidth: 220 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <Text style={{ fontSize: 12 }}>{meta.label}</Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {meta.percent}%{r.plan.completed ? ' · 完成' : r.plan.paused ? ' · 暂停' : ''}
-              </Text>
+        // legacy P0-P4 warmup plan 优先
+        if (r.plan) {
+          const phase = (r.plan.currentPhase as WarmupPhase) ?? 0;
+          const meta = PHASE_META[phase] ?? PHASE_META[0];
+          return (
+            <div style={{ minWidth: 200 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <Text style={{ fontSize: 12 }}>{meta.label}</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {meta.percent}%{r.plan.completed ? ' · 完成' : r.plan.paused ? ' · 暂停' : ''}
+                </Text>
+              </div>
+              <Progress percent={meta.percent} strokeColor={meta.color} showInfo={false} size="small" />
             </div>
-            <Progress percent={meta.percent} strokeColor={meta.color} showInfo={false} size="small" />
-          </div>
-        );
+          );
+        }
+        // preset 养号任务（任务调度启动的）
+        if (r.presetTask) {
+          const t = r.presetTask;
+          const presetLabel: Record<string, string> = {
+            preset_warmup_7d: '🌱 自动养号 7 天',
+            preset_full_14d: '🎯 一键托管 14 天',
+            preset_rampup_7d: '🔥 运营热身 7 天',
+            preset_mature_ops: '🚀 成熟运营',
+          };
+          return (
+            <div style={{ minWidth: 200 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <Text style={{ fontSize: 12 }}>{presetLabel[t.type] ?? t.type} · #{t.seq}</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>{t.progress}%</Text>
+              </div>
+              <Progress percent={t.progress} strokeColor="#1677ff" showInfo={false} size="small" />
+              {t.startedAt && (
+                <Text type="secondary" style={{ fontSize: 10 }}>启动 {dayjs(t.startedAt).format('MM-DD HH:mm')}</Text>
+              )}
+            </div>
+          );
+        }
+        return <Text type="secondary">尚未启动养号</Text>;
       },
     },
     {
@@ -277,6 +338,14 @@ export default function WarmupPage() {
         const busy = !!busyId[id];
 
         if (!row.plan) {
+          // 已经在任务调度里启动了 preset 养号 → 不再显示「启动」按钮
+          if (row.presetTask) {
+            return (
+              <Tooltip title={`通过任务调度启动 - 任务 #${row.presetTask.seq}`}>
+                <Tag color="processing">运行中</Tag>
+              </Tooltip>
+            );
+          }
           return (
             <Button
               size="small"
