@@ -1,7 +1,11 @@
-import { IsBoolean, IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 import { KbType } from '../kb.entity';
 
 export class CreateKbDto {
+  @IsOptional()
+  @IsUUID()
+  tenantId?: string;
+
   @IsString()
   @MinLength(1)
   @MaxLength(128)
@@ -12,12 +16,12 @@ export class CreateKbDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(500)
+  @MaxLength(20000)
   description?: string;
 
   @IsOptional()
   @IsString()
-  @MaxLength(2000)
+  @MaxLength(20000)
   goalPrompt?: string;
 
   @IsOptional()
@@ -31,6 +35,10 @@ export class CreateKbDto {
 
 export class UpdateKbDto {
   @IsOptional()
+  @IsUUID()
+  tenantId?: string;
+
+  @IsOptional()
   @IsString()
   @MinLength(1)
   @MaxLength(128)
@@ -42,12 +50,12 @@ export class UpdateKbDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(500)
+  @MaxLength(20000)
   description?: string;
 
   @IsOptional()
   @IsString()
-  @MaxLength(2000)
+  @MaxLength(20000)
   goalPrompt?: string;
 
   @IsOptional()
