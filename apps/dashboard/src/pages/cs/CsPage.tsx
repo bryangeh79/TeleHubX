@@ -6,9 +6,11 @@ import {
   Card,
   Col,
   Divider,
+  Dropdown,
   Form,
   Input,
   Modal,
+  Popconfirm,
   Row,
   Space,
   Statistic,
@@ -26,6 +28,9 @@ import {
   ClockCircleOutlined,
   CustomerServiceOutlined,
   DeleteOutlined,
+  EditOutlined,
+  FileTextOutlined,
+  MoreOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
   PlusOutlined,
@@ -632,90 +637,166 @@ export default function CsPage() {
               key: 'knowledge',
               label: <span>知识库 <Tag color="blue" style={{ marginLeft: 4 }}>{(companyKb ? 1 : 0) + productKbs.length}</Tag></span>,
               children: (
-                <div style={{ padding: '16px 0' }}>
-                  {/* 公司资料卡 */}
-                  <Card size="small" style={{ marginBottom: 12 }}
-                    title={<Space><BankOutlined style={{ color: '#1677ff' }} /><Text strong>公司资料</Text>{companyKb ? <Tag color="success">已配置</Tag> : <Tag>未配置</Tag>}</Space>}
-                    extra={
-                      <Button size="small" icon={companyKb ? <RobotOutlined /> : <PlusOutlined />}
+                <div style={{ padding: '12px 0' }}>
+                  {/* ── 公司资料 ── WAhubX 风格大卡片 */}
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <Space>
+                        <BankOutlined style={{ color: '#1677ff', fontSize: 16 }} />
+                        <Text strong style={{ fontSize: 14 }}>公司资料</Text>
+                        {companyKb && <Tag color="success" style={{ fontSize: 11 }}>已配置</Tag>}
+                      </Space>
+                      <Button size="small" icon={companyKb ? <EditOutlined /> : <PlusOutlined />}
+                        type={companyKb ? 'default' : 'primary'}
                         onClick={() => setCompanyWizardOpen(true)}>
                         {companyKb ? '编辑' : '设置'}
                       </Button>
-                    }
-                  >
+                    </div>
+
                     {companyKb ? (() => {
                       let info: any = {};
                       try { info = JSON.parse(companyKb.description ?? '{}'); } catch {}
+                      const companyName = info.companyName
+                        || (companyKb.name && !companyKb.name.startsWith('undefined')
+                          ? companyKb.name.replace(' - 公司资料', '')
+                          : '')
+                        || '未命名公司';
                       const contactCount = (info.contacts ?? []).filter((c: any) => c.value).length;
                       return (
-                        <div>
-                          <Text strong style={{ fontSize: 14 }}>{info.companyName ?? companyKb.name.replace(' - 公司资料', '')}</Text>
-                          <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>{info.industry}</Text>
-                          <Paragraph style={{ fontSize: 12, color: '#666', margin: '6px 0', whiteSpace: 'pre-wrap' }}
-                            ellipsis={{ rows: 3, expandable: true, symbol: '展开' }}>
-                            {companyKb.goalPrompt || info.about || '—'}
-                          </Paragraph>
-                          <Space size={4} wrap>
-                            {contactCount > 0 && <Tag color="green">{contactCount} 个联系方式</Tag>}
-                            {info.email && <Tag color="cyan">📧 {info.email}</Tag>}
-                            {info.website && <Tag color="purple">🌐 已配置网站</Tag>}
-                            {info.hoursFrom && <Tag>⏰ {info.hoursFrom}-{info.hoursTo} {info.timeFrom}-{info.timeTo}</Tag>}
-                          </Space>
-                        </div>
+                        <Card hoverable style={{ borderColor: '#bae0ff' }}
+                          styles={{ body: { padding: '14px 18px' } }}>
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+                            <div style={{
+                              width: 44, height: 44, borderRadius: 8, background: '#e6f4ff',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                            }}>
+                              <BankOutlined style={{ fontSize: 22, color: '#1677ff' }} />
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div>
+                                <Text strong style={{ fontSize: 15 }}>{companyName}</Text>
+                                {info.industry && <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>· {info.industry}</Text>}
+                              </div>
+                              <Paragraph style={{ fontSize: 12, color: '#666', margin: '4px 0 8px', whiteSpace: 'pre-wrap' }}
+                                ellipsis={{ rows: 2, expandable: true, symbol: '展开' }}>
+                                {companyKb.goalPrompt || info.about || '—'}
+                              </Paragraph>
+                              <Space size={4} wrap>
+                                {contactCount > 0 && <Tag color="green" style={{ fontSize: 10 }}>{contactCount} 个联系方式</Tag>}
+                                {info.email && <Tag color="cyan" style={{ fontSize: 10 }}>📧 {info.email}</Tag>}
+                                {info.website && <Tag color="purple" style={{ fontSize: 10 }}>🌐 官网</Tag>}
+                                {info.hoursFrom && <Tag style={{ fontSize: 10 }}>⏰ {info.hoursFrom}-{info.hoursTo} {info.timeFrom}-{info.timeTo}</Tag>}
+                              </Space>
+                            </div>
+                          </div>
+                        </Card>
                       );
                     })() : (
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        填写公司基本信息 + 联系方式 + 营业时间，Bot 会用来回答客户问公司相关的问题。
-                      </Text>
+                      <Card style={{ background: '#fafafa', borderStyle: 'dashed' }}
+                        styles={{ body: { padding: '20px 16px', textAlign: 'center' } }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          还没有公司资料 — 填写后 Bot 能回答「你们是哪家公司？」「怎么联系？」
+                        </Text>
+                      </Card>
                     )}
-                  </Card>
+                  </div>
 
-                  {/* 产品列表卡 */}
-                  <Card size="small"
-                    title={<Space><span style={{ fontSize: 14 }}>📦</span><Text strong>产品资料</Text>{productKbs.length > 0 && <Tag color="success">已配置 {productKbs.length} 个</Tag>}</Space>}
-                    extra={
+                  <Divider style={{ margin: '8px 0 16px' }} />
+
+                  {/* ── 产品资料 ── WAhubX 风格列表 */}
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <Space>
+                        <AppstoreOutlined style={{ color: '#52c41a', fontSize: 16 }} />
+                        <Text strong style={{ fontSize: 14 }}>产品资料</Text>
+                        {productKbs.length > 0 && <Tag color="success" style={{ fontSize: 11 }}>{productKbs.length} 个</Tag>}
+                      </Space>
                       <Button size="small" type="primary" icon={<PlusOutlined />}
                         onClick={() => setProductWizardOpen(true)}>
                         管理产品
                       </Button>
-                    }
-                  >
+                    </div>
+
                     {productKbs.length === 0 ? (
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        点「管理产品」添加产品 → 上传介绍书 → AI 一键生成 30-50 条 FAQ + 销售目标。
-                        Bot 会优先用产品 FAQ 回答客户。
-                      </Text>
+                      <Card style={{ background: '#fafafa', borderStyle: 'dashed' }}
+                        styles={{ body: { padding: '20px 16px', textAlign: 'center' } }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          还没有产品 — 上传介绍书，AI 一键生成 30-50 条 FAQ
+                        </Text>
+                      </Card>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         {productKbs.map((p: any) => {
                           let info: any = {};
                           try { info = JSON.parse(p.description ?? '{}'); } catch {}
-                          const faqCount = productFaqCounts[p.id] ?? '...';
+                          const faqCount = productFaqCounts[p.id];
+                          const productName = info.productName ?? p.name.replace(' - 产品资料', '');
+                          const goalShort = p.goalPrompt
+                            ? (p.goalPrompt.length > 24 ? p.goalPrompt.slice(0, 24) + '...' : p.goalPrompt)
+                            : null;
                           return (
-                            <div key={p.id} style={{
-                              border: '1px solid #f0f0f0', borderRadius: 6,
-                              padding: '8px 12px', background: '#fafafa',
-                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                            }}>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <Text strong style={{ fontSize: 13 }}>
-                                  {info.productName ?? p.name.replace(' - 产品资料', '')}
-                                </Text>
-                                <Space size={4} wrap style={{ marginLeft: 8 }}>
-                                  {info.price && <Tag color="orange" style={{ fontSize: 10 }}>{info.price}</Tag>}
-                                  <Tag color="blue" style={{ fontSize: 10 }}>{faqCount} 条 FAQ</Tag>
-                                  {p.goalPrompt && <Tag color="purple" style={{ fontSize: 10 }}>🎯 {p.goalPrompt.slice(0, 12)}...</Tag>}
-                                </Space>
+                            <Card key={p.id} hoverable
+                              styles={{ body: { padding: '12px 16px' } }}
+                              style={{ cursor: 'pointer' }}
+                              onClick={() => setProductWizardOpen(true)}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
+                                  <div style={{
+                                    width: 40, height: 40, borderRadius: 6, background: '#f6ffed',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                                  }}>
+                                    <FileTextOutlined style={{ fontSize: 20, color: '#52c41a' }} />
+                                  </div>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: 14, fontWeight: 600, color: '#222' }}>
+                                      {productName}
+                                      {info.price && (
+                                        <Tag color="orange" style={{ marginLeft: 8, fontSize: 10 }}>{info.price}</Tag>
+                                      )}
+                                    </div>
+                                    <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>
+                                      1 文档 · {faqCount === undefined ? '...' : `${faqCount} FAQ`}
+                                      {goalShort && <span style={{ marginLeft: 10 }}>· 🎯 {goalShort}</span>}
+                                    </div>
+                                  </div>
+                                </div>
+                                <Dropdown
+                                  trigger={['click']}
+                                  menu={{
+                                    items: [
+                                      { key: 'edit', icon: <EditOutlined />, label: '编辑',
+                                        onClick: ({ domEvent }) => { domEvent.stopPropagation(); setProductWizardOpen(true); } },
+                                      { type: 'divider' as const },
+                                      { key: 'delete', icon: <DeleteOutlined />, label: '删除', danger: true,
+                                        onClick: async ({ domEvent }) => {
+                                          domEvent.stopPropagation();
+                                          Modal.confirm({
+                                            title: `确认删除产品「${productName}」？`,
+                                            content: '该产品的所有 FAQ 会一起删除，此操作无法撤销。',
+                                            okText: '删除', okButtonProps: { danger: true }, cancelText: '取消',
+                                            onOk: async () => {
+                                              try {
+                                                await knowledgeApi.deleteKb(p.id);
+                                                antdMessage.success('产品已删除');
+                                                void load();
+                                              } catch { antdMessage.error('删除失败'); }
+                                            },
+                                          });
+                                        } },
+                                    ],
+                                  }}
+                                >
+                                  <Button type="text" icon={<MoreOutlined />}
+                                    onClick={(e) => e.stopPropagation()} />
+                                </Dropdown>
                               </div>
-                              <Button size="small" type="link" onClick={() => setProductWizardOpen(true)}>
-                                管理
-                              </Button>
-                            </div>
+                            </Card>
                           );
                         })}
                       </div>
                     )}
-                  </Card>
+                  </div>
 
                   <div style={{ marginTop: 12, padding: '8px 12px', background: '#fffbe6', borderRadius: 6, fontSize: 11, color: '#666' }}>
                     💡 完整的 KB / FAQ / 文件管理请前往 <Button type="link" href="/knowledge" style={{ padding: 0, fontSize: 11 }}>知识库页面</Button>

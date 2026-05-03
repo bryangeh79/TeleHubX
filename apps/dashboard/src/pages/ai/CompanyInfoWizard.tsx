@@ -44,6 +44,8 @@ const INDUSTRY_OPTIONS = [
 export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
   const [step, setStep] = useState(0);
   const [form] = Form.useForm();
+  // Mirror form values to useState — prevents value loss when Form.Item unmounts on step change
+  const [formMirror, setFormMirror] = useState<Record<string, any>>({});
 
   // Contact list
   const [contacts, setContacts] = useState<ContactEntry[]>([{ type: 'WhatsApp', value: '' }]);
@@ -71,19 +73,27 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
     setGeneratedProfile('');
     setExtraText('');
     setUploadedFileName('');
+    setFormMirror({});
     knowledgeApi.listKbs({ type: 'company' }).then((res) => {
       const existing = (res.data ?? []).find((kb: any) => !tenantId || kb.tenantId === tenantId);
       if (existing) {
         setExistingKbId(existing.id);
         try {
           const saved = JSON.parse(existing.description ?? '{}');
-          form.setFieldsValue({
-            companyName: saved.companyName,
+          // 兼容旧记录：name 形如 "undefined - 公司资料"，从 goalPrompt 第一句猜公司名
+          let fallbackName = saved.companyName;
+          if (!fallbackName && existing.name && !existing.name.startsWith('undefined')) {
+            fallbackName = existing.name.replace(' - 公司资料', '').trim() || undefined;
+          }
+          const formData = {
+            companyName: fallbackName,
             industry: saved.industry,
             about: saved.about,
             email: saved.email,
             website: saved.website,
-          });
+          };
+          form.setFieldsValue(formData);
+          setFormMirror(formData);
           if (saved.contacts?.length) setContacts(saved.contacts);
           if (saved.hoursFrom) setHoursFrom(saved.hoursFrom);
           if (saved.hoursTo) setHoursTo(saved.hoursTo);
@@ -162,8 +172,12 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
   };
 
   const handleGenerate = async () => {
-    let values: any;
-    try { values = await form.validateFields(); } catch { return; }
+    // 优先用 form 实时值，formMirror 作为备份
+    let values: any = { ...formMirror, ...form.getFieldsValue() };
+    // Step 1 必填字段校验
+    try { await form.validateFields(['companyName', 'industry', 'about']); } catch { return; }
+    // Re-merge 一次（validateFields 触发后 form 状态更新）
+    values = { ...formMirror, ...form.getFieldsValue() };
     if (!values.about?.trim()) { antdMessage.warning('请填写公司简介'); return; }
 
     setGenerating(true);
@@ -173,7 +187,6 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
         productName: values.companyName,
         rawText,
       });
-      // 用 overview 作为档案基础，加上联系方式
       const contactStr = contacts.filter(c => c.value).map(c => `• ${c.type}: ${c.value}`).join('\n');
       const profile = [
         res.data.overview || `我们是 ${values.companyName}，专注于${values.industry}领域。${values.about}`,
@@ -193,8 +206,14 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
   };
 
   const handleSave = async () => {
-    let values: any;
-    try { values = await form.validateFields(); } catch { return; }
+    // 优先 formMirror（跨步骤备份），form 当前值覆盖
+    const values: any = { ...formMirror, ...form.getFieldsValue() };
+
+    if (!values.companyName?.trim()) {
+      antdMessage.warning('公司名称不能为空，请回到第 1 步填写');
+      setStep(0);
+      return;
+    }
 
     setSaving(true);
     try {
@@ -265,7 +284,12 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
       />
 
       {step === 0 && (
-        <Form form={form} layout="vertical">
+        <Form
+          form={form}
+          layout="vertical"
+          preserve={true}
+          onValuesChange={(_, all) => setFormMirror(prev => ({ ...prev, ...all }))}
+        >
           <Alert type="info" showIcon style={{ marginBottom: 16 }}
             message="填写后 AI 会自动整理成结构化档案，Bot 用来回答「你们是哪家公司？」「怎么联系？」等问题" />
 
