@@ -170,6 +170,9 @@ export class DiscoveredGroupsService {
       payload: {
         tgChatIds: [target],
         maxScrapePerGroup: 200,
+        // 标记 → 爬完后自动建客户群（tasks.service autoGroupFromScrape hook）
+        _autoGroupFromDiscovered: g.id,
+        _autoGroupSourceTitle: g.title,
       },
       scheduledAt: scrapeAt.toISOString(),
     }, g.tenantId ?? undefined);

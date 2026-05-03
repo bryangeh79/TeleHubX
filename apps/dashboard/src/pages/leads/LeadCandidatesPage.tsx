@@ -28,7 +28,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { leadCandidatesApi, tasksApi } from '../../services/api';
+import { customerGroupsApi, leadCandidatesApi, tasksApi } from '../../services/api';
 
 const { Title, Text } = Typography;
 
@@ -73,6 +73,9 @@ export default function LeadCandidatesPage() {
   const [filterStatus, setFilterStatus] = useState<string | undefined>();
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [contactOpen, setContactOpen] = useState(false);
+  const [packOpen, setPackOpen] = useState(false);
+  const [packSubmitting, setPackSubmitting] = useState(false);
+  const [packForm] = Form.useForm<{ name: string; description?: string }>();
   const [contactForm] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
 
@@ -318,6 +321,19 @@ export default function LeadCandidatesPage() {
             options={Object.entries(STATUS_META).map(([k, m]) => ({ value: k, label: m.label }))}
           />
           <Button
+            icon={<TeamOutlined />}
+            disabled={selectedRowKeys.length === 0}
+            onClick={() => {
+              packForm.setFieldsValue({
+                name: `候选人池-${dayjs().format('YYYY-MM-DD HH:mm')}`,
+                description: '',
+              });
+              setPackOpen(true);
+            }}
+          >
+            📦 打包成客户群 ({selectedRowKeys.length})
+          </Button>
+          <Button
             type="primary"
             icon={<SendOutlined />}
             disabled={selectedRowKeys.length === 0}
@@ -384,6 +400,54 @@ export default function LeadCandidatesPage() {
                 </Form.Item>
               )
             }
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={<Space><TeamOutlined /> 打包成客户群</Space>}
+        open={packOpen}
+        onCancel={() => setPackOpen(false)}
+        confirmLoading={packSubmitting}
+        onOk={async () => {
+          let v: { name: string; description?: string };
+          try { v = await packForm.validateFields(); } catch { return; }
+          const tenantId = localStorage.getItem(TENANT_KEY) ?? '';
+          if (!tenantId) { antdMessage.error('未识别 tenantId'); return; }
+          setPackSubmitting(true);
+          try {
+            const res = await customerGroupsApi.createFromCandidateIds({
+              tenantId,
+              name: v.name.trim(),
+              description: v.description?.trim() || undefined,
+              candidateIds: selectedRowKeys.map(String),
+            });
+            const g = res.data;
+            antdMessage.success(`已建客户群「${g.name}」共 ${g.memberCount} 人，去广告投放页面选它即可`);
+            setPackOpen(false);
+            setSelectedRowKeys([]);
+          } catch (err: any) {
+            antdMessage.error(err?.response?.data?.message ?? '建群失败');
+          } finally {
+            setPackSubmitting(false);
+          }
+        }}
+        okText="创建客户群"
+        cancelText="取消"
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`已选 ${selectedRowKeys.length} 个候选人`}
+          description="客户群创建后可在「广告投放 → 新建投放」的目标客户群下拉里选择，自动展开成 targets。"
+        />
+        <Form form={packForm} layout="vertical">
+          <Form.Item name="name" label="客户群名称" rules={[{ required: true, message: '必填' }, { max: 120 }]}>
+            <Input placeholder="例如：Crypto Malaysia 优质用户" />
+          </Form.Item>
+          <Form.Item name="description" label="备注（可选）" rules={[{ max: 500 }]}>
+            <Input.TextArea rows={2} placeholder="例如：来自 Crypto Malaysia 群，优先级 ≥80" />
           </Form.Item>
         </Form>
       </Modal>

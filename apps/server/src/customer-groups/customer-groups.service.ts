@@ -202,6 +202,113 @@ export class CustomerGroupsService {
     return this.repo.save(group);
   }
 
+  /**
+   * 从指定候选人 ID 列表打包成新客户群（前端多选 → 打包用）。
+   */
+  async createFromCandidateIds(dto: {
+    tenantId: string;
+    name: string;
+    description?: string;
+    candidateIds: string[];
+  }): Promise<CustomerGroup> {
+    if (!dto.candidateIds.length) {
+      throw new NotFoundException('candidateIds 不能为空');
+    }
+    const candidates = await this.candidateRepo.find({
+      where: { id: In(dto.candidateIds), tenantId: dto.tenantId },
+    });
+    return this.buildGroupFromCandidates({
+      tenantId: dto.tenantId,
+      name: dto.name,
+      description: dto.description,
+      candidates,
+    });
+  }
+
+  /**
+   * 从 scrape 窗口建群（B 自动）：sourceGroupId + since 时间过滤本次 scrape 入库的候选人。
+   * 如果 nameSuffix-相同的群已存在则 append 而非新建（防多次重跑重复建群）。
+   */
+  async createFromScrapeWindow(dto: {
+    tenantId: string;
+    name: string;
+    description?: string;
+    sourceGroupId: string;
+    since: Date;
+  }): Promise<{ group: CustomerGroup; created: boolean; addedCount: number }> {
+    const candidates = await this.candidateRepo.find({
+      where: {
+        tenantId: dto.tenantId,
+        sourceGroupId: dto.sourceGroupId,
+        scrapedAt: MoreThanOrEqual(dto.since),
+      },
+    });
+    if (!candidates.length) {
+      // 0 候选人不建群（避免空群污染），调用方决定怎么处理
+      return { group: null as any, created: false, addedCount: 0 };
+    }
+    // 同名群存在 → append 去重
+    const existing = await this.repo.findOne({ where: { tenantId: dto.tenantId, name: dto.name } });
+    if (existing) {
+      const items = candidates.map(c => ({
+        value: c.phone ?? (c.tgUsername ? `@${c.tgUsername}` : c.tgUserId),
+        source: 'group_scrape' as MemberSource,
+        huntTaskId: c.huntTaskId ?? undefined,
+        tgUserId: c.tgUserId,
+        tgUsername: c.tgUsername ?? undefined,
+        isPremium: c.isPremium,
+      })).filter(it => !!it.value);
+      const r = await this.appendMembers(existing.id, items);
+      return { group: r.group, created: false, addedCount: r.added };
+    }
+    const group = await this.buildGroupFromCandidates({
+      tenantId: dto.tenantId,
+      name: dto.name,
+      description: dto.description,
+      candidates,
+      defaultSource: 'group_scrape',
+    });
+    return { group, created: true, addedCount: group.memberCount };
+  }
+
+  /** 候选人列表 → CustomerGroup 实体共享构建逻辑（不直接 save） */
+  private async buildGroupFromCandidates(dto: {
+    tenantId: string;
+    name: string;
+    description?: string;
+    candidates: LeadCandidate[];
+    defaultSource?: MemberSource;
+  }): Promise<CustomerGroup> {
+    const now = new Date().toISOString();
+    const seen = new Set<string>();
+    const memberDetails: MemberDetail[] = [];
+    for (const c of dto.candidates) {
+      const value = c.phone ?? (c.tgUsername ? `@${c.tgUsername}` : c.tgUserId);
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      memberDetails.push({
+        value,
+        source: dto.defaultSource ?? 'lead_hunt',
+        addedAt: now,
+        huntTaskId: c.huntTaskId ?? undefined,
+        tgUserId: c.tgUserId,
+        tgUsername: c.tgUsername ?? undefined,
+        isPremium: c.isPremium,
+      });
+    }
+    const members = memberDetails.map(d => d.value);
+    const group = this.repo.create({
+      tenantId: dto.tenantId,
+      name: dto.name,
+      description: dto.description,
+      sourceType: 'candidates',
+      members,
+      memberDetails,
+      memberCount: members.length,
+    });
+    return this.repo.save(group);
+  }
+
   /** 候选池预览（不创建群，给前端看人数和示例） */
   async previewCandidates(filters: {
     tenantId: string;

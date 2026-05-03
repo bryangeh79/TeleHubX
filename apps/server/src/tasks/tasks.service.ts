@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, In, LessThan, Repository } from 'typeorm';
 import { Account } from '../accounts/account.entity';
 import { Campaign, CampaignStatus } from '../campaigns/campaign.entity';
+import { CustomerGroupsService } from '../customer-groups/customer-groups.service';
+import { DiscoveredGroup, DiscoveredGroupStatus } from '../discovered-groups/discovered-group.entity';
 import { LeadCandidatesService } from '../leads-candidates/leads-candidates.service';
 import { CreateTaskDto, UpdateTaskDto } from './task.dto';
 import { Task, TaskStatus, TaskType } from './task.entity';
@@ -39,7 +41,9 @@ export class TasksService implements OnModuleInit {
     @InjectRepository(Task) private readonly repo: Repository<Task>,
     @InjectRepository(Account) private readonly accountRepo: Repository<Account>,
     @InjectRepository(Campaign) private readonly campaignRepo: Repository<Campaign>,
+    @InjectRepository(DiscoveredGroup) private readonly discoveredRepo: Repository<DiscoveredGroup>,
     private readonly leadCandidates: LeadCandidatesService,
+    private readonly customerGroups: CustomerGroupsService,
   ) {}
 
   /**
@@ -620,6 +624,17 @@ export class TasksService implements OnModuleInit {
         this.maybeCompleteCampaign(campaignId).catch(() => {});
       }
     }
+    // group_scrape done + 来自 discovered-groups 的「加+爬」流程 → 自动建客户群 + 推进 status
+    if (
+      saved.type === TaskType.GROUP_SCRAPE &&
+      saved.status === TaskStatus.DONE &&
+      saved.payload &&
+      (saved.payload as any)._autoGroupFromDiscovered
+    ) {
+      this.autoGroupFromScrape(saved).catch((err) => {
+        this.logger.warn(`autoGroupFromScrape failed task=${saved.id}: ${(err as Error).message}`);
+      });
+    }
     return saved;
   }
 
@@ -908,5 +923,50 @@ export class TasksService implements OnModuleInit {
       await this.recalcParentAggregate(pid).catch(() => {});
     }
     return dispatched;
+  }
+
+  /**
+   * group_scrape 任务完成后自动建客户群（来自 discovered-groups「加+爬」流程）。
+   * - 用 sourceGroupId + scrape startedAt 窗口找本次入库的候选人
+   * - 命名: `{源群标题} ({候选数}人) · YYYY-MM-DD`
+   * - 同名群存在 → append 去重
+   * - 推进 discovered_groups.status: joined → scraped
+   */
+  private async autoGroupFromScrape(task: Task): Promise<void> {
+    if (!task.tenantId) return;
+    const payload = task.payload as any;
+    const discoveredId: string | undefined = payload?._autoGroupFromDiscovered;
+    const sourceTitle: string = payload?._autoGroupSourceTitle ?? task.name;
+    const tgChatId: string | undefined = (payload?.tgChatIds ?? [])[0];
+    if (!discoveredId || !tgChatId || !task.startedAt) return;
+
+    // sourceGroupId 在 lead_candidates 里存的是 scrape 用的字符串（@username 或 -100xxx）
+    const since = task.startedAt;
+    const today = new Date().toISOString().slice(0, 10);
+    const groupName = `${sourceTitle} · ${today}`;
+
+    try {
+      const result = await this.customerGroups.createFromScrapeWindow({
+        tenantId: task.tenantId,
+        name: groupName,
+        description: `自动来自「群源发现」加+爬 (任务 #${task.seq})`,
+        sourceGroupId: tgChatId,
+        since,
+      });
+      if (result.created) {
+        this.logger.log(`autoGroup: 新建客户群「${groupName}」共 ${result.addedCount} 人 (task #${task.seq})`);
+      } else if (result.addedCount > 0) {
+        this.logger.log(`autoGroup: 已有客户群「${groupName}」追加 ${result.addedCount} 人 (task #${task.seq})`);
+      } else {
+        this.logger.log(`autoGroup: 0 候选人，跳过建群 (task #${task.seq})`);
+      }
+    } catch (err) {
+      this.logger.warn(`autoGroup createFromScrapeWindow failed: ${(err as Error).message}`);
+    }
+
+    // 推进 discovered_groups.status → scraped
+    await this.discoveredRepo
+      .update({ id: discoveredId }, { status: DiscoveredGroupStatus.SCRAPED })
+      .catch(() => {});
   }
 }

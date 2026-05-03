@@ -60,6 +60,17 @@ export class CustomerGroupsController {
     return this.service.createFromCandidates(dto);
   }
 
+  /** 从指定候选人 ID 列表打包成新客户群（前端多选 → 打包） */
+  @Post('from-candidate-ids')
+  createFromCandidateIds(@Body() dto: {
+    tenantId: string;
+    name: string;
+    description?: string;
+    candidateIds: string[];
+  }) {
+    return this.service.createFromCandidateIds(dto);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.findOne(id);

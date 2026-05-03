@@ -111,6 +111,8 @@ export const customerGroupsApi = {
     api.get('/customer-groups/hunt-tasks', { params: { tenantId } }),
   createFromCandidates: (data: any) =>
     api.post('/customer-groups/from-candidates', data),
+  createFromCandidateIds: (data: { tenantId: string; name: string; description?: string; candidateIds: string[] }) =>
+    api.post('/customer-groups/from-candidate-ids', data),
 };
 
 export const adTemplatesApi = {
