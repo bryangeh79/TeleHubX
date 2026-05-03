@@ -65,7 +65,7 @@ export class BotReplyService {
     chatId: string,
     text: string,
     replyMarkup?: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> },
-  ): Promise<void> {
+  ): Promise<{ ok: boolean; description?: string; status?: number }> {
     let res: Response;
     try {
       const payload: Record<string, unknown> = { chat_id: Number(chatId), text };
@@ -76,18 +76,26 @@ export class BotReplyService {
         body: JSON.stringify(payload),
       });
     } catch (err) {
-      this.logger.error(`sendText network error chatId=${chatId}: ${(err as Error).message}`);
-      return;
+      const description = (err as Error).message;
+      this.logger.error(`sendText network error chatId=${chatId}: ${description}`);
+      return { ok: false, description };
     }
 
     if (res.status === 429) {
       this.logger.warn(`sendText rate-limited chatId=${chatId}`);
-      return;
+      return { ok: false, description: 'rate limited', status: 429 };
     }
     if (!res.ok) {
       const body = await res.text();
       this.logger.error(`sendText failed chatId=${chatId} status=${res.status} body=${body}`);
+      let description = body;
+      try {
+        const parsed = JSON.parse(body);
+        if (parsed?.description) description = String(parsed.description);
+      } catch { /* keep raw */ }
+      return { ok: false, description, status: res.status };
     }
+    return { ok: true, status: 200 };
   }
 
   /**

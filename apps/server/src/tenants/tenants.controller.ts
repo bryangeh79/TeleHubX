@@ -82,18 +82,20 @@ export class TenantsController {
     if (!bot) return { ok: false, message: '该租户还没有 active 的 Bot，请先注册并启动 Bot' };
 
     const text = `🧪 测试通知\n\n你已被加入「${bot.botUsername}」的人工客服列表，可以正常收到接管推送。\n\n（如收到此消息说明配置正确）`;
-    try {
-      await this.botReply.sendText(bot.rawToken, body.chatId.trim(), text);
+    const result = await this.botReply.sendText(bot.rawToken, body.chatId.trim(), text);
+    if (result.ok) {
       return { ok: true, message: `已推送到 chatId=${body.chatId}，请到 Telegram 检查` };
-    } catch (err: any) {
-      const msg: string = err?.message ?? '';
-      if (msg.includes('chat not found') || msg.includes('400')) {
-        return { ok: false, message: 'chatId 无效或客服未给 Bot 发过 /start（Telegram 限制：必须客服先主动联系 Bot 一次）' };
-      }
-      if (msg.includes('blocked') || msg.includes('403')) {
-        return { ok: false, message: '客服已 block 此 Bot 或没和 Bot 互动过' };
-      }
-      return { ok: false, message: `推送失败: ${msg.slice(0, 100)}` };
     }
+    const desc = result.description ?? '';
+    if (desc.includes('chat not found') || result.status === 400) {
+      return {
+        ok: false,
+        message: '推送失败：客服未给 Bot 发过 /start，或 chatId 错误。请让该客服先在 Telegram 主动给 Bot 发一次 /start',
+      };
+    }
+    if (desc.includes('blocked') || result.status === 403) {
+      return { ok: false, message: '客服已 block 此 Bot，请取消 block 后重试' };
+    }
+    return { ok: false, message: `推送失败 (${result.status ?? '?'}): ${desc.slice(0, 100)}` };
   }
 }
