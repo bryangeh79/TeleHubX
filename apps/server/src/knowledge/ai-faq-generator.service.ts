@@ -1,6 +1,8 @@
 import { BadGatewayException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import { AI_PROVIDERS, isAiProviderId } from '../ai-agent/ai-providers';
+import { PlatformConfigService } from '../platform-config/platform-config.service';
 
 interface GeneratedFaq {
   question: string;
@@ -22,55 +24,64 @@ const SYSTEM_PROMPT = `你是 SaaS 产品的客服 FAQ 设计师。
 export class AiFaqGeneratorService {
   private readonly logger = new Logger(AiFaqGeneratorService.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly platformConfig: PlatformConfigService,
+  ) {}
 
   /**
-   * Calls the PLATFORM AI provider to generate FAQs from source text.
-   *
-   * 兜底默认用平台 (公司付费) 的 key，因为 FAQ 生成 / 文案优化 / 翻译这类
-   * 内部工具不应消耗租户的 token。租户的自有 key 只用于 customer chat
-   * (AiAgentService.reply)，二者完全分离。
-   *
-   * 解析顺序 (向后兼容)：
-   *   PLATFORM_OPENAI_API_KEY > PLATFORM_DEEPSEEK_API_KEY > PLATFORM_GEMINI_API_KEY
-   *   > 旧的 OPENAI_API_KEY / DEEPSEEK_API_KEY / GEMINI_API_KEY (legacy)
+   * 解析平台 AI 配置：优先读 DB（管理面板配置），再 fallback 到 .env。
+   * 与 AdTemplatesService.callPlatformAi 保持同一优先级逻辑。
    */
-  async generate(
-    sourceText: string,
-    options: { count?: number; goalPrompt?: string | null } = {},
-  ): Promise<GeneratedFaq[]> {
-    const platformOpenAi = this.config.get<string>('PLATFORM_OPENAI_API_KEY');
+  private async resolveAiClient(): Promise<{ client: OpenAI; model: string }> {
+    // 1. 尝试从 DB 读取（通过管理面板配置的 Platform AI Providers）
+    const dbProvider = await this.platformConfig.getDefaultProvider().catch(() => null);
+    if (dbProvider?.apiKey) {
+      const providerId = isAiProviderId(dbProvider.provider) ? dbProvider.provider : 'openai';
+      const providerDef = AI_PROVIDERS[providerId];
+      const baseUrl = dbProvider.baseUrl || providerDef.baseUrl;
+      const model = dbProvider.model || providerDef.defaultModel;
+      this.logger.log(`[platform-ai] using DB provider=${providerId} model=${model}`);
+      return { client: new OpenAI({ apiKey: dbProvider.apiKey, baseURL: baseUrl }), model };
+    }
+
+    // 2. Fallback: .env 环境变量（兼容旧配置）
+    const platformOpenAi   = this.config.get<string>('PLATFORM_OPENAI_API_KEY');
     const platformDeepseek = this.config.get<string>('PLATFORM_DEEPSEEK_API_KEY');
-    const platformGemini = this.config.get<string>('PLATFORM_GEMINI_API_KEY');
-    const legacyOpenAi = this.config.get<string>('OPENAI_API_KEY');
-    const legacyDeepseek = this.config.get<string>('DEEPSEEK_API_KEY');
-    const legacyGemini = this.config.get<string>('GEMINI_API_KEY');
+    const platformGemini   = this.config.get<string>('PLATFORM_GEMINI_API_KEY');
+    const legacyOpenAi     = this.config.get<string>('OPENAI_API_KEY');
+    const legacyDeepseek   = this.config.get<string>('DEEPSEEK_API_KEY');
+    const legacyGemini     = this.config.get<string>('GEMINI_API_KEY');
 
     const apiKey = platformOpenAi || platformDeepseek || platformGemini
       || legacyOpenAi || legacyDeepseek || legacyGemini;
-
     if (!apiKey) {
       throw new ServiceUnavailableException(
-        '平台 AI provider 未配置，无法生成 FAQ。请在 .env 中设置 PLATFORM_OPENAI_API_KEY 或 PLATFORM_DEEPSEEK_API_KEY (公司兜底，非租户自有 key)。',
+        '平台 AI provider 未配置，无法生成 FAQ。请在「管理面板 → Prompt 配置」或 .env 中设置 AI Key。',
       );
     }
-
-    // 选择 baseURL 和 model：以平台 key 为优先
-    const usingDeepseek = platformDeepseek || (!platformOpenAi && !platformGemini && legacyDeepseek);
-    const usingGemini = platformGemini || (!platformOpenAi && !platformDeepseek && !legacyOpenAi && !legacyDeepseek && legacyGemini);
-
+    const usingDeepseek = !!(platformDeepseek || (!platformOpenAi && !platformGemini && legacyDeepseek));
+    const usingGemini   = !!(platformGemini || (!platformOpenAi && !platformDeepseek && !legacyOpenAi && !legacyDeepseek && legacyGemini));
     const baseURL = this.config.get<string>('PLATFORM_AI_BASE_URL')
       || this.config.get<string>('AI_BASE_URL')
       || (usingDeepseek ? 'https://api.deepseek.com'
         : usingGemini ? 'https://generativelanguage.googleapis.com/v1beta/openai'
         : 'https://api.openai.com/v1');
-
     const model = this.config.get<string>('PLATFORM_AI_MODEL')
       || this.config.get<string>('AI_MODEL')
       || (usingDeepseek ? 'deepseek-chat' : 'gpt-4o-mini');
+    this.logger.log(`[platform-ai] using env fallback baseURL=${baseURL} model=${model}`);
+    return { client: new OpenAI({ apiKey, baseURL }), model };
+  }
 
-    this.logger.log(`[platform-ai] generate FAQ baseURL=${baseURL} model=${model}`);
-    const client = new OpenAI({ apiKey, baseURL });
+  /**
+   * 生成 FAQ：优先用管理面板配置的平台 AI Provider（DB），再 fallback 到 .env。
+   */
+  async generate(
+    sourceText: string,
+    options: { count?: number; goalPrompt?: string | null } = {},
+  ): Promise<GeneratedFaq[]> {
+    const { client, model } = await this.resolveAiClient();
     const count = Math.max(5, Math.min(50, options.count ?? 30));
     const truncated = sourceText.slice(0, 8000);
 
@@ -122,30 +133,10 @@ export class AiFaqGeneratorService {
 
   /**
    * Raw AI call — 返回模型的原始文本，由调用方自行解析。
-   * 供 generateProductProfile 等需要自定义 JSON schema 的场景使用。
+   * 优先用 DB 配置的平台 AI Provider，再 fallback 到 .env。
    */
   async callRaw(systemPrompt: string, userPrompt: string, maxTokens = 6000): Promise<string> {
-    const platformOpenAi = this.config.get<string>('PLATFORM_OPENAI_API_KEY');
-    const platformDeepseek = this.config.get<string>('PLATFORM_DEEPSEEK_API_KEY');
-    const platformGemini = this.config.get<string>('PLATFORM_GEMINI_API_KEY');
-    const legacyOpenAi = this.config.get<string>('OPENAI_API_KEY');
-    const legacyDeepseek = this.config.get<string>('DEEPSEEK_API_KEY');
-    const legacyGemini = this.config.get<string>('GEMINI_API_KEY');
-
-    const apiKey = platformOpenAi || platformDeepseek || platformGemini
-      || legacyOpenAi || legacyDeepseek || legacyGemini;
-    if (!apiKey) throw new ServiceUnavailableException('平台 AI provider 未配置');
-
-    const usingDeepseek = platformDeepseek || (!platformOpenAi && !platformGemini && legacyDeepseek);
-    const usingGemini = platformGemini || (!platformOpenAi && !platformDeepseek && !legacyOpenAi && !legacyDeepseek && legacyGemini);
-    const baseURL = this.config.get<string>('PLATFORM_AI_BASE_URL')
-      || (usingDeepseek ? 'https://api.deepseek.com'
-        : usingGemini ? 'https://generativelanguage.googleapis.com/v1beta/openai'
-        : 'https://api.openai.com/v1');
-    const model = this.config.get<string>('PLATFORM_AI_MODEL')
-      || (usingDeepseek ? 'deepseek-chat' : 'gpt-4o-mini');
-
-    const client = new OpenAI({ apiKey, baseURL });
+    const { client, model } = await this.resolveAiClient();
     const completion = await client.chat.completions.create({
       model,
       messages: [

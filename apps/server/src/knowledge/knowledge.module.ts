@@ -9,9 +9,13 @@ import { KbSource } from './kb-source.entity';
 import { KnowledgeBase } from './kb.entity';
 import { KnowledgeController } from './knowledge.controller';
 import { KnowledgeService } from './knowledge.service';
+import { PlatformConfigModule } from '../platform-config/platform-config.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([KnowledgeBase, Faq, KbSource, KbProtected])],
+  imports: [
+    TypeOrmModule.forFeature([KnowledgeBase, Faq, KbSource, KbProtected]),
+    PlatformConfigModule,
+  ],
   controllers: [KnowledgeController],
   providers: [
     KnowledgeService,
