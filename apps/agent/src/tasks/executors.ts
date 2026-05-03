@@ -724,9 +724,60 @@ export async function joinGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
     );
   }
 
-  // 按成员数降序 (未知 -1 排最后), 取前 maxPerDay
-  candidates.sort((a, b) => b.members - a.members);
-  const toJoin = candidates.slice(0, maxPerDay);
+  // 验证候选群真实成员数。contacts.Search 经常不返回 participantsCount，
+  // 默认放行会导致僵尸群（实际只有 1-2 个 bot 成员）也被加，浪费配额。
+  // 策略：known >=0 直接信任；unknown 用 GetFullChannel 实查；< minMembers 剔除。
+  const verifiedSkipped: string[] = [];
+  const verified: typeof candidates = [];
+  for (const cand of candidates) {
+    if (cand.members >= 0) {
+      verified.push(cand);
+      continue;
+    }
+    // 已经凑够 maxPerDay × 3 个候选就不再耗 API（留余量给加群失败的回退）
+    if (verified.length >= maxPerDay * 3) break;
+    try {
+      let real = -1;
+      if (cand.kind === 'mega' || cand.kind === 'channel') {
+        const full: any = await ctx.client.invoke(
+          new Api.channels.GetFullChannel({ channel: cand.entity as any }),
+        );
+        real = (full?.fullChat?.participantsCount as number) ?? -1;
+      } else if (cand.kind === 'basic') {
+        const full: any = await ctx.client.invoke(
+          new Api.messages.GetFullChat({ chatId: (cand.entity as any).id }),
+        );
+        real = (full?.fullChat?.participantsCount as number)
+          ?? (full?.fullChat?.participants?.participants?.length as number)
+          ?? -1;
+      }
+      if (real >= minMembers) {
+        cand.members = real;
+        verified.push(cand);
+      } else {
+        verifiedSkipped.push(`${cand.title}(${real})`);
+      }
+      // 验证之间小间隔（防 API 风控）
+      await sleep(gaussianDelayMs(1500, 3500));
+    } catch (err) {
+      const msg = (err as Error).message ?? '';
+      if (msg.includes('FLOOD')) throw err;
+      // 其他失败（CHANNEL_PRIVATE / INVITE_HASH_EMPTY 等）当作不合格
+      verifiedSkipped.push(`${cand.title}(查询失败)`);
+    }
+  }
+
+  if (!verified.length) {
+    throw new Error(
+      `关键词 [${keywords.join(', ')}] 找到 ${candidates.length} 个候选群，但全部成员数 < ${minMembers}（僵尸群/空群）。` +
+      `已跳过: ${verifiedSkipped.slice(0, 5).join(', ')}${verifiedSkipped.length > 5 ? ` 等 ${verifiedSkipped.length} 个` : ''}。` +
+      `建议: 1) 调小 minMembers 阈值；2) 换更具体的关键词；3) 直接在「指定群」字段填活跃群 id`,
+    );
+  }
+
+  // 按成员数降序，取前 maxPerDay
+  verified.sort((a, b) => b.members - a.members);
+  const toJoin = verified.slice(0, maxPerDay);
 
   let joined = 0;
   for (let i = 0; i < toJoin.length; i++) {
@@ -756,7 +807,7 @@ export async function joinGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
   }
 
   if (joined === 0) {
-    throw new Error(`找到 ${candidates.length} 个候选群但全部加群失败`);
+    throw new Error(`找到 ${verified.length} 个合格候选群但全部加群失败`);
   }
 }
 
