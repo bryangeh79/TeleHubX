@@ -5,6 +5,8 @@ import {
 import { CampaignStatus, PacePreset } from './campaign.entity';
 import { CampaignsService } from './campaigns.service';
 import { CampaignDispatchService } from './campaign-dispatch.service';
+import { AuthUser, CurrentUser } from '../auth/current-user.decorator';
+import { resolveTenantIdSoft } from '../auth/tenant-resolver';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
 import { UpdateCampaignDto } from './dto/update-campaign.dto';
 
@@ -21,8 +23,12 @@ export class CampaignsController {
   }
 
   @Get()
-  findAll(@Query('status') status?: CampaignStatus) {
-    return this.service.findAll(status);
+  findAll(
+    @CurrentUser() user: AuthUser,
+    @Query('status') status?: CampaignStatus,
+    @Query('tenantId') tid?: string,
+  ) {
+    return this.service.findAll(status, resolveTenantIdSoft(user, tid));
   }
 
   /** 预览调度计划（dry-run，不落库） */

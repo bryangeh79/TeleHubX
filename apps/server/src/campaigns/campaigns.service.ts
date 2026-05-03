@@ -108,8 +108,10 @@ export class CampaignsService {
     return this.repo.save(campaign);
   }
 
-  findAll(status?: CampaignStatus): Promise<Campaign[]> {
-    const where = status ? { status } : {};
+  findAll(status?: CampaignStatus, tenantId?: string | null): Promise<Campaign[]> {
+    const where: any = {};
+    if (status) where.status = status;
+    if (tenantId) where.tenantId = tenantId;
     return this.repo.find({ where, order: { createdAt: 'DESC' } });
   }
 

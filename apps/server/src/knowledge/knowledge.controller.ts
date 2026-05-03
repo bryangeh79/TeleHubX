@@ -18,6 +18,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ProtectedEntityType } from './kb-protected.entity';
 import { KbType } from './kb.entity';
 import { KnowledgeService } from './knowledge.service';
+import { AuthUser, CurrentUser } from '../auth/current-user.decorator';
+import { resolveTenantIdSoft } from '../auth/tenant-resolver';
 import { CreateKbDto, UpdateKbDto } from './dto/create-kb.dto';
 import { CreateFaqDto, SearchFaqDto, UpdateFaqDto } from './dto/create-faq.dto';
 
@@ -36,12 +38,15 @@ export class KnowledgeController {
 
   @Get('kbs')
   listKbs(
+    @CurrentUser() user: AuthUser,
     @Query('type') type?: KbType,
     @Query('enabled') enabled?: string,
+    @Query('tenantId') tid?: string,
   ) {
     return this.service.listKbs({
       type,
       enabled: enabled === undefined ? undefined : enabled === 'true',
+      tenantId: resolveTenantIdSoft(user, tid),
     });
   }
 

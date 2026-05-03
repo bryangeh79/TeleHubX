@@ -17,6 +17,8 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ChatScriptStatus, ChatScriptType } from './chat-script.entity';
 import { ChatScriptsService } from './chat-scripts.service';
+import { AuthUser, CurrentUser } from '../auth/current-user.decorator';
+import { resolveTenantIdSoft } from '../auth/tenant-resolver';
 import { CreateChatScriptDto } from './dto/create-chat-script.dto';
 import { UpdateChatScriptDto } from './dto/update-chat-script.dto';
 
@@ -31,10 +33,12 @@ export class ChatScriptsController {
 
   @Get()
   findAll(
+    @CurrentUser() user: AuthUser,
     @Query('type') type?: ChatScriptType,
     @Query('status') status?: ChatScriptStatus,
+    @Query('tenantId') tid?: string,
   ) {
-    return this.service.findAll(type, status);
+    return this.service.findAll(type, status, resolveTenantIdSoft(user, tid));
   }
 
   /** 列出所有剧本包（供 dashboard 剧本管理页面）。 */

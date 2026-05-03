@@ -79,10 +79,11 @@ export class ChatScriptsService {
     return this.repo.save(script);
   }
 
-  findAll(type?: ChatScriptType, status?: ChatScriptStatus): Promise<ChatScript[]> {
+  findAll(type?: ChatScriptType, status?: ChatScriptStatus, tenantId?: string | null): Promise<ChatScript[]> {
     const where: Record<string, unknown> = {};
     if (type) where.type = type;
     if (status) where.status = status;
+    if (tenantId) where.tenantId = tenantId;
     return this.repo.find({ where, order: { createdAt: 'DESC' } });
   }
 

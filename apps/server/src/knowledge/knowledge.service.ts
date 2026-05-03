@@ -34,10 +34,11 @@ export class KnowledgeService {
     return this.kbs.save(kb);
   }
 
-  listKbs(filters: { type?: KbType; enabled?: boolean } = {}): Promise<KnowledgeBase[]> {
-    const where: Partial<Pick<KnowledgeBase, 'type' | 'enabled'>> = {};
+  listKbs(filters: { type?: KbType; enabled?: boolean; tenantId?: string | null } = {}): Promise<KnowledgeBase[]> {
+    const where: any = {};
     if (filters.type) where.type = filters.type;
     if (filters.enabled !== undefined) where.enabled = filters.enabled;
+    if (filters.tenantId) where.tenantId = filters.tenantId;
     return this.kbs.find({ where, order: { createdAt: 'DESC' } });
   }
 
