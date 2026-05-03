@@ -107,6 +107,11 @@ export default function CsPage() {
   const [loading, setLoading] = useState(true);
   const [savingMode, setSavingMode] = useState(false);
 
+  // 已配置的公司资料 + 产品列表
+  const [companyKb, setCompanyKb] = useState<any | null>(null);
+  const [productKbs, setProductKbs] = useState<any[]>([]);
+  const [productFaqCounts, setProductFaqCounts] = useState<Record<string, number>>({});
+
   const [companyWizardOpen, setCompanyWizardOpen] = useState(false);
   const [productWizardOpen, setProductWizardOpen] = useState(false);
   const [registerVisible, setRegisterVisible] = useState(false);
@@ -127,7 +132,19 @@ export default function CsPage() {
       ]);
       const t: Tenant = tenantRes.data;
       setTenant(t);
-      setKbCount(Array.isArray(kbRes.data) ? kbRes.data.length : 0);
+      const allKbs = Array.isArray(kbRes.data) ? kbRes.data : [];
+      setKbCount(allKbs.length);
+      // 拆分公司资料 + 产品列表
+      const company = allKbs.find((k: any) => k.type === 'company' && (!t.id || k.tenantId === t.id));
+      const products = allKbs.filter((k: any) => k.type === 'product' && (!t.id || k.tenantId === t.id));
+      setCompanyKb(company ?? null);
+      setProductKbs(products);
+      // 异步拉每个产品的 FAQ 数量
+      Promise.all(products.map((p: any) =>
+        knowledgeApi.listFaqs({ kbId: p.id }).then(r => [p.id, (r.data ?? []).length] as const).catch(() => [p.id, 0] as const)
+      )).then((entries) => {
+        setProductFaqCounts(Object.fromEntries(entries));
+      });
       if (aiRes?.data) {
         const providers: any[] = aiRes.data.providers ?? [];
         setAiConfigured(providers.some((p: any) => p.configured));
@@ -613,11 +630,96 @@ export default function CsPage() {
             },
             {
               key: 'knowledge',
-              label: '知识库',
+              label: <span>知识库 <Tag color="blue" style={{ marginLeft: 4 }}>{(companyKb ? 1 : 0) + productKbs.length}</Tag></span>,
               children: (
-                <div style={{ textAlign: 'center', padding: '32px 0' }}>
-                  <Text type="secondary">知识库管理请前往</Text>
-                  <Button type="link" href="/knowledge">Knowledge 页面</Button>
+                <div style={{ padding: '16px 0' }}>
+                  {/* 公司资料卡 */}
+                  <Card size="small" style={{ marginBottom: 12 }}
+                    title={<Space><BankOutlined style={{ color: '#1677ff' }} /><Text strong>公司资料</Text>{companyKb ? <Tag color="success">已配置</Tag> : <Tag>未配置</Tag>}</Space>}
+                    extra={
+                      <Button size="small" icon={companyKb ? <RobotOutlined /> : <PlusOutlined />}
+                        onClick={() => setCompanyWizardOpen(true)}>
+                        {companyKb ? '编辑' : '设置'}
+                      </Button>
+                    }
+                  >
+                    {companyKb ? (() => {
+                      let info: any = {};
+                      try { info = JSON.parse(companyKb.description ?? '{}'); } catch {}
+                      const contactCount = (info.contacts ?? []).filter((c: any) => c.value).length;
+                      return (
+                        <div>
+                          <Text strong style={{ fontSize: 14 }}>{info.companyName ?? companyKb.name.replace(' - 公司资料', '')}</Text>
+                          <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>{info.industry}</Text>
+                          <Paragraph style={{ fontSize: 12, color: '#666', margin: '6px 0', whiteSpace: 'pre-wrap' }}
+                            ellipsis={{ rows: 3, expandable: true, symbol: '展开' }}>
+                            {companyKb.goalPrompt || info.about || '—'}
+                          </Paragraph>
+                          <Space size={4} wrap>
+                            {contactCount > 0 && <Tag color="green">{contactCount} 个联系方式</Tag>}
+                            {info.email && <Tag color="cyan">📧 {info.email}</Tag>}
+                            {info.website && <Tag color="purple">🌐 已配置网站</Tag>}
+                            {info.hoursFrom && <Tag>⏰ {info.hoursFrom}-{info.hoursTo} {info.timeFrom}-{info.timeTo}</Tag>}
+                          </Space>
+                        </div>
+                      );
+                    })() : (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        填写公司基本信息 + 联系方式 + 营业时间，Bot 会用来回答客户问公司相关的问题。
+                      </Text>
+                    )}
+                  </Card>
+
+                  {/* 产品列表卡 */}
+                  <Card size="small"
+                    title={<Space><span style={{ fontSize: 14 }}>📦</span><Text strong>产品资料</Text>{productKbs.length > 0 && <Tag color="success">已配置 {productKbs.length} 个</Tag>}</Space>}
+                    extra={
+                      <Button size="small" type="primary" icon={<PlusOutlined />}
+                        onClick={() => setProductWizardOpen(true)}>
+                        管理产品
+                      </Button>
+                    }
+                  >
+                    {productKbs.length === 0 ? (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        点「管理产品」添加产品 → 上传介绍书 → AI 一键生成 30-50 条 FAQ + 销售目标。
+                        Bot 会优先用产品 FAQ 回答客户。
+                      </Text>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {productKbs.map((p: any) => {
+                          let info: any = {};
+                          try { info = JSON.parse(p.description ?? '{}'); } catch {}
+                          const faqCount = productFaqCounts[p.id] ?? '...';
+                          return (
+                            <div key={p.id} style={{
+                              border: '1px solid #f0f0f0', borderRadius: 6,
+                              padding: '8px 12px', background: '#fafafa',
+                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            }}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <Text strong style={{ fontSize: 13 }}>
+                                  {info.productName ?? p.name.replace(' - 产品资料', '')}
+                                </Text>
+                                <Space size={4} wrap style={{ marginLeft: 8 }}>
+                                  {info.price && <Tag color="orange" style={{ fontSize: 10 }}>{info.price}</Tag>}
+                                  <Tag color="blue" style={{ fontSize: 10 }}>{faqCount} 条 FAQ</Tag>
+                                  {p.goalPrompt && <Tag color="purple" style={{ fontSize: 10 }}>🎯 {p.goalPrompt.slice(0, 12)}...</Tag>}
+                                </Space>
+                              </div>
+                              <Button size="small" type="link" onClick={() => setProductWizardOpen(true)}>
+                                管理
+                              </Button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </Card>
+
+                  <div style={{ marginTop: 12, padding: '8px 12px', background: '#fffbe6', borderRadius: 6, fontSize: 11, color: '#666' }}>
+                    💡 完整的 KB / FAQ / 文件管理请前往 <Button type="link" href="/knowledge" style={{ padding: 0, fontSize: 11 }}>知识库页面</Button>
+                  </div>
                 </div>
               ),
             },
@@ -707,12 +809,12 @@ export default function CsPage() {
 
       <CompanyInfoWizard
         open={companyWizardOpen}
-        onClose={() => setCompanyWizardOpen(false)}
+        onClose={() => { setCompanyWizardOpen(false); void load(); }}
         tenantId={tenant?.id}
       />
       <ProductSetupWizard
         open={productWizardOpen}
-        onClose={() => setProductWizardOpen(false)}
+        onClose={() => { setProductWizardOpen(false); void load(); }}
         tenantId={tenant?.id}
       />
     </div>
