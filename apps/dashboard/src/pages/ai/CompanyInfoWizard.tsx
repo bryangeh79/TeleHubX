@@ -100,30 +100,40 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
     if (!website?.startsWith('http')) { antdMessage.warning('请先填写正确的官网地址（以 http 开头）'); return; }
     setFetchingUrl(true);
     try {
-      // Step 1: 提取网页文字
-      const res = await knowledgeApi.extractUrl(website);
-      if (!res.data.ok || !res.data.text) {
-        antdMessage.warning(res.data.error || '网页内容提取失败，请手动填写');
+      // Step 1: 提取网页文字（独立 try，失败明确报网络错误）
+      let extractedText = '';
+      try {
+        const res = await knowledgeApi.extractUrl(website);
+        if (!res.data.ok || !res.data.text) {
+          antdMessage.warning(res.data.error || '网页内容提取失败，请手动填写');
+          return;
+        }
+        extractedText = res.data.text;
+        setExtraText(`[从官网提取]\n${extractedText}`);
+        antdMessage.loading({ content: `已提取 ${res.data.length} 字，AI 正在生成简介...`, key: 'fetch' });
+      } catch {
+        antdMessage.error('无法访问该网址，请检查网址是否正确或手动填写');
         return;
       }
-      const extractedText = res.data.text;
-      setExtraText(`[从官网提取]\n${extractedText}`);
 
-      // Step 2: AI 生成简短公司简介，自动填入表单
-      const companyName = form.getFieldValue('companyName') || '该公司';
-      const genRes = await knowledgeApi.generateProductProfile({
-        productName: companyName,
-        rawText: extractedText,
-      });
-      const overview = genRes.data?.overview?.trim();
-      if (overview && !form.getFieldValue('about')?.trim()) {
-        // 只有「公司简介」还是空白时才自动填，不覆盖已有内容
-        form.setFieldValue('about', overview);
+      // Step 2: AI 生成简短公司简介（独立 try，AI 失败不影响内容已提取）
+      try {
+        const companyName = form.getFieldValue('companyName') || '该公司';
+        const genRes = await knowledgeApi.generateProductProfile({
+          productName: companyName,
+          rawText: extractedText,
+        });
+        const overview = genRes.data?.overview?.trim();
+        if (overview && !form.getFieldValue('about')?.trim()) {
+          form.setFieldValue('about', overview);
+          antdMessage.success({ content: '已从官网提取内容，并自动生成公司简介 ✅', key: 'fetch' });
+        } else {
+          antdMessage.success({ content: `已从官网提取 ${extractedText.length} 字内容 ✅`, key: 'fetch' });
+        }
+      } catch {
+        // AI 失败不阻断主流程，仍保留已提取的内容
+        antdMessage.warning({ content: `已提取网页内容，但 AI 简介生成失败（请检查 AI Key 配置）。提取的内容已保存，点「AI 生成档案预览」时仍会用到。`, key: 'fetch', duration: 5 });
       }
-
-      antdMessage.success(`已从官网提取 ${res.data.length} 字，并自动生成公司简介 ✅`);
-    } catch {
-      antdMessage.error('无法访问该网址，请手动填写公司资料');
     } finally {
       setFetchingUrl(false);
     }
