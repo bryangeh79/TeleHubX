@@ -6,7 +6,7 @@ import OpenAI from 'openai';
 import { AI_PROVIDERS, isAiProviderId } from '../ai-agent/ai-providers';
 import {
   DEFAULT_AD_GROUP_FAQ, DEFAULT_AD_PRIVATE_DIVERT,
-  DEFAULT_VARIANT_PROMPT, PlatformConfigService,
+  DEFAULT_GLOBAL_PERSONA, DEFAULT_VARIANT_PROMPT, PlatformConfigService,
 } from './platform-config.service';
 import { AiAgentService } from '../ai-agent/ai-agent.service';
 
@@ -114,6 +114,28 @@ export class PlatformConfigController {
   async resetVariantPrompt() {
     await this.svc.resetVariantPrompt();
     return { ok: true, value: DEFAULT_VARIANT_PROMPT };
+  }
+
+  // ── AI 客服人设 ────────────────────────────────────────────────────
+
+  @Get('settings/global-persona')
+  async getGlobalPersona() {
+    const value = await this.svc.getGlobalPersona();
+    return { key: 'global_ai_persona', value, isDefault: value === DEFAULT_GLOBAL_PERSONA };
+  }
+
+  @Put('settings/global-persona')
+  async setGlobalPersona(@Body() body: { value: string }) {
+    if (!body.value?.trim()) return { ok: false, message: '人设内容不能为空' };
+    await this.svc.setGlobalPersona(body.value.trim());
+    return { ok: true };
+  }
+
+  @Post('settings/global-persona/reset')
+  @HttpCode(HttpStatus.OK)
+  async resetGlobalPersona() {
+    await this.svc.resetGlobalPersona();
+    return { ok: true, value: DEFAULT_GLOBAL_PERSONA };
   }
 
   // ── 广告号话术 ─────────────────────────────────────────────────────

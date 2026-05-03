@@ -488,7 +488,6 @@ export default function AiSettingsPage() {
   const [tenantModalOpen, setTenantModalOpen] = useState(false);
   const [platformModalOpen, setPlatformModalOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<any>(null);
-  const [marketingModalOpen, setMarketingModalOpen] = useState(false);
 
   // AI master toggle (local)
   const [aiEnabled, setAiEnabled] = useState(() => {
@@ -619,8 +618,6 @@ export default function AiSettingsPage() {
     },
   ];
 
-  const marketingPromptSaved = !!localStorage.getItem('telehubx:marketingPrompt');
-
   return (
     <div>
       {/* Header */}
@@ -722,56 +719,7 @@ export default function AiSettingsPage() {
         onEdit={() => setTenantModalOpen(true)}
       />
 
-      {/* AI 营销人设 */}
-      <Card
-        title={
-          <Space>
-            <ThunderboltOutlined style={{ color: '#52c41a' }} />
-            <span>AI 营销人设</span>
-            <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
-              · 广告 / 开场白 AI 生成变体时注入 system prompt
-            </Text>
-          </Space>
-        }
-        extra={
-          <Space>
-            <Button onClick={() => setMarketingModalOpen(true)}>
-              {marketingPromptSaved ? '查看 / 编辑' : '设置'}
-            </Button>
-            <Button
-              type="primary"
-              icon={<SaveOutlined />}
-              onClick={() => setMarketingModalOpen(true)}
-              style={{ background: '#52c41a', borderColor: '#52c41a' }}
-            >
-              保存
-            </Button>
-          </Space>
-        }
-      >
-        <Alert
-          type="info"
-          showIcon
-          message="在这里定义 AI 生成广告 / 开场白变体时的角色、风格、规则。修改立即生效，下次生成变体就用新人设。"
-          style={{ marginBottom: 12 }}
-        />
-        <div
-          style={{
-            background: '#fafafa', border: '1px solid #e8e8e8', borderRadius: 6,
-            padding: '10px 12px', maxHeight: 120, overflow: 'hidden', cursor: 'pointer',
-            position: 'relative',
-          }}
-          onClick={() => setMarketingModalOpen(true)}
-        >
-          <Text style={{ fontSize: 12, whiteSpace: 'pre-wrap', color: '#555' }}>
-            {(localStorage.getItem('telehubx:marketingPrompt') ?? DEFAULT_MARKETING_PROMPT).slice(0, 300)}…
-          </Text>
-          <div style={{
-            position: 'absolute', bottom: 0, left: 0, right: 0,
-            height: 40, background: 'linear-gradient(transparent, #fafafa)',
-          }} />
-        </div>
-      </Card>
+      {/* AI 营销人设已移至 管理面板 → Prompt 配置 → AI 客服人设 */}
 
       {/* Modals */}
       <TenantAiModal
@@ -785,10 +733,6 @@ export default function AiSettingsPage() {
         editRecord={editingProvider}
         onClose={() => { setPlatformModalOpen(false); setEditingProvider(null); }}
         onSuccess={() => { setPlatformModalOpen(false); setEditingProvider(null); void loadInfo(); }}
-      />
-      <MarketingPromptModal
-        open={marketingModalOpen}
-        onClose={() => setMarketingModalOpen(false)}
       />
     </div>
   );

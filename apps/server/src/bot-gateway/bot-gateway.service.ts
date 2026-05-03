@@ -5,6 +5,7 @@ import { AutoReplyDecider } from '../ai-agent/decider.service';
 import { KnowledgeService } from '../knowledge/knowledge.service';
 import { LeadsService } from '../leads/leads.service';
 import { LeadTakeover } from '../leads/lead.entity';
+import { PlatformConfigService } from '../platform-config/platform-config.service';
 import { TenantsService } from '../tenants/tenants.service';
 import { TenantBot } from '../tenants/tenant-bot.entity';
 import { BotReplyService } from './bot-reply.service';
@@ -33,21 +34,17 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
     private readonly botReply: BotReplyService,
     private readonly adapter: BotUpdateAdapter,
     private readonly moduleRef: ModuleRef,
+    private readonly platformConfig: PlatformConfigService,
   ) {}
 
   /**
    * Build a contextual system prompt for smart reply.
+   * Base persona is loaded from platform_settings (editable in Admin panel).
    * If KB context found, inject it so AI answers from real product knowledge.
-   * Otherwise fall back to a natural conversational assistant prompt.
    */
-  private buildSmartReplyPrompt(kbContext: string): string {
-    const basePersonality = `你是一位专业、自然的客服助手。
-风格要求：
-- 像真实的人在聊天，不要机器人式重复固定格式
-- 回复简短有力（1-3 句为佳），不要写长篇大论
-- 如果不确定答案，诚实说"让我帮你确认一下"，绝对不要编造信息
-- 如果客户明显想投诉或有纠纷，主动提出转人工处理
-- 语言风格和客户保持一致（对方中文就中文，英文就英文，马来文就马来文）`;
+  private async buildSmartReplyPrompt(kbContext: string): Promise<string> {
+    // 从数据库读取全局人设（Admin 面板可编辑，默认是 18 章营销客服人格）
+    const basePersonality = await this.platformConfig.getGlobalPersona();
 
     if (!kbContext) {
       return basePersonality + '\n\n如果客户问的问题超出你的了解范围，诚实告知并建议转人工。';
@@ -55,10 +52,13 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
 
     return `${basePersonality}
 
+==================================================
+当前知识库参考资料
+==================================================
 ${kbContext}
 
-回复规则：
-1. 优先用上方知识库内容回答，但不要照抄原文，用自己的话自然表达
+回复规则（优先于以上）：
+1. 优先用上方知识库内容回答，用自己的话自然表达，不要照抄原文
 2. 如果知识库内容和问题相关性低，可以用通用常识回答，但不要捏造产品细节
 3. 保留原文中的任何联系方式（电话、链接、账号）不改变
 4. 不要在回复里透露"我有一份知识库"或"根据文档"等内部表达`;
@@ -202,7 +202,7 @@ ${kbContext}
             5,
           );
 
-          const systemPrompt = this.buildSmartReplyPrompt(contextText);
+          const systemPrompt = await this.buildSmartReplyPrompt(contextText);
 
           const result = await this.aiAgent.reply(
             {

@@ -413,6 +413,9 @@ export const platformConfigApi = {
   getVariantPrompt: () => api.get('/platform-config/ai/settings/variant-prompt'),
   setVariantPrompt: (value: string) => api.put('/platform-config/ai/settings/variant-prompt', { value }),
   resetVariantPrompt: () => api.post('/platform-config/ai/settings/variant-prompt/reset'),
+  getGlobalPersona: () => api.get('/platform-config/ai/settings/global-persona'),
+  setGlobalPersona: (value: string) => api.put('/platform-config/ai/settings/global-persona', { value }),
+  resetGlobalPersona: () => api.post('/platform-config/ai/settings/global-persona/reset'),
   getAdFaq: () => api.get('/platform-config/ai/settings/ad-faq'),
   setAdFaq: (data: { groupFaq?: string; privateDivert?: string }) =>
     api.put('/platform-config/ai/settings/ad-faq', data),

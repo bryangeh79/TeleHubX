@@ -20,6 +20,7 @@ import {
 import {
   CrownOutlined,
   KeyOutlined,
+  RobotOutlined,
   SafetyCertificateOutlined,
   TeamOutlined,
   ToolOutlined,
@@ -157,6 +158,113 @@ function VariantPromptTab() {
   );
 }
 
+// ── AI 客服人设 Tab ───────────────────────────────────────────────────────
+function GlobalPersonaTab() {
+  const [value, setValue] = useState('');
+  const [original, setOriginal] = useState('');
+  const [isDefault, setIsDefault] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await platformConfigApi.getGlobalPersona();
+      setValue(res.data.value);
+      setOriginal(res.data.value);
+      setIsDefault(res.data.isDefault);
+    } catch {
+      antdMessage.error('加载失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const handleSave = async () => {
+    if (!value.trim()) { antdMessage.warning('人设内容不能为空'); return; }
+    setSaving(true);
+    try {
+      await platformConfigApi.setGlobalPersona(value.trim());
+      setOriginal(value.trim());
+      setIsDefault(false);
+      antdMessage.success('已保存，下次 Bot 回复即生效');
+    } catch {
+      antdMessage.error('保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReset = async () => {
+    setSaving(true);
+    try {
+      const res = await platformConfigApi.resetGlobalPersona();
+      setValue(res.data.value);
+      setOriginal(res.data.value);
+      setIsDefault(true);
+      antdMessage.success('已恢复为系统默认人设');
+    } catch {
+      antdMessage.error('重置失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const dirty = value !== original;
+
+  return (
+    <div>
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="AI 客服人设（全局默认）"
+        description="控制 Bot 智能回复时的角色、目标、风格、销售流程、转人工规则等。此人设是所有租户 Bot 回复的基础层，下次 Bot 收到消息即生效。"
+      />
+
+      <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Space>
+          {isDefault
+            ? <Tag color="default">系统默认</Tag>
+            : <Tag color="blue">已自定义</Tag>
+          }
+          {dirty && <Tag color="orange">未保存</Tag>}
+        </Space>
+        <Button icon={<ReloadOutlined />} onClick={load} loading={loading} size="small">
+          刷新
+        </Button>
+      </div>
+
+      <TextArea
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        autoSize={{ minRows: 22, maxRows: 50 }}
+        style={{ fontFamily: 'monospace', fontSize: 13 }}
+        placeholder="在此输入 AI 客服人设..."
+      />
+
+      <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <Tooltip title="恢复为系统内置的 18 章营销客服人格">
+          <Button icon={<UndoOutlined />} onClick={handleReset} loading={saving} disabled={isDefault && !dirty}>
+            恢复默认
+          </Button>
+        </Tooltip>
+        <Button
+          type="primary"
+          icon={<SaveOutlined />}
+          onClick={handleSave}
+          loading={saving}
+          disabled={!dirty}
+        >
+          保存
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────
 export default function AdminPage() {
   const [role, setRole] = useState<string>('OPERATOR');
@@ -266,7 +374,23 @@ export default function AdminPage() {
             {
               key: 'prompt-config',
               label: <span><FileTextOutlined /> Prompt 配置</span>,
-              children: <VariantPromptTab />,
+              children: (
+                <Tabs
+                  size="small"
+                  items={[
+                    {
+                      key: 'persona',
+                      label: <span><RobotOutlined /> AI 客服人设</span>,
+                      children: <GlobalPersonaTab />,
+                    },
+                    {
+                      key: 'variant',
+                      label: <span><FileTextOutlined /> 广告变体 Prompt</span>,
+                      children: <VariantPromptTab />,
+                    },
+                  ]}
+                />
+              ),
             },
             {
               key: 'system',
