@@ -586,53 +586,7 @@ export default function KnowledgePage() {
                       </div>
                     ),
                   },
-                  {
-                    key: 'protected',
-                    label: <span><SafetyOutlined /> 保留实体 ({protectedEntities.length})</span>,
-                    children: (
-                      <div>
-                        <Alert
-                          type="info"
-                          showIcon
-                          message="AI 回复保留这些实体不改"
-                          description="上传文档时系统自动抽取电话/邮箱/网址。AI 生成回复及变体时必须原样保留，不能篡改。"
-                          style={{ marginBottom: 16 }}
-                        />
-                        <Form layout="inline" form={protectedForm} onFinish={submitProtected} style={{ marginBottom: 16 }}>
-                          <Form.Item name="entityType" initialValue="phone" rules={[{ required: true }]}>
-                            <Select style={{ width: 100 }} options={Object.entries(PROTECTED_META).map(([k, v]) => ({ value: k, label: v.label }))} />
-                          </Form.Item>
-                          <Form.Item name="value" rules={[{ required: true, message: '请输入值' }]} style={{ flex: 1, minWidth: 240 }}>
-                            <Input placeholder="例: 60123456789 / sales@example.com / https://..." />
-                          </Form.Item>
-                          <Form.Item>
-                            <Button type="primary" htmlType="submit" icon={<PlusOutlined />}>手动添加</Button>
-                          </Form.Item>
-                        </Form>
-                        <Table
-                          dataSource={protectedEntities}
-                          rowKey="id"
-                          size="small"
-                          pagination={false}
-                          locale={{ emptyText: <Empty description="尚无保留实体" /> }}
-                          columns={[
-                            { title: '类型', dataIndex: 'entityType', key: 'entityType', width: 100,
-                              render: (t: ProtectedType) => {
-                                const m = PROTECTED_META[t];
-                                return <Tag color={m.color}>{m.label}</Tag>;
-                              } },
-                            { title: '值', dataIndex: 'value', key: 'value' },
-                            { title: '操作', key: 'ops', width: 80,
-                              render: (_, row) => (
-                                <Popconfirm title="确认删除？" onConfirm={() => removeProtected(row.id)}>
-                                  <Button size="small" danger icon={<DeleteOutlined />} />
-                                </Popconfirm>
-                              ) },
-                          ]}
-                        />
-                      </div>
-                    ),
-                  },
+                  // 「保留实体」tab 已隐藏 — 系统自动从文档抽取电话/邮箱/网址保护，无需租户手动维护
                 ]}
               />
             </Card>
