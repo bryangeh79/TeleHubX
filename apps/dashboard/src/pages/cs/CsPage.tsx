@@ -20,6 +20,8 @@ import {
 } from 'antd';
 import {
   ApiOutlined,
+  AppstoreOutlined,
+  BankOutlined,
   CheckCircleFilled,
   ClockCircleOutlined,
   CustomerServiceOutlined,
@@ -33,6 +35,8 @@ import {
   SwapOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
+import CompanyInfoWizard from '../ai/CompanyInfoWizard';
+import ProductSetupWizard from '../ai/ProductSetupWizard';
 import { aiApi, knowledgeApi, tenantsApi } from '../../services/api';
 
 const { Title, Text, Paragraph } = Typography;
@@ -103,6 +107,8 @@ export default function CsPage() {
   const [loading, setLoading] = useState(true);
   const [savingMode, setSavingMode] = useState(false);
 
+  const [companyWizardOpen, setCompanyWizardOpen] = useState(false);
+  const [productWizardOpen, setProductWizardOpen] = useState(false);
   const [registerVisible, setRegisterVisible] = useState(false);
   const [replaceTarget, setReplaceTarget] = useState<TenantBot | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -378,7 +384,26 @@ export default function CsPage() {
           </Title>
           <Text type="secondary">配置 Telegram Bot 入口，设置自动回复模式</Text>
         </div>
-        <Space>{botStatusBadge}</Space>
+        <Space size={8}>
+          <Button
+            size="large"
+            icon={<BankOutlined />}
+            onClick={() => setCompanyWizardOpen(true)}
+            style={{ fontWeight: 500 }}
+          >
+            设置公司资讯
+          </Button>
+          <Button
+            size="large"
+            type="primary"
+            icon={<AppstoreOutlined />}
+            onClick={() => setProductWizardOpen(true)}
+            style={{ fontWeight: 500 }}
+          >
+            设置产品
+          </Button>
+          {botStatusBadge}
+        </Space>
       </div>
 
       {/* Bot 配置 */}
@@ -679,6 +704,17 @@ export default function CsPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <CompanyInfoWizard
+        open={companyWizardOpen}
+        onClose={() => setCompanyWizardOpen(false)}
+        tenantId={tenant?.id}
+      />
+      <ProductSetupWizard
+        open={productWizardOpen}
+        onClose={() => setProductWizardOpen(false)}
+        tenantId={tenant?.id}
+      />
     </div>
   );
 }
