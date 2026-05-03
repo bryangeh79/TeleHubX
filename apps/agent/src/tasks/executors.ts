@@ -348,33 +348,39 @@ export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
   const maxPer = (ctx.payload.maxScrapePerGroup as number) ?? 50;
 
   if (chatIds.length === 0 && ctx.payload.dynamicSource === 'recent_joins') {
-    // 取账号所在的所有 megagroup，不限消息日期（冷群也要爬）
-    // Telegram dialogs 默认按最近消息倒序，取前5个即为最活跃的
+    // 取账号所在的所有可爬群（megagroup + basic chat）
     const dialogs = await ctx.client.getDialogs({ limit: 200 });
     const found: string[] = [];
     let totalDialogs = 0;
     let channels = 0;
+    let users = 0;
     let basicChats = 0;
+    let megagroups = 0;
     for (const d of dialogs) {
       const ent: any = (d as any).entity;
       if (!ent) continue;
       totalDialogs++;
       if (ent.megagroup) {
+        megagroups++;
         found.push(String(ent.id));
-        if (found.length >= 5) break;
+      } else if (ent.className === 'Chat') {
+        // 基础群（旧版 chat，~200 人上限）也能爬成员
+        basicChats++;
+        found.push(String(ent.id));
       } else if (ent.broadcast) {
         channels++;
-      } else if (ent.className === 'Chat') {
-        basicChats++;
+      } else if (ent.className === 'User') {
+        users++;
       }
+      if (found.length >= 10) break;
     }
     if (found.length) {
       chatIds = found;
     } else {
       throw new Error(
-        `账号当前没有加入任何超级群（megagroup，唯一可爬成员的群类型）。` +
-        `统计：共 ${totalDialogs} 个 dialog · ${channels} 个频道(channel，不能爬) · ${basicChats} 个基础群。` +
-        `可能原因：1) 上一步「搜词加群」找到的全是频道而不是群组（已修复，请重新跑）；2) 账号刚开通还没加过任何群；3) 加的群被 leave 了。`,
+        `账号当前没有加入任何可爬成员的群（megagroup 或 basic chat）。` +
+        `统计：共 ${totalDialogs} 个 dialog · ${megagroups} 超级群 · ${basicChats} 基础群 · ${channels} 频道(不能爬) · ${users} 私聊。` +
+        `可能原因：1) 上一步「搜词加群」加的是频道(broadcast)；2) 账号还没加过任何群；3) 加的群被 leave 了。`,
       );
     }
   }
@@ -780,22 +786,26 @@ export async function joinGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
   const toJoin = verified.slice(0, maxPerDay);
 
   let joined = 0;
+  let alreadyIn = 0;
+  const joinReport: string[] = [];
   for (let i = 0; i < toJoin.length; i++) {
     const cand = toJoin[i];
     try {
       await ctx.client.invoke(new Api.channels.JoinChannel({ channel: cand.entity as any }));
       joined++;
+      joinReport.push(`✓ 已加入「${cand.title}」(${cand.members}成员, ${cand.kind})`);
     } catch (err) {
       const msg = (err as Error).message ?? '';
       if (msg.includes('ALREADY_PARTICIPANT')) {
-        joined++;
+        alreadyIn++;
+        joinReport.push(`◎ 已是成员「${cand.title}」(${cand.members}成员)`);
       } else if (msg.includes('CHANNELS_TOO_MUCH')) {
-        // TG 账号加群上限 (~500), 后续无法再加
+        joinReport.push(`✗ 加群配额已满 (账号 ~500 群上限)`);
         break;
       } else if (msg.includes('FLOOD') || msg.includes('A wait of')) {
         throw err;  // 让 FloodWait 隔离生效
       } else {
-        // 其他错误 (INVITE_HASH_INVALID / CHANNEL_PRIVATE 等), 跳过这个群继续
+        joinReport.push(`✗ 加群失败「${cand.title}」: ${msg.slice(0, 60)}`);
         continue;
       }
     }
@@ -806,8 +816,11 @@ export async function joinGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
     }
   }
 
-  if (joined === 0) {
-    throw new Error(`找到 ${verified.length} 个合格候选群但全部加群失败`);
+  // 总结写到 logger（agent log 能看到结果，方便排查）
+  console.info(`[join_groups_by_keyword] 验证 ${candidates.length} 个候选 → ${verified.length} 合格 → 实际加 ${joined} 个 + 已是 ${alreadyIn} 个。详情:\n  ${joinReport.join('\n  ')}`);
+
+  if (joined === 0 && alreadyIn === 0) {
+    throw new Error(`找到 ${verified.length} 个合格候选群但全部加群失败:\n${joinReport.join('\n')}`);
   }
 }
 
