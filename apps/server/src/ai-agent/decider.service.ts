@@ -26,6 +26,9 @@ const DEFAULT_HANDOFF_KEYWORDS_ZH = [
   '律师', '法律', '法院', '起诉', '报警',
   '经理', '主管', '上级', '老板',
   '账号被封', '被封', '被禁', '被盗',
+  // 客户主动要求真人 → 硬转人工
+  '真人客服', '真人', '人工客服', '人工', '转人工', '转接人工', '找客服', '找人工',
+  '客服小哥', '客服小姐', '联系客服',
 ];
 
 const DEFAULT_HANDOFF_KEYWORDS_EN = [
@@ -33,6 +36,8 @@ const DEFAULT_HANDOFF_KEYWORDS_EN = [
   'manager', 'supervisor', 'escalate',
   'banned', 'suspended', 'hacked',
   'scam', 'fraud',
+  // Customer asks for human → hard handoff
+  'human agent', 'real person', 'speak to human', 'talk to human', 'live agent', 'human support',
 ];
 
 const RATE_LIMIT_KEY = (chatId: string) => `ai:rate:${chatId}`;
