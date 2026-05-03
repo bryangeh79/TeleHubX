@@ -9,11 +9,14 @@ import {
   Dropdown,
   Form,
   Input,
+  InputNumber,
   Modal,
   Popconfirm,
   Row,
+  Select,
   Space,
   Statistic,
+  Switch,
   Tabs,
   Tag,
   Tooltip,
@@ -102,6 +105,144 @@ const MODE_CARDS: Array<{
     badge: '推荐',
   },
 ];
+
+// ── 高级设置 Tab 组件 ─────────────────────────────────────────────────
+function AdvancedSettingsTab({
+  settings, tenantId, onSaved,
+}: {
+  settings: TenantSettings | null;
+  tenantId?: string;
+  onSaved: () => void;
+}) {
+  const [dailyLimit, setDailyLimit] = useState<number>(50);
+  const [quietEnabled, setQuietEnabled] = useState<boolean>(false);
+  const [quietStart, setQuietStart] = useState<string>('22:00');
+  const [quietEnd, setQuietEnd] = useState<string>('08:00');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!settings) return;
+    setDailyLimit(settings.dailyReplyLimit ?? 50);
+    setQuietEnabled(settings.quietHoursEnabled ?? false);
+    setQuietStart(settings.quietHoursStart ?? '22:00');
+    setQuietEnd(settings.quietHoursEnd ?? '08:00');
+  }, [settings]);
+
+  const handleSave = async () => {
+    if (!tenantId) return;
+    setSaving(true);
+    try {
+      await tenantsApi.updateSettings(tenantId, {
+        dailyReplyLimit: dailyLimit,
+        quietHoursEnabled: quietEnabled,
+        quietHoursStart: quietStart,
+        quietHoursEnd: quietEnd,
+      });
+      antdMessage.success('已保存，立即生效');
+      onSaved();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const TIME_OPTIONS: string[] = [];
+  for (let h = 0; h < 24; h++) {
+    for (const m of ['00', '30']) {
+      TIME_OPTIONS.push(`${String(h).padStart(2, '0')}:${m}`);
+    }
+  }
+
+  return (
+    <div style={{ padding: '16px 0', maxWidth: 720 }}>
+      <Alert type="info" showIcon style={{ marginBottom: 16 }}
+        message="保存后立即生效，无需重启服务" />
+
+      {/* 每日回复上限 */}
+      <Card size="small" style={{ marginBottom: 12 }}>
+        <Row gutter={12} align="middle">
+          <Col flex="200px">
+            <Text strong>每对话每日上限</Text>
+            <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+              防刷屏，超过后转人工
+            </div>
+          </Col>
+          <Col flex="auto">
+            <InputNumber
+              value={dailyLimit}
+              onChange={(v) => setDailyLimit(Number(v) || 50)}
+              min={1}
+              max={500}
+              addonAfter="条"
+              style={{ width: 160 }}
+            />
+          </Col>
+        </Row>
+      </Card>
+
+      {/* 静默时段 */}
+      <Card size="small" style={{ marginBottom: 12 }}>
+        <Row gutter={12} align="middle" style={{ marginBottom: quietEnabled ? 12 : 0 }}>
+          <Col flex="200px">
+            <Text strong>夜间静默时段</Text>
+            <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+              此时段 Bot 不回复（防夜间骚扰）
+            </div>
+          </Col>
+          <Col flex="auto">
+            <Switch checked={quietEnabled} onChange={setQuietEnabled} />
+            <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+              {quietEnabled ? '已开启' : '已关闭'}
+            </Text>
+          </Col>
+        </Row>
+        {quietEnabled && (
+          <Row gutter={12} align="middle">
+            <Col flex="200px"></Col>
+            <Col flex="auto">
+              <Space>
+                <Select value={quietStart} onChange={setQuietStart} size="small" style={{ width: 100 }}
+                  options={TIME_OPTIONS.map(t => ({ value: t, label: t }))} />
+                <Text type="secondary">至</Text>
+                <Select value={quietEnd} onChange={setQuietEnd} size="small" style={{ width: 100 }}
+                  options={TIME_OPTIONS.map(t => ({ value: t, label: t }))} />
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  （跨天会自动识别，例如 22:00 - 08:00）
+                </Text>
+              </Space>
+            </Col>
+          </Row>
+        )}
+      </Card>
+
+      {/* 频率限制 - 暂时只展示，未来可扩展 */}
+      <Card size="small" style={{ marginBottom: 12, background: '#fafafa' }}>
+        <Row gutter={12} align="middle">
+          <Col flex="200px">
+            <Text strong>回复最小间隔</Text>
+            <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+              防止 Bot 高频回复
+            </div>
+          </Col>
+          <Col flex="auto">
+            <Tag color="default">3 秒（系统默认）</Tag>
+            <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
+              如需调整请联系管理员（修改 .env AI_MIN_INTERVAL_MS）
+            </Text>
+          </Col>
+        </Row>
+      </Card>
+
+      <div style={{ marginTop: 20, textAlign: 'right' }}>
+        <Button type="primary" icon={<CheckCircleFilled />}
+          onClick={handleSave} loading={saving} disabled={!tenantId}>
+          保存设置
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 export default function CsPage() {
   const [tenant, setTenant] = useState<Tenant | null>(null);
@@ -516,42 +657,59 @@ export default function CsPage() {
             const active = m.key === currentMode;
             const aiBlocked = m.key === 'smart' && !aiConfigured;
             return (
-              <Col span={8} key={m.key}>
+              <Col span={8} key={m.key} style={{ display: 'flex' }}>
                 <Card
                   hoverable={!savingMode}
                   onClick={() => handleModeChange(m.key)}
                   style={{
-                    textAlign: 'center',
+                    width: '100%',
                     cursor: savingMode ? 'wait' : 'pointer',
                     border: active ? '2px solid #1677ff' : '1px solid #f0f0f0',
                     background: active ? '#f0f7ff' : '#fafafa',
                     borderRadius: 8,
                     opacity: aiBlocked && !active ? 0.7 : 1,
                     position: 'relative',
+                    display: 'flex',
+                    flexDirection: 'column',
                   }}
-                  styles={{ body: { padding: '20px 12px' } }}
+                  styles={{
+                    body: {
+                      padding: '24px 16px',
+                      minHeight: 180,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'flex-start',
+                      textAlign: 'center',
+                      width: '100%',
+                    },
+                  }}
                 >
                   {active && (
                     <CheckCircleFilled
                       style={{ position: 'absolute', top: 8, right: 8, color: '#1677ff', fontSize: 16 }}
                     />
                   )}
-                  <div style={{ color: active ? '#1677ff' : '#999', marginBottom: 8 }}>
+                  <div style={{ color: active ? '#1677ff' : '#999', marginBottom: 8, fontSize: 28, lineHeight: 1 }}>
                     {m.icon}
                   </div>
-                  <Text strong style={{ color: active ? '#1677ff' : undefined }}>{m.title}</Text>
-                  {m.badge && <Tag color="blue" style={{ marginLeft: 6, fontSize: 11 }}>{m.badge}</Tag>}
-                  <Paragraph type="secondary" style={{ fontSize: 12, margin: '8px 0 0' }}>
+                  <div style={{ marginBottom: 8 }}>
+                    <Text strong style={{ color: active ? '#1677ff' : undefined, fontSize: 14 }}>{m.title}</Text>
+                    {m.badge && <Tag color="blue" style={{ marginLeft: 6, fontSize: 11 }}>{m.badge}</Tag>}
+                  </div>
+                  <Paragraph type="secondary" style={{ fontSize: 12, margin: 0, flex: 1, lineHeight: 1.6 }}>
                     {m.desc}
                   </Paragraph>
-                  {m.key === 'faq' && (
-                    <Tag color="green" style={{ fontSize: 11 }}>无需 AI Key</Tag>
-                  )}
-                  {m.key === 'smart' && (
-                    <Tag color={aiConfigured ? 'blue' : 'orange'} style={{ fontSize: 11 }}>
-                      {aiConfigured ? '已配 AI Key' : '需配 AI Key'}
-                    </Tag>
-                  )}
+                  <div style={{ marginTop: 12 }}>
+                    {m.key === 'faq' && (
+                      <Tag color="green" style={{ fontSize: 11 }}>无需 AI Key</Tag>
+                    )}
+                    {m.key === 'smart' && (
+                      <Tag color={aiConfigured ? 'blue' : 'orange'} style={{ fontSize: 11 }}>
+                        {aiConfigured ? '已配 AI Key' : '需配 AI Key'}
+                      </Tag>
+                    )}
+                  </div>
                 </Card>
               </Col>
             );
@@ -807,35 +965,7 @@ export default function CsPage() {
             {
               key: 'advanced',
               label: '高级设置',
-              children: (
-                <div style={{ padding: '16px 0' }}>
-                  <Space direction="vertical" style={{ width: '100%' }} size={12}>
-                    <Card size="small">
-                      <Space>
-                        <ClockCircleOutlined />
-                        <Text>频率限制：每次回复最小间隔 3s（<Text code>AI_MIN_INTERVAL_MS</Text>）</Text>
-                      </Space>
-                    </Card>
-                    <Card size="small">
-                      <Space>
-                        <ClockCircleOutlined />
-                        <Text>每日上限：每对话每日最多回复 50 条（<Text code>AI_DAILY_LIMIT_PER_CHAT</Text>）</Text>
-                      </Space>
-                    </Card>
-                    <Card size="small">
-                      <Space>
-                        <WarningOutlined style={{ color: 'orange' }} />
-                        <Text>转人工关键词：通过 <Text code>AI_HANDOFF_KEYWORDS</Text> 在 .env 中配置（逗号分隔）</Text>
-                      </Space>
-                    </Card>
-                    <Alert
-                      type="warning"
-                      showIcon
-                      message="修改以上配置需编辑服务端 .env 文件后执行 pm2 restart telehubx-server"
-                    />
-                  </Space>
-                </div>
-              ),
+              children: <AdvancedSettingsTab settings={settings} tenantId={tenant?.id} onSaved={() => void load()} />,
             },
           ]}
         />
