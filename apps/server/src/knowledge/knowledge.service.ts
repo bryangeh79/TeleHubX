@@ -274,6 +274,84 @@ export class KnowledgeService {
     return { generated: created.length, ids: created.map((f) => f.id) };
   }
 
+  /**
+   * AI 一键生成产品完整档案：简介 + 卖点 + FAQ + 建议目标。
+   * FAQ 数量根据文本长度动态决定（30-50条），调用平台 AI key。
+   */
+  async generateProductProfile(dto: {
+    productName: string;
+    price?: string;
+    rawText: string;
+  }): Promise<{
+    overview: string;
+    features: string[];
+    faq: Array<{ question: string; answer: string; tags: string[] }>;
+    suggestedGoal: string;
+  }> {
+    // FAQ 数量根据资讯丰富程度动态调整
+    const textLen = dto.rawText.trim().length;
+    const faqCount = textLen < 500 ? 30 : textLen < 2000 ? 40 : 50;
+
+    const systemPrompt = `你是一位专业的产品 FAQ 策划师兼销售顾问。
+基于给定的产品资料，生成完整的产品知识档案，供智能客服 Bot 使用。
+输出必须是严格的 JSON 格式，不要有任何多余文字。`;
+
+    const userPrompt = `产品名称：${dto.productName}
+价格：${dto.price ?? '联系询价'}
+产品资料：
+${dto.rawText.slice(0, 10000)}
+
+请生成以下 JSON 格式（全部使用中文，除非资料是其他语言）：
+{
+  "overview": "产品简短介绍（2-3句，客服场景用）",
+  "features": ["卖点1", "卖点2", "...（5-8条）"],
+  "faq": [
+    {"question": "客户口吻的问题", "answer": "简洁直接的回答（150字内）", "tags": ["分类标签"]},
+    ... 共 ${faqCount} 条
+  ],
+  "suggestedGoal": "预约 Demo（30 分钟线上演示）"
+}
+
+suggestedGoal 必须从以下选项之一选择：
+- 预约 Demo（30 分钟线上演示）
+- 收集线索（姓名/联系方式/需求）
+- 了解更多（引导加 WhatsApp/Telegram）
+- 联系销售员
+- 申请免费试用
+
+FAQ 要求：
+- 问题用客户口吻（"你们...""这个怎么..."）
+- 答案口语化、简洁
+- 覆盖：产品功能/价格/使用场景/开始使用/支持/常见疑问
+- 没有写在资料里的信息禁止编造`;
+
+    // 复用 AiFaqGeneratorService 的 AI 调用基础设施（API key 选取逻辑）
+    const raw = await this.aiFaqGen.callRaw(systemPrompt, userPrompt, 8000);
+
+    let parsed: any;
+    try {
+      // 提取 JSON（有时 AI 会附加一些前后文字）
+      const start = raw.indexOf('{');
+      const end = raw.lastIndexOf('}');
+      parsed = JSON.parse(raw.slice(start, end + 1));
+    } catch {
+      throw new Error('AI 返回格式异常，请重试');
+    }
+
+    return {
+      overview: String(parsed.overview ?? '').trim(),
+      features: Array.isArray(parsed.features) ? parsed.features.map(String) : [],
+      faq: Array.isArray(parsed.faq) ? parsed.faq.filter(
+        (f: any) => f?.question && f?.answer
+      ).map((f: any) => ({
+        question: String(f.question).trim(),
+        answer: String(f.answer).trim(),
+        tags: Array.isArray(f.tags) ? f.tags.map(String) : [],
+      })) : [],
+      suggestedGoal: String(parsed.suggestedGoal ?? '预约 Demo（30 分钟线上演示）').trim(),
+    };
+  }
+
   /** Get all KB IDs for a tenant (used by smart reply to scope search) */
   async getKbIdsByTenant(tenantId: string): Promise<string[]> {
     const kbs = await this.kbs.find({ where: { tenantId, enabled: true } });

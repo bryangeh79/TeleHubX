@@ -119,4 +119,42 @@ export class AiFaqGeneratorService {
         tags: Array.isArray(f.tags) ? f.tags.filter((t) => typeof t === 'string') : [],
       }));
   }
+
+  /**
+   * Raw AI call — 返回模型的原始文本，由调用方自行解析。
+   * 供 generateProductProfile 等需要自定义 JSON schema 的场景使用。
+   */
+  async callRaw(systemPrompt: string, userPrompt: string, maxTokens = 6000): Promise<string> {
+    const platformOpenAi = this.config.get<string>('PLATFORM_OPENAI_API_KEY');
+    const platformDeepseek = this.config.get<string>('PLATFORM_DEEPSEEK_API_KEY');
+    const platformGemini = this.config.get<string>('PLATFORM_GEMINI_API_KEY');
+    const legacyOpenAi = this.config.get<string>('OPENAI_API_KEY');
+    const legacyDeepseek = this.config.get<string>('DEEPSEEK_API_KEY');
+    const legacyGemini = this.config.get<string>('GEMINI_API_KEY');
+
+    const apiKey = platformOpenAi || platformDeepseek || platformGemini
+      || legacyOpenAi || legacyDeepseek || legacyGemini;
+    if (!apiKey) throw new ServiceUnavailableException('平台 AI provider 未配置');
+
+    const usingDeepseek = platformDeepseek || (!platformOpenAi && !platformGemini && legacyDeepseek);
+    const usingGemini = platformGemini || (!platformOpenAi && !platformDeepseek && !legacyOpenAi && !legacyDeepseek && legacyGemini);
+    const baseURL = this.config.get<string>('PLATFORM_AI_BASE_URL')
+      || (usingDeepseek ? 'https://api.deepseek.com'
+        : usingGemini ? 'https://generativelanguage.googleapis.com/v1beta/openai'
+        : 'https://api.openai.com/v1');
+    const model = this.config.get<string>('PLATFORM_AI_MODEL')
+      || (usingDeepseek ? 'deepseek-chat' : 'gpt-4o-mini');
+
+    const client = new OpenAI({ apiKey, baseURL });
+    const completion = await client.chat.completions.create({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.4,
+      max_tokens: maxTokens,
+    });
+    return completion.choices[0]?.message?.content ?? '';
+  }
 }

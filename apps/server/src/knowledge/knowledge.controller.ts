@@ -177,4 +177,19 @@ export class KnowledgeController {
   ) {
     return this.service.generateFaqsFromSources(kbId, body);
   }
+
+  /**
+   * 产品档案 AI 一键生成：输入产品名 + 文本描述，
+   * 返回 overview / features / faq(30-50条) / suggestedGoal。
+   * 前端向导第 3 步「AI 生成」按钮调用此接口。
+   */
+  @Post('ai-generate-product-profile')
+  @HttpCode(HttpStatus.OK)
+  generateProductProfile(
+    @Body() dto: { productName: string; price?: string; rawText: string },
+  ) {
+    if (!dto.productName?.trim()) throw new BadRequestException('productName 不能为空');
+    if (!dto.rawText?.trim()) throw new BadRequestException('rawText 不能为空');
+    return this.service.generateProductProfile(dto);
+  }
 }

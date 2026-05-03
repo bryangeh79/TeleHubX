@@ -5,10 +5,12 @@ import {
   Tag, Tooltip, Typography, message as antdMessage,
 } from 'antd';
 import {
-  CheckCircleOutlined, CloseCircleOutlined, KeyOutlined,
+  AppstoreOutlined, BankOutlined, CheckCircleOutlined, CloseCircleOutlined, KeyOutlined,
   PlusOutlined, ReloadOutlined, SaveOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import { aiApi, tenantsApi, platformConfigApi } from '../../services/api';
+import CompanyInfoWizard from './CompanyInfoWizard';
+import ProductSetupWizard from './ProductSetupWizard';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -484,6 +486,10 @@ export default function AiSettingsPage() {
   const [tenantId, setTenantId] = useState<string>('');
   const [dbProviders, setDbProviders] = useState<any[]>([]);
 
+  // Wizards
+  const [companyWizardOpen, setCompanyWizardOpen] = useState(false);
+  const [productWizardOpen, setProductWizardOpen] = useState(false);
+
   // Modals
   const [tenantModalOpen, setTenantModalOpen] = useState(false);
   const [platformModalOpen, setPlatformModalOpen] = useState(false);
@@ -628,7 +634,26 @@ export default function AiSettingsPage() {
             配置 DeepSeek / Gemini / OpenAI / Claude 的 API Key
           </Text>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={() => void loadInfo()} loading={loading}>刷新</Button>
+        <Space size={8}>
+          <Button
+            size="large"
+            icon={<BankOutlined />}
+            onClick={() => setCompanyWizardOpen(true)}
+            style={{ fontWeight: 500 }}
+          >
+            设置公司资讯
+          </Button>
+          <Button
+            size="large"
+            type="primary"
+            icon={<AppstoreOutlined />}
+            onClick={() => setProductWizardOpen(true)}
+            style={{ fontWeight: 500 }}
+          >
+            设置产品
+          </Button>
+          <Button icon={<ReloadOutlined />} onClick={() => void loadInfo()} loading={loading}>刷新</Button>
+        </Space>
       </div>
 
       {/* 总开关 */}
@@ -733,6 +758,17 @@ export default function AiSettingsPage() {
         editRecord={editingProvider}
         onClose={() => { setPlatformModalOpen(false); setEditingProvider(null); }}
         onSuccess={() => { setPlatformModalOpen(false); setEditingProvider(null); void loadInfo(); }}
+      />
+
+      <CompanyInfoWizard
+        open={companyWizardOpen}
+        onClose={() => setCompanyWizardOpen(false)}
+        tenantId={tenantId}
+      />
+      <ProductSetupWizard
+        open={productWizardOpen}
+        onClose={() => setProductWizardOpen(false)}
+        tenantId={tenantId}
       />
     </div>
   );
