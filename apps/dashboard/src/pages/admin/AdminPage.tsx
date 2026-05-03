@@ -787,7 +787,7 @@ export default function AdminPage() {
     adminApi.stats().then(r => setStats(r.data)).catch(() => {});
   }, []);
 
-  if (role !== 'SUPER_ADMIN') {
+  if (role !== 'super_admin' && role !== 'SUPER_ADMIN') {
     return (
       <Result
         status="403"
