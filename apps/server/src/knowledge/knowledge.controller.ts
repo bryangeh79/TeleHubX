@@ -232,4 +232,32 @@ export class KnowledgeController {
     if (!dto.rawText?.trim()) throw new BadRequestException('rawText 不能为空');
     return this.service.generateProductProfile(dto);
   }
+
+  // === 通用 FAQ（客户闲聊场景，挂在 company KB 下）===
+
+  /** 列出某租户的通用 FAQ（即 company KB 的 FAQ）+ 其 KB 信息 */
+  @Get('general-faqs')
+  async listGeneralFaqs(@Query('tenantId') tenantId: string) {
+    if (!tenantId) throw new BadRequestException('tenantId 必填');
+    const kb = await this.service.getCompanyKb(tenantId);
+    if (!kb) return { kb: null, faqs: [] };
+    const faqs = await this.service.listFaqs({ kbId: kb.id });
+    return { kb, faqs };
+  }
+
+  /** 确保 company KB 存在，返回 KB（首次打开通用 FAQ 入口时调用） */
+  @Post('general-faqs/ensure-kb')
+  @HttpCode(HttpStatus.OK)
+  ensureCompanyKb(@Body() body: { tenantId: string }) {
+    if (!body?.tenantId) throw new BadRequestException('tenantId 必填');
+    return this.service.getOrCreateCompanyKb(body.tenantId);
+  }
+
+  /** AI 一键生成 N 条闲聊 FAQ，自动入库 */
+  @Post('general-faqs/ai-generate')
+  @HttpCode(HttpStatus.OK)
+  generateGeneralChat(@Body() body: { tenantId: string; count?: number }) {
+    if (!body?.tenantId) throw new BadRequestException('tenantId 必填');
+    return this.service.generateGeneralChatFaqs(body.tenantId, body.count);
+  }
 }

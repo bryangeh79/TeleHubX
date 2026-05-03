@@ -45,6 +45,7 @@ import {
 } from '@ant-design/icons';
 import CompanyInfoWizard from '../ai/CompanyInfoWizard';
 import ProductSetupWizard from '../ai/ProductSetupWizard';
+import GeneralFaqDrawer from './GeneralFaqDrawer';
 import { aiApi, knowledgeApi, tenantsApi } from '../../services/api';
 
 const { Title, Text, Paragraph } = Typography;
@@ -260,6 +261,7 @@ export default function CsPage() {
 
   const [companyWizardOpen, setCompanyWizardOpen] = useState(false);
   const [productWizardOpen, setProductWizardOpen] = useState(false);
+  const [generalFaqOpen, setGeneralFaqOpen] = useState(false);
   const [registerVisible, setRegisterVisible] = useState(false);
   const [replaceTarget, setReplaceTarget] = useState<TenantBot | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -555,6 +557,14 @@ export default function CsPage() {
             style={{ fontWeight: 500 }}
           >
             设置公司资讯
+          </Button>
+          <Button
+            size="large"
+            icon={<QuestionCircleOutlined />}
+            onClick={() => setGeneralFaqOpen(true)}
+            style={{ fontWeight: 500 }}
+          >
+            通用 FAQ
           </Button>
           <Button
             size="large"
@@ -1026,6 +1036,11 @@ export default function CsPage() {
       <ProductSetupWizard
         open={productWizardOpen}
         onClose={() => { setProductWizardOpen(false); void load(); }}
+        tenantId={tenant?.id}
+      />
+      <GeneralFaqDrawer
+        open={generalFaqOpen}
+        onClose={() => { setGeneralFaqOpen(false); void load(); }}
         tenantId={tenant?.id}
       />
     </div>

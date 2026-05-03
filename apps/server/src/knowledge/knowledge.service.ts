@@ -486,4 +486,67 @@ FAQ 要求：
     });
     return list[0] ?? null;
   }
+
+  /**
+   * Get-or-create the company KB for a tenant. Used when user opens general-FAQ
+   * editor before they've completed CompanyInfoWizard — we still need a KB to
+   * attach FAQs to.
+   */
+  async getOrCreateCompanyKb(tenantId: string): Promise<KnowledgeBase> {
+    const existing = await this.getCompanyKb(tenantId);
+    if (existing) return existing;
+    const created = this.kbs.create({
+      tenantId,
+      name: '公司通用资料',
+      type: KbType.COMPANY,
+      isDefault: true,
+      enabled: true,
+    });
+    return this.kbs.save(created);
+  }
+
+  /**
+   * AI 一键生成通用闲聊 FAQ —— 客户和 Bot 闲聊场景的常见问答。
+   * 与产品 FAQ 不同：不依赖产品资料，专注客户问"你是真人吗"这类身份/能力/工作时间问题。
+   */
+  async generateGeneralChatFaqs(tenantId: string, count = 12): Promise<{ generated: number; ids: string[] }> {
+    const kb = await this.getOrCreateCompanyKb(tenantId);
+
+    const systemPrompt = `你是一位资深 AI 客服设计师，专门设计「客户和 Bot 闲聊」场景的回应。
+任务：生成客户与营销客服 Bot 闲聊场景的常见问答（非业务问题）。
+
+要求：
+1. 问题覆盖：身份疑问（你是真人吗）/ 能力试探（你能干嘛）/ 工作时间（你 24 小时在吗）/ 礼貌寒暄（早上好）/ 玩笑调侃 / 表达情绪 / 询问 Bot 自己 / 离开告别等。
+2. 答案要：保持人设但不假装是真人；自然引导回业务主题；语气亲切；不超过 50 字。
+3. 不要触及产品具体细节（那是产品 FAQ 的工作）。
+4. 输出严格 JSON：{"faqs":[{"question":"...","answer":"...","tags":["..."]}]}。tags 用 chitchat / identity / capability / hours / greeting 等。`;
+
+    const userPrompt = `请为本租户的客服 Bot 生成 ${count} 条「客户闲聊」场景 FAQ。`;
+
+    const raw = await this.aiFaqGen.callRaw(systemPrompt, userPrompt, 4000);
+    let parsed: { faqs?: Array<{ question: string; answer: string; tags?: string[] }> };
+    try {
+      const start = raw.indexOf('{');
+      const end = raw.lastIndexOf('}');
+      parsed = JSON.parse(raw.slice(start, end + 1));
+    } catch {
+      throw new Error('AI 返回格式异常，请重试');
+    }
+
+    const items = Array.isArray(parsed.faqs) ? parsed.faqs : [];
+    const created: Faq[] = [];
+    for (const it of items) {
+      if (!it?.question?.trim() || !it?.answer?.trim()) continue;
+      const faq = this.faqs.create({
+        kbId: kb.id,
+        question: it.question.trim(),
+        answer: it.answer.trim(),
+        tags: Array.isArray(it.tags) ? it.tags.map(String) : ['chitchat'],
+        source: FaqSource.AI_GENERATED,
+        enabled: true,
+      });
+      created.push(await this.faqs.save(faq));
+    }
+    return { generated: created.length, ids: created.map(f => f.id) };
+  }
 }
