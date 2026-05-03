@@ -51,7 +51,7 @@ type TaskType =
   // 组合配套
   | 'preset_full_14d' | 'preset_warmup_7d' | 'preset_rampup_7d' | 'preset_mature_ops'
   // 群组发现+加入
-  | 'join_groups' | 'join_groups_by_keyword' | 'join_channels' | 'accept_invites'
+  | 'join_groups' | 'join_groups_by_keyword' | 'discover_groups_by_keyword' | 'join_channels' | 'accept_invites'
   // 自建群
   | 'group_create' | 'group_invite_members'
   // 群组活动
@@ -103,6 +103,7 @@ const TASK_TYPE_LABELS: Record<TaskType, TaskTypeMeta> = {
   // 群组发现+加入
   join_groups:            { icon: '🌐', label: '自动加群（邀请链接）',     color: 'green',    group: '群组' },
   join_groups_by_keyword: { icon: '🔍', label: '关键词搜群+加',            color: 'green',    group: '群组' },
+  discover_groups_by_keyword: { icon: '🔭', label: '关键词发现群（不加）',     color: 'cyan',     group: '群组' },
   join_channels:          { icon: '⭐', label: 'Follow 频道',              color: 'cyan',     group: '群组' },
   accept_invites:         { icon: '👥', label: '接受群组邀请',             color: 'green',    group: '群组' },
 
@@ -1323,6 +1324,14 @@ function buildPayloadForTaskType(taskType: string, v: any): any {
     };
   }
 
+  if (t === 'discover_groups_by_keyword') {
+    return {
+      keywords: linesToArr(v.searchKeywords),
+      minMembers: v.searchMinMembers ?? 50,
+      sampleSize: v.discoverSampleSize ?? 100,
+    };
+  }
+
   if (t === 'join_channels') {
     return { channels: linesToArr(v.channelsList) };
   }
@@ -1500,6 +1509,32 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
         </Form.Item>
         <Form.Item name="searchMaxPerDay" label="今天最多加几个" initialValue={3} extra="≤3 安全, 防 TG 风控">
           <InputNumber min={1} max={10} />
+        </Form.Item>
+      </>
+    );
+  }
+
+  // ─── DISCOVER_GROUPS_BY_KEYWORD ─────────────────────────
+  if (t === 'discover_groups_by_keyword') {
+    return (
+      <>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="只搜索 + 评估质量，不加群、不爬人"
+          description="任务跑完后到「群源发现」页面看到列表，按 quality 排序，人工挑高质量的「加+爬」。避免盲跑误中 spam 群浪费配额。"
+        />
+        <Form.Item name="searchKeywords" label="搜索关键词 (一行一个)" rules={[{ required: true }]}
+          extra="例: forex trading / 外汇交流 / 加密货币">
+          <Input.TextArea rows={3} placeholder="forex trading&#10;外汇" />
+        </Form.Item>
+        <Form.Item name="searchMinMembers" label="最小成员数" initialValue={50} extra="低于该值不入库">
+          <InputNumber min={10} max={100000} />
+        </Form.Item>
+        <Form.Item name="discoverSampleSize" label="抽样消息数" initialValue={100}
+          extra="每个群拉这么多条历史消息评估真发言者数量">
+          <InputNumber min={20} max={200} />
         </Form.Item>
       </>
     );
