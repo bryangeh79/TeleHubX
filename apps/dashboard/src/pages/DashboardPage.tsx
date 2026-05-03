@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Row, Col, Card, Statistic, Typography, Spin, Tag } from 'antd';
+import { Row, Col, Card, Statistic, Typography, Spin, Tag, Steps, Button, Alert } from 'antd';
+import { useNavigate } from 'react-router-dom';
 import {
   UserOutlined,
   TeamOutlined,
   MessageOutlined,
   SendOutlined,
+  ApiOutlined,
+  BankOutlined,
+  AppstoreOutlined,
+  RobotOutlined,
+  CheckCircleFilled,
 } from '@ant-design/icons';
 import { dashboardApi, tenantsApi } from '../services/api';
 
@@ -102,9 +108,48 @@ export default function DashboardPage() {
   const adTotalSent = d.camp.totalSent ?? 0;
   const adTodaySent = d.camp.todaySent ?? 0;
 
+  // ── 新租户引导：5 步完成度 ──
+  const nav = useNavigate();
+  const steps = [
+    { key: 'bot', title: '注册 Bot Token', done: botToday > 0 || userToday > 0 || humanCount > 0, path: '/cs', icon: <ApiOutlined /> },
+    { key: 'company', title: '填写公司资讯', done: false /* heuristic: candidates > 0 暗示已配置 */, path: '/cs', icon: <BankOutlined /> },
+    { key: 'product', title: '添加产品', done: false, path: '/cs', icon: <AppstoreOutlined /> },
+    { key: 'account', title: '绑定 TG 账号', done: totalAcc > 0, path: '/accounts', icon: <UserOutlined /> },
+    { key: 'discover', title: '发现群源 + 爬人', done: candTotal > 0, path: '/discovered-groups', icon: <RobotOutlined /> },
+  ];
+  const doneCount = steps.filter(s => s.done).length;
+  const completeness = Math.round((doneCount / steps.length) * 100);
+  const showOnboarding = completeness < 100 && !loading;
+
   return (
     <div>
       <Title level={4} style={{ marginBottom: 24 }}>仪表盘</Title>
+
+      {showOnboarding && (
+        <Alert
+          type={completeness === 0 ? 'info' : 'success'}
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={
+            completeness === 0
+              ? '👋 欢迎！按下面 5 步快速启动你的 Telegram 营销系统'
+              : `📊 设置进度 ${completeness}%（${doneCount} / ${steps.length} 步完成）`
+          }
+          description={
+            <div style={{ marginTop: 8 }}>
+              <Steps
+                size="small"
+                current={doneCount}
+                items={steps.map(s => ({
+                  title: <Button type="link" size="small" style={{ padding: 0, height: 'auto' }} onClick={() => nav(s.path)}>{s.title}</Button>,
+                  status: s.done ? 'finish' : 'wait',
+                  icon: s.done ? <CheckCircleFilled style={{ color: '#52c41a' }} /> : s.icon,
+                }))}
+              />
+            </div>
+          }
+        />
+      )}
 
       {loading ? <Spin /> : (
         <Row gutter={[16, 16]}>
