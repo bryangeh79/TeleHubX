@@ -41,6 +41,7 @@ import {
   RobotOutlined,
   StopOutlined,
   SwapOutlined,
+  ThunderboltOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
 import CompanyInfoWizard from '../ai/CompanyInfoWizard';
@@ -935,6 +936,25 @@ export default function CsPage() {
                                     items: [
                                       { key: 'edit', icon: <EditOutlined />, label: '编辑',
                                         onClick: ({ domEvent }) => { domEvent.stopPropagation(); setProductWizardOpen(true); } },
+                                      { key: 'backfill-variants', icon: <ThunderboltOutlined />, label: 'AI 补语义变体（升级匹配率）',
+                                        onClick: async ({ domEvent }) => {
+                                          domEvent.stopPropagation();
+                                          Modal.confirm({
+                                            title: `为「${productName}」FAQ 补语义变体？`,
+                                            content: '将调 AI 为每条还没变体的 FAQ 生成 4 个同义问法（var: tag），让客户用各种说法都能命中。已有变体的 FAQ 默认跳过。',
+                                            okText: '开始',
+                                            cancelText: '取消',
+                                            onOk: async () => {
+                                              try {
+                                                const res = await knowledgeApi.backfillVariants(p.id, false);
+                                                antdMessage.success(`已升级 ${res.data.updated} 条 FAQ（跳过 ${res.data.skipped}）`);
+                                                void load();
+                                              } catch (err: any) {
+                                                antdMessage.error(err?.response?.data?.message ?? '生成失败');
+                                              }
+                                            },
+                                          });
+                                        } },
                                       { type: 'divider' as const },
                                       { key: 'delete', icon: <DeleteOutlined />, label: '删除', danger: true,
                                         onClick: async ({ domEvent }) => {

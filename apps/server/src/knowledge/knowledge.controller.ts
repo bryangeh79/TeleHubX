@@ -179,6 +179,19 @@ export class KnowledgeController {
   }
 
   /**
+   * 为已有 FAQ 反补 var:xxx 变体（升级老 FAQ 进入语义匹配）。
+   * force=true 时连已有 variants 也会被重新生成覆盖。
+   */
+  @Post('kbs/:id/backfill-variants')
+  @HttpCode(HttpStatus.OK)
+  backfillVariants(
+    @Param('id', ParseUUIDPipe) kbId: string,
+    @Body() body: { force?: boolean } = {},
+  ) {
+    return this.service.backfillVariantsForKb(kbId, body);
+  }
+
+  /**
    * 从网址提取文字内容（用于公司官网 → 自动填充资料）。
    * 简单 fetch + 去 HTML 标签，适合大部分静态/SSR 官网。
    */

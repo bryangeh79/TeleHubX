@@ -122,22 +122,16 @@ export class KnowledgeService {
    * decider have something useful to call.
    */
   async search(query: string, kbId?: string, topN = 5): Promise<FaqMatch[]> {
-    const tokens = this.tokenize(query);
-    if (tokens.length === 0) return [];
+    const qTokens = this.tokenize(query);
+    if (!qTokens.size) return [];
 
     const where: Partial<Pick<Faq, 'kbId' | 'enabled'>> = { enabled: true };
     if (kbId) where.kbId = kbId;
     const candidates = await this.faqs.find({ where });
 
     const scored = candidates.map<FaqMatch>((faq) => {
-      const haystack = (
-        faq.question.toLowerCase() + ' ' + (faq.tags ?? []).join(' ').toLowerCase()
-      );
-      let hits = 0;
-      for (const t of tokens) {
-        if (haystack.includes(t)) hits++;
-      }
-      return { faq, score: hits / tokens.length };
+      const { score } = this.faqMatchScore(qTokens, faq);
+      return { faq, score };
     });
 
     return scored
@@ -304,7 +298,7 @@ ${dto.rawText.slice(0, 10000)}
   "overview": "产品简短介绍（2-3句，客服场景用）",
   "features": ["卖点1", "卖点2", "...（5-8条）"],
   "faq": [
-    {"question": "客户口吻的问题", "answer": "简洁直接的回答（150字内）", "tags": ["分类标签"]},
+    {"question": "客户口吻的问题", "answer": "简洁直接的回答（150字内）", "tags": ["分类标签"], "variants": ["同义问法1", "同义问法2", "同义问法3"]},
     ... 共 ${faqCount} 条
   ],
   "suggestedGoal": "预约 Demo（30 分钟线上演示）"
@@ -321,6 +315,7 @@ FAQ 要求：
 - 问题用客户口吻（"你们...""这个怎么..."）
 - 答案口语化、简洁
 - 覆盖：产品功能/价格/使用场景/开始使用/支持/常见疑问
+- **每条必须 3-5 个 variants（同义问法）**：客户用任一变体提问都能命中。变体要覆盖不同句式、口语/书面、长短句、常见错别字。例如「多少钱」的变体：「价格是多少」「贵不贵」「咋收费」
 - 没有写在资料里的信息禁止编造`;
 
     // 复用 AiFaqGeneratorService 的 AI 调用基础设施（API key 选取逻辑）
@@ -341,11 +336,19 @@ FAQ 要求：
       features: Array.isArray(parsed.features) ? parsed.features.map(String) : [],
       faq: Array.isArray(parsed.faq) ? parsed.faq.filter(
         (f: any) => f?.question && f?.answer
-      ).map((f: any) => ({
-        question: String(f.question).trim(),
-        answer: String(f.answer).trim(),
-        tags: Array.isArray(f.tags) ? f.tags.map(String) : [],
-      })) : [],
+      ).map((f: any) => {
+        const baseTags: string[] = Array.isArray(f.tags) ? f.tags.map(String) : [];
+        const variants: string[] = Array.isArray(f.variants)
+          ? f.variants.map(String).map((v: string) => v.trim()).filter((v: string) => v && v.length <= 100)
+          : [];
+        const tags = [...baseTags];
+        for (const v of variants) tags.push(`var:${v}`);
+        return {
+          question: String(f.question).trim(),
+          answer: String(f.answer).trim(),
+          tags: tags.slice(0, 30),
+        };
+      }) : [],
       suggestedGoal: String(parsed.suggestedGoal ?? '预约 Demo（30 分钟线上演示）').trim(),
     };
   }
@@ -357,36 +360,72 @@ FAQ 要求：
   }
 
   /**
-   * Tokenize a query for keyword search.
-   * Latin words split on whitespace (≥2 chars); CJK runs split into char bigrams
-   * (so 「有什么产品」 → 有什, 什么, 么产, 产品). This is the MVP fix until we
-   * wire in jieba or pgvector.
+   * Tokenize a query/text for Jaccard similarity scoring.
+   * - 中文按字符（含基本 + 扩展 + 平假名 + 韩文）
+   * - 拉丁/数字按 ≥2 字符的 word
+   * - 大小写归一化 + 繁简体常见映射（妳/您 → 你）
    */
-  private tokenize(query: string): string[] {
-    const q = query.toLowerCase().trim();
-    if (!q) return [];
+  private tokenize(text: string): Set<string> {
     const out = new Set<string>();
+    const lowered = text.toLowerCase().trim();
+    if (!lowered) return out;
+    // 简单繁简归一
+    const normalized = lowered
+      .replace(/[妳您]/g, '你')
+      .replace(/[們]/g, '们')
+      .replace(/[嗎]/g, '吗');
     const cjkRe = /[一-鿿぀-ヿ가-힯]/;
-    const tokens = q.split(/\s+/).filter(Boolean);
-    for (const t of tokens) {
-      if (cjkRe.test(t)) {
-        // Split CJK runs into bigrams + keep meaningful unigram fallback
-        const cjkChars = Array.from(t).filter(c => cjkRe.test(c));
-        if (cjkChars.length >= 2) {
-          for (let i = 0; i < cjkChars.length - 1; i++) {
-            out.add(cjkChars[i] + cjkChars[i + 1]);
-          }
-        } else if (cjkChars.length === 1) {
-          out.add(cjkChars[0]);
-        }
-        // Also include Latin substrings inside the same token (e.g. "M33价格")
-        const latin = t.match(/[a-z0-9]{2,}/g);
-        if (latin) for (const w of latin) out.add(w);
-      } else if (t.length >= 2) {
-        out.add(t);
+    for (const ch of Array.from(normalized)) {
+      if (cjkRe.test(ch)) out.add(ch);
+    }
+    const latinWords = normalized.match(/[a-z0-9]{2,}/g);
+    if (latinWords) for (const w of latinWords) out.add(w);
+    return out;
+  }
+
+  /** Jaccard 相似度：|A ∩ B| / |A ∪ B|。返回 0..1。 */
+  private jaccard(a: Set<string>, b: Set<string>): number {
+    if (!a.size || !b.size) return 0;
+    let inter = 0;
+    for (const t of a) if (b.has(t)) inter++;
+    const union = a.size + b.size - inter;
+    return union > 0 ? inter / union : 0;
+  }
+
+  /** 从 FAQ tags 提取 `var:xxx` 形式的问题变体。 */
+  private extractVariants(tags: string[] | null | undefined): string[] {
+    if (!Array.isArray(tags)) return [];
+    const out: string[] = [];
+    for (const t of tags) {
+      if (typeof t === 'string' && t.startsWith('var:')) {
+        const v = t.slice(4).trim();
+        if (v) out.push(v);
       }
     }
-    return Array.from(out);
+    return out;
+  }
+
+  /**
+   * 计算 query 与一条 FAQ 的最佳匹配分（Jaccard），
+   * 候选项 = FAQ 题目 + 所有 var:xxx 变体。
+   */
+  private faqMatchScore(queryTokens: Set<string>, faq: Faq): { score: number; matchedVariant?: string } {
+    const candidates: Array<{ text: string; isVariant: boolean }> = [
+      { text: faq.question, isVariant: false },
+    ];
+    for (const v of this.extractVariants(faq.tags)) {
+      candidates.push({ text: v, isVariant: true });
+    }
+    let best = 0;
+    let bestVariant: string | undefined;
+    for (const c of candidates) {
+      const s = this.jaccard(queryTokens, this.tokenize(c.text));
+      if (s > best) {
+        best = s;
+        bestVariant = c.isVariant ? c.text : undefined;
+      }
+    }
+    return { score: best, matchedVariant: bestVariant };
   }
 
   /**
@@ -410,25 +449,20 @@ FAQ 要求：
     const kbById = new Map<string, KnowledgeBase>(kbs.map(k => [k.id, k]));
     const kbIds = kbs.map(k => k.id);
 
-    const tokens = this.tokenize(query);
-    if (!tokens.length) return { contextText: '', hasResults: false, matchedKbs: [], productHitCount: 0 };
+    const qTokens = this.tokenize(query);
+    if (!qTokens.size) return { contextText: '', hasResults: false, matchedKbs: [], productHitCount: 0 };
 
     const candidates = await this.faqs.find({ where: { enabled: true } });
     const tenantFaqs = candidates.filter(f => kbIds.includes(f.kbId));
 
     const scored = tenantFaqs.map(faq => {
-      const haystack = faq.question.toLowerCase() + ' ' + (faq.tags ?? []).join(' ').toLowerCase();
-      let hits = 0;
-      for (const t of tokens) {
-        if (haystack.includes(t)) hits++;
-      }
-      const answerHits = tokens.filter(t => faq.answer.toLowerCase().includes(t)).length;
-      const score = (hits * 2 + answerHits * 0.5) / (tokens.length * 2);
+      const { score } = this.faqMatchScore(qTokens, faq);
       return { faq, score };
     });
 
+    // 上下文注入用更宽松的阈值（0.25），让低分相关 FAQ 也能进 prompt 给 AI 参考
     const top = scored
-      .filter(m => m.score > 0)
+      .filter(m => m.score >= 0.25)
       .sort((a, b) => b.score - a.score)
       .slice(0, topN);
 
@@ -463,25 +497,19 @@ FAQ 要求：
     if (!companyKbs.length) return { contextText: '', hasResults: false };
     const kbIdSet = new Set(companyKbs.map(k => k.id));
 
-    const tokens = this.tokenize(query);
-    if (!tokens.length) return { contextText: '', hasResults: false };
+    const qTokens = this.tokenize(query);
+    if (!qTokens.size) return { contextText: '', hasResults: false };
 
     const candidates = await this.faqs.find({ where: { enabled: true } });
     const companyFaqs = candidates.filter(f => kbIdSet.has(f.kbId));
 
     const scored = companyFaqs.map(faq => {
-      const haystack = faq.question.toLowerCase() + ' ' + (faq.tags ?? []).join(' ').toLowerCase();
-      let hits = 0;
-      for (const t of tokens) {
-        if (haystack.includes(t)) hits++;
-      }
-      const answerHits = tokens.filter(t => faq.answer.toLowerCase().includes(t)).length;
-      const score = (hits * 2 + answerHits * 0.5) / (tokens.length * 2);
+      const { score } = this.faqMatchScore(qTokens, faq);
       return { faq, score };
     });
 
     const top = scored
-      .filter(m => m.score > 0)
+      .filter(m => m.score >= 0.25)
       .sort((a, b) => b.score - a.score)
       .slice(0, topN);
 
@@ -584,7 +612,8 @@ FAQ 要求：
 1. 问题覆盖：身份疑问（你是真人吗）/ 能力试探（你能干嘛）/ 工作时间（你 24 小时在吗）/ 礼貌寒暄（早上好）/ 玩笑调侃 / 表达情绪 / 询问 Bot 自己 / 离开告别等。
 2. 答案要：保持人设但不假装是真人；自然引导回业务主题；语气亲切；不超过 50 字。
 3. 不要触及产品具体细节（那是产品 FAQ 的工作）。
-4. 输出严格 JSON：{"faqs":[{"question":"...","answer":"...","tags":["..."]}]}。tags 用 chitchat / identity / capability / hours / greeting 等。`;
+4. **每条必须 4-6 个 variants（同义问法）**，覆盖客户可能用的各种说法：长短句 / 口语 / 错别字 / 地方说法。例如「你是真人吗」的变体：「你是机器人？」「真的人在打字？」「不是 AI 吧」「你 ai 哒？」
+5. 输出严格 JSON：{"faqs":[{"question":"...","answer":"...","tags":["..."],"variants":["...","...","..."]}]}。tags 用 chitchat / identity / capability / hours / greeting 等。`;
 
     const userPrompt = `请为本租户的客服 Bot 生成 ${count} 条「客户闲聊」场景 FAQ。`;
 
@@ -600,18 +629,81 @@ FAQ 要求：
 
     const items = Array.isArray(parsed.faqs) ? parsed.faqs : [];
     const created: Faq[] = [];
-    for (const it of items) {
+    for (const it of items as any[]) {
       if (!it?.question?.trim() || !it?.answer?.trim()) continue;
+      const baseTags: string[] = Array.isArray(it.tags) ? it.tags.map(String) : ['chitchat'];
+      const variants: string[] = Array.isArray(it.variants)
+        ? it.variants.map(String).map((v: string) => v.trim()).filter((v: string) => v && v.length <= 100)
+        : [];
+      const tags = [...baseTags];
+      for (const v of variants) tags.push(`var:${v}`);
       const faq = this.faqs.create({
         kbId: kb.id,
         question: it.question.trim(),
         answer: it.answer.trim(),
-        tags: Array.isArray(it.tags) ? it.tags.map(String) : ['chitchat'],
+        tags: tags.slice(0, 30),
         source: FaqSource.AI_GENERATED,
         enabled: true,
       });
       created.push(await this.faqs.save(faq));
     }
     return { generated: created.length, ids: created.map(f => f.id) };
+  }
+
+  /**
+   * 为已有 FAQ 反补 var:xxx 变体（用于升级老 FAQ 进入语义匹配体系）。
+   * 调用 AI 一次性为指定 KB 的所有/部分 FAQ 生成 4 个 variants 并写入 tags。
+   * 已有 var:xxx tag 的 FAQ 默认跳过（除非 force=true）。
+   */
+  async backfillVariantsForKb(kbId: string, options: { force?: boolean } = {}): Promise<{ updated: number; skipped: number }> {
+    const kb = await this.getKb(kbId);
+    const allFaqs = await this.faqs.find({ where: { kbId } });
+    const targets = options.force
+      ? allFaqs
+      : allFaqs.filter(f => !this.extractVariants(f.tags).length);
+
+    if (!targets.length) return { updated: 0, skipped: allFaqs.length };
+
+    // 每批 20 条，控制单次 AI tokens
+    const BATCH = 20;
+    let updated = 0;
+    for (let i = 0; i < targets.length; i += BATCH) {
+      const batch = targets.slice(i, i + BATCH);
+      const list = batch.map((f, idx) => `${idx + 1}. Q: ${f.question}\n   A: ${f.answer.slice(0, 200)}`).join('\n\n');
+      const systemPrompt = `你是 FAQ 语义扩展器。给定一组 FAQ（题目 + 答案），为每条 FAQ 生成 4 个客户可能的同义问法（variants）。
+要求：
+- 同一意图，不同句式（长/短/口语/书面/倒装/省略）
+- 包含常见错别字、缩写、地方说法
+- 每个 variant ≤ 30 字
+- **顺序与编号必须与输入对齐**
+输出严格 JSON：{"variants":[["v1","v2","v3","v4"], ["v1","v2","v3","v4"], ...]} —— 数组长度 = 输入 FAQ 数。`;
+      const userPrompt = `KB 名称：${kb.name}\n\n${list}\n\n请为以上 ${batch.length} 条 FAQ 各生成 4 个 variants。`;
+
+      const raw = await this.aiFaqGen.callRaw(systemPrompt, userPrompt, 4000);
+      let parsed: { variants?: string[][] };
+      try {
+        const start = raw.indexOf('{');
+        const end = raw.lastIndexOf('}');
+        parsed = JSON.parse(raw.slice(start, end + 1));
+      } catch {
+        continue; // 这一批解析失败就跳过，不阻断后续
+      }
+
+      const variantsList = Array.isArray(parsed.variants) ? parsed.variants : [];
+      for (let j = 0; j < batch.length; j++) {
+        const faq = batch[j];
+        const vs = Array.isArray(variantsList[j]) ? variantsList[j] : [];
+        const cleaned = vs.map(String).map(s => s.trim()).filter(s => s && s.length <= 100);
+        if (!cleaned.length) continue;
+        // 移除旧 var: tag (如果 force) 后追加新 var:
+        const existingNonVar = (faq.tags ?? []).filter(t => typeof t === 'string' && !t.startsWith('var:'));
+        const newTags = [...existingNonVar, ...cleaned.map(v => `var:${v}`)].slice(0, 30);
+        faq.tags = newTags;
+        await this.faqs.save(faq);
+        updated++;
+      }
+    }
+
+    return { updated, skipped: allFaqs.length - updated };
   }
 }

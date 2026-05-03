@@ -252,6 +252,8 @@ export const knowledgeApi = {
 
   generateFaqs: (kbId: string, count?: number) =>
     api.post(`/knowledge/kbs/${kbId}/generate-faqs`, count ? { count } : {}, { timeout: 120000 }),
+  backfillVariants: (kbId: string, force?: boolean) =>
+    api.post(`/knowledge/kbs/${kbId}/backfill-variants`, { force }, { timeout: 180000 }),
 
   // 通用 FAQ（客户闲聊场景，挂在 company KB 下）
   listGeneralFaqs: (tenantId: string) =>

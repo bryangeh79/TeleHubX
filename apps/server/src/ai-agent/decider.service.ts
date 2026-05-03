@@ -37,7 +37,8 @@ const DEFAULT_HANDOFF_KEYWORDS_EN = [
 
 const RATE_LIMIT_KEY = (chatId: string) => `ai:rate:${chatId}`;
 const DAILY_KEY = (chatId: string) => `ai:daily:${chatId}:${new Date().toISOString().slice(0, 10)}`;
-const FAQ_SCORE_THRESHOLD = 0.6;
+/** Jaccard similarity threshold to short-circuit reply with FAQ answer (matches WAhubX 0.55). */
+const FAQ_SCORE_THRESHOLD = 0.55;
 
 @Injectable()
 export class AutoReplyDecider {

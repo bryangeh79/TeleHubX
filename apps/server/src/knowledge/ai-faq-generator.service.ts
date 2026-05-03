@@ -10,6 +10,7 @@ interface GeneratedFaq {
   question: string;
   answer: string;
   tags: string[];
+  variants?: string[];
 }
 
 const SYSTEM_PROMPT = `你是 SaaS 产品的客服 FAQ 设计师。
@@ -19,8 +20,13 @@ const SYSTEM_PROMPT = `你是 SaaS 产品的客服 FAQ 设计师。
 1. 问题用客户口吻提（"你们……" "这个怎么……"），不要用书面"如何"。
 2. 答案直接、简洁、口语化，控制在 150 字内。如有电话/邮箱/网址等具体信息必须原样保留。
 3. 覆盖：产品介绍 / 价格 / 联系方式 / 售前问答 / 常见疑问 / 售后流程。
-4. 输出严格 JSON：{"faqs":[{"question":"...","answer":"...","tags":["..."]}]}。tags 用于分类（pricing/contact/intro/support 等）。
-5. 没有写在资料里的信息，禁止臆造。`;
+4. **每条 FAQ 必须提供 3-5 个 "variants"（同义问法），客户问任一变体都应能命中**。变体要：
+   - 用不同句式表达同一意图（短句 / 长句 / 倒装 / 口语 / 书面）
+   - 覆盖常见错别字、缩写、地方说法
+   - 例如题目「你们多少钱」的变体：「价格是多少」「报价怎么算」「贵不贵」「咋收费」
+5. tags 用于分类（pricing/contact/intro/support 等），不要把变体放 tags 里。
+6. 输出严格 JSON：{"faqs":[{"question":"...","answer":"...","tags":["..."],"variants":["...","...","..."]}]}
+7. 没有写在资料里的信息，禁止臆造。`;
 
 @Injectable()
 export class AiFaqGeneratorService {
@@ -132,11 +138,24 @@ export class AiFaqGeneratorService {
     const faqs = Array.isArray(parsed.faqs) ? parsed.faqs : [];
     return faqs
       .filter((f) => f && typeof f.question === 'string' && typeof f.answer === 'string')
-      .map((f) => ({
-        question: f.question.trim(),
-        answer: f.answer.trim(),
-        tags: Array.isArray(f.tags) ? f.tags.filter((t) => typeof t === 'string') : [],
-      }));
+      .map((f) => {
+        const baseTags = Array.isArray(f.tags) ? f.tags.filter((t) => typeof t === 'string') : [];
+        const variants = Array.isArray((f as any).variants)
+          ? (f as any).variants
+              .filter((v: unknown) => typeof v === 'string')
+              .map((v: string) => v.trim())
+              .filter((v: string) => v && v.length <= 100)
+          : [];
+        // 把 variants 转成 var:xxx tag，让 KnowledgeService.faqMatchScore 能多 candidate 匹配
+        const tags = [...baseTags];
+        for (const v of variants) tags.push(`var:${v}`);
+        return {
+          question: f.question.trim(),
+          answer: f.answer.trim(),
+          tags: tags.slice(0, 30),
+          variants,
+        };
+      });
   }
 
   /**
