@@ -122,9 +122,7 @@ export class KnowledgeService {
    * decider have something useful to call.
    */
   async search(query: string, kbId?: string, topN = 5): Promise<FaqMatch[]> {
-    const q = query.toLowerCase().trim();
-    if (!q) return [];
-    const tokens = q.split(/\s+/).filter((t) => t.length >= 2);
+    const tokens = this.tokenize(query);
     if (tokens.length === 0) return [];
 
     const where: Partial<Pick<Faq, 'kbId' | 'enabled'>> = { enabled: true };
@@ -359,6 +357,39 @@ FAQ 要求：
   }
 
   /**
+   * Tokenize a query for keyword search.
+   * Latin words split on whitespace (≥2 chars); CJK runs split into char bigrams
+   * (so 「有什么产品」 → 有什, 什么, 么产, 产品). This is the MVP fix until we
+   * wire in jieba or pgvector.
+   */
+  private tokenize(query: string): string[] {
+    const q = query.toLowerCase().trim();
+    if (!q) return [];
+    const out = new Set<string>();
+    const cjkRe = /[一-鿿぀-ヿ가-힯]/;
+    const tokens = q.split(/\s+/).filter(Boolean);
+    for (const t of tokens) {
+      if (cjkRe.test(t)) {
+        // Split CJK runs into bigrams + keep meaningful unigram fallback
+        const cjkChars = Array.from(t).filter(c => cjkRe.test(c));
+        if (cjkChars.length >= 2) {
+          for (let i = 0; i < cjkChars.length - 1; i++) {
+            out.add(cjkChars[i] + cjkChars[i + 1]);
+          }
+        } else if (cjkChars.length === 1) {
+          out.add(cjkChars[0]);
+        }
+        // Also include Latin substrings inside the same token (e.g. "M33价格")
+        const latin = t.match(/[a-z0-9]{2,}/g);
+        if (latin) for (const w of latin) out.add(w);
+      } else if (t.length >= 2) {
+        out.add(t);
+      }
+    }
+    return Array.from(out);
+  }
+
+  /**
    * Search across all KBs for a tenant and return formatted context string.
    * Used by BotGateway to inject relevant knowledge into AI system prompt.
    * Returns top-N matches formatted as Q&A pairs PLUS metadata about which
@@ -379,8 +410,7 @@ FAQ 要求：
     const kbById = new Map<string, KnowledgeBase>(kbs.map(k => [k.id, k]));
     const kbIds = kbs.map(k => k.id);
 
-    const q = query.toLowerCase().trim();
-    const tokens = q.split(/\s+/).filter(t => t.length >= 2);
+    const tokens = this.tokenize(query);
     if (!tokens.length) return { contextText: '', hasResults: false, matchedKbs: [], productHitCount: 0 };
 
     const candidates = await this.faqs.find({ where: { enabled: true } });
@@ -433,8 +463,7 @@ FAQ 要求：
     if (!companyKbs.length) return { contextText: '', hasResults: false };
     const kbIdSet = new Set(companyKbs.map(k => k.id));
 
-    const q = query.toLowerCase().trim();
-    const tokens = q.split(/\s+/).filter(t => t.length >= 2);
+    const tokens = this.tokenize(query);
     if (!tokens.length) return { contextText: '', hasResults: false };
 
     const candidates = await this.faqs.find({ where: { enabled: true } });
