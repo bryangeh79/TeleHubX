@@ -140,12 +140,16 @@ export class LeadCandidatesService {
     });
   }
 
-  async findAll(tenantId: string, status?: CandidateStatus): Promise<LeadCandidate[]> {
-    return this.repo.find({
-      where: status ? { tenantId, status } : { tenantId },
-      order: { scrapedAt: 'DESC' },
-      take: 500,
-    });
+  async findAll(tenantId: string, status?: CandidateStatus, onlyUnpacked?: boolean): Promise<LeadCandidate[]> {
+    const qb = this.repo.createQueryBuilder('c')
+      .where('c.tenantId = :tenantId', { tenantId })
+      .orderBy('c.scrapedAt', 'DESC')
+      .limit(500);
+    if (status) qb.andWhere('c.status = :status', { status });
+    if (onlyUnpacked) {
+      qb.andWhere(`(c."packedIntoGroupIds" IS NULL OR c."packedIntoGroupIds" = '')`);
+    }
+    return qb.getMany();
   }
 
   async findOne(id: string): Promise<LeadCandidate> {

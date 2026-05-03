@@ -217,12 +217,14 @@ export class CustomerGroupsService {
     const candidates = await this.candidateRepo.find({
       where: { id: In(dto.candidateIds), tenantId: dto.tenantId },
     });
-    return this.buildGroupFromCandidates({
+    const group = await this.buildGroupFromCandidates({
       tenantId: dto.tenantId,
       name: dto.name,
       description: dto.description,
       candidates,
     });
+    await this.markCandidatesPacked(candidates, group.id);
+    return group;
   }
 
   /**
@@ -259,6 +261,7 @@ export class CustomerGroupsService {
         isPremium: c.isPremium,
       })).filter(it => !!it.value);
       const r = await this.appendMembers(existing.id, items);
+      await this.markCandidatesPacked(candidates, existing.id);
       return { group: r.group, created: false, addedCount: r.added };
     }
     const group = await this.buildGroupFromCandidates({
@@ -268,7 +271,19 @@ export class CustomerGroupsService {
       candidates,
       defaultSource: 'group_scrape',
     });
+    await this.markCandidatesPacked(candidates, group.id);
     return { group, created: true, addedCount: group.memberCount };
+  }
+
+  /** 给一批候选人写入 packedIntoGroupIds（不影响已存在的其他 group id） */
+  private async markCandidatesPacked(candidates: LeadCandidate[], groupId: string): Promise<void> {
+    if (!candidates.length) return;
+    for (const c of candidates) {
+      const existing = c.packedIntoGroupIds ?? [];
+      if (existing.includes(groupId)) continue;
+      c.packedIntoGroupIds = [...existing, groupId];
+    }
+    await this.candidateRepo.save(candidates);
   }
 
   /** 候选人列表 → CustomerGroup 实体共享构建逻辑（不直接 save） */

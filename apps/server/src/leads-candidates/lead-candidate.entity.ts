@@ -117,6 +117,10 @@ export class LeadCandidate {
   @Column({ type: 'simple-array', nullable: true })
   tags: string[];
 
+  /** 已被打包到的客户群 id 列表（避免下次打包重复加入） */
+  @Column({ type: 'simple-array', nullable: true })
+  packedIntoGroupIds: string[] | null;
+
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 

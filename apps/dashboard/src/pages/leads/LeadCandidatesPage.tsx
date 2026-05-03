@@ -53,6 +53,7 @@ interface Candidate {
   contactedAt: string | null;
   contactedByAccountId: string | null;
   notes: string | null;
+  packedIntoGroupIds: string[] | null;
 }
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
@@ -71,6 +72,7 @@ export default function LeadCandidatesPage() {
   const [stats, setStats] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string | undefined>();
+  const [onlyUnpacked, setOnlyUnpacked] = useState<boolean>(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [contactOpen, setContactOpen] = useState(false);
   const [packOpen, setPackOpen] = useState(false);
@@ -96,6 +98,7 @@ export default function LeadCandidatesPage() {
     try {
       const params: any = { tenantId, status: filterStatus };
       if (huntTaskId) params.huntTaskId = huntTaskId;
+      if (onlyUnpacked) params.onlyUnpacked = 'true';
       const [listRes, statsRes] = await Promise.all([
         leadCandidatesApi.list(params),
         leadCandidatesApi.stats(tenantId),
@@ -109,7 +112,7 @@ export default function LeadCandidatesPage() {
     } finally {
       setLoading(false);
     }
-  }, [tenantId, filterStatus, huntTaskId]);
+  }, [tenantId, filterStatus, huntTaskId, onlyUnpacked]);
 
   useEffect(() => { void reload(); }, [reload]);
 
@@ -260,6 +263,14 @@ export default function LeadCandidatesPage() {
       },
     },
     {
+      title: '已打包', dataIndex: 'packedIntoGroupIds', key: 'packed', width: 90,
+      render: (ids: string[] | null) => (
+        Array.isArray(ids) && ids.length > 0
+          ? <Tag color="purple">已入 {ids.length} 群</Tag>
+          : <Tag color="default">未打包</Tag>
+      ),
+    },
+    {
       title: '爬取时间', dataIndex: 'scrapedAt', key: 'scrapedAt', width: 140,
       render: (t: string) => <Text style={{ fontSize: 12 }}>{dayjs(t).format('MM-DD HH:mm')}</Text>,
     },
@@ -320,6 +331,13 @@ export default function LeadCandidatesPage() {
             style={{ width: 140 }}
             options={Object.entries(STATUS_META).map(([k, m]) => ({ value: k, label: m.label }))}
           />
+          <Button
+            type={onlyUnpacked ? 'primary' : 'default'}
+            ghost={onlyUnpacked}
+            onClick={() => setOnlyUnpacked(v => !v)}
+          >
+            {onlyUnpacked ? '✓ 只看未打包' : '只看未打包'}
+          </Button>
           <Button
             icon={<TeamOutlined />}
             disabled={selectedRowKeys.length === 0}
@@ -437,13 +455,33 @@ export default function LeadCandidatesPage() {
         okText="创建客户群"
         cancelText="取消"
       >
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message={`已选 ${selectedRowKeys.length} 个候选人`}
-          description="客户群创建后可在「广告投放 → 新建投放」的目标客户群下拉里选择，自动展开成 targets。"
-        />
+        {(() => {
+          const selected = candidates.filter(c => selectedRowKeys.includes(c.id));
+          const alreadyPacked = selected.filter(c => Array.isArray(c.packedIntoGroupIds) && c.packedIntoGroupIds.length > 0).length;
+          const fresh = selected.length - alreadyPacked;
+          return (
+            <>
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 8 }}
+                message={`已选 ${selected.length} 个候选人 · 其中 ${fresh} 未打包 · ${alreadyPacked} 已被打包过`}
+                description="客户群创建后可在「广告投放 → 新建投放」的目标客户群下拉里选择，自动展开成 targets。"
+              />
+              {alreadyPacked > 0 && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                  message={`提示：${alreadyPacked} 个候选人已经在其他客户群里。继续打包会让他们在多个群里重复。`}
+                  description={
+                    <span>建议先点工具栏「<b>只看未打包</b>」筛选，或取消勾选已打包的人再点「打包」。</span>
+                  }
+                />
+              )}
+            </>
+          );
+        })()}
         <Form form={packForm} layout="vertical">
           <Form.Item name="name" label="客户群名称" rules={[{ required: true, message: '必填' }, { max: 120 }]}>
             <Input placeholder="例如：Crypto Malaysia 优质用户" />

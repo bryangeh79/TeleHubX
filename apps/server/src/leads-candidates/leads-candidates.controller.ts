@@ -65,8 +65,9 @@ export class LeadCandidatesController {
     @CurrentUser() user: AuthUser,
     @Query('tenantId') q?: string,
     @Query('status') status?: CandidateStatus,
+    @Query('onlyUnpacked') onlyUnpacked?: string,
   ) {
-    return this.service.findAll(resolveTenantId(user, q), status);
+    return this.service.findAll(resolveTenantId(user, q), status, onlyUnpacked === 'true');
   }
 
   @Get('stats')
