@@ -265,6 +265,166 @@ function GlobalPersonaTab() {
   );
 }
 
+// ── 行业话术 Tab ──────────────────────────────────────────────────────────
+function IndustryPromptTab() {
+  const [rows, setRows] = useState<Array<{ industry: string; prompt: string }>>([]);
+  const [original, setOriginal] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await platformConfigApi.getIndustryPrompts();
+      const map = (res.data?.prompts ?? {}) as Record<string, string>;
+      setOriginal(map);
+      setRows(Object.entries(map).map(([industry, prompt]) => ({ industry, prompt })));
+    } catch {
+      antdMessage.error('加载失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const updateRow = (idx: number, patch: Partial<{ industry: string; prompt: string }>) => {
+    setRows(prev => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+  };
+
+  const removeRow = (idx: number) => {
+    setRows(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const addRow = () => {
+    setRows(prev => [...prev, { industry: '', prompt: '' }]);
+  };
+
+  const handleSave = async () => {
+    const map: Record<string, string> = {};
+    for (const r of rows) {
+      const k = r.industry.trim();
+      const v = r.prompt.trim();
+      if (!k || !v) continue;
+      if (map[k]) {
+        antdMessage.warning(`行业「${k}」重复，请去除重复项`);
+        return;
+      }
+      map[k] = v;
+    }
+    if (!Object.keys(map).length) { antdMessage.warning('至少保留一行'); return; }
+    setSaving(true);
+    try {
+      const res = await platformConfigApi.setIndustryPrompts(map);
+      const saved = (res.data?.prompts ?? map) as Record<string, string>;
+      setOriginal(saved);
+      setRows(Object.entries(saved).map(([industry, prompt]) => ({ industry, prompt })));
+      antdMessage.success('已保存，下次 Bot 回复即生效');
+    } catch {
+      antdMessage.error('保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReset = async () => {
+    setSaving(true);
+    try {
+      const res = await platformConfigApi.resetIndustryPrompts();
+      const saved = (res.data?.prompts ?? {}) as Record<string, string>;
+      setOriginal(saved);
+      setRows(Object.entries(saved).map(([industry, prompt]) => ({ industry, prompt })));
+      antdMessage.success('已恢复为系统默认');
+    } catch {
+      antdMessage.error('重置失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const dirty = (() => {
+    if (rows.length !== Object.keys(original).length) return true;
+    for (const r of rows) {
+      if (original[r.industry] !== r.prompt) return true;
+    }
+    return false;
+  })();
+
+  return (
+    <div>
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="行业话术（按公司行业差异化）"
+        description="租户在「公司资讯向导」选定的行业，会自动注入对应话术到 AI 系统提示词。每条建议 1-3 句，≤ 200 字。请保留「其他」作为兜底。"
+      />
+
+      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Space>
+          <Tag color={dirty ? 'orange' : 'default'}>{dirty ? '未保存' : '已保存'}</Tag>
+          <Text type="secondary">共 {rows.length} 条</Text>
+        </Space>
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={load} loading={loading} size="small">刷新</Button>
+          <Button onClick={addRow} size="small">+ 新增行业</Button>
+        </Space>
+      </div>
+
+      <Table
+        size="small"
+        rowKey={(_, i) => String(i)}
+        dataSource={rows}
+        pagination={false}
+        columns={[
+          {
+            title: '行业',
+            dataIndex: 'industry',
+            width: 160,
+            render: (v: string, _r, idx) => (
+              <Input
+                value={v}
+                onChange={e => updateRow(idx, { industry: e.target.value })}
+                placeholder="例如：金融业"
+              />
+            ),
+          },
+          {
+            title: '话术注入',
+            dataIndex: 'prompt',
+            render: (v: string, _r, idx) => (
+              <TextArea
+                value={v}
+                onChange={e => updateRow(idx, { prompt: e.target.value })}
+                autoSize={{ minRows: 2, maxRows: 6 }}
+                placeholder="此行业 Bot 应注意的话术规则……"
+                showCount
+                maxLength={400}
+              />
+            ),
+          },
+          {
+            title: '操作',
+            width: 80,
+            render: (_, _r, idx) => (
+              <Button size="small" type="text" danger onClick={() => removeRow(idx)}>删除</Button>
+            ),
+          },
+        ]}
+      />
+
+      <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <Tooltip title="恢复为系统内置默认行业话术表">
+          <Button icon={<UndoOutlined />} onClick={handleReset} loading={saving}>恢复默认</Button>
+        </Tooltip>
+        <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={saving} disabled={!dirty}>
+          保存全部
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────
 export default function AdminPage() {
   const [role, setRole] = useState<string>('OPERATOR');
@@ -387,6 +547,11 @@ export default function AdminPage() {
                       key: 'variant',
                       label: <span><FileTextOutlined /> 广告变体 Prompt</span>,
                       children: <VariantPromptTab />,
+                    },
+                    {
+                      key: 'industry',
+                      label: <span><RobotOutlined /> 行业话术</span>,
+                      children: <IndustryPromptTab />,
                     },
                   ]}
                 />

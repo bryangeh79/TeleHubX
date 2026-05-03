@@ -160,4 +160,30 @@ export class PlatformConfigController {
     });
     return { ok: true, groupFaq: DEFAULT_AD_GROUP_FAQ, privateDivert: DEFAULT_AD_PRIVATE_DIVERT };
   }
+
+  // ── 行业话术 ───────────────────────────────────────────────────────
+
+  @Get('settings/industry-prompts')
+  async getIndustryPrompts() {
+    const prompts = await this.svc.getIndustryPrompts();
+    return { prompts };
+  }
+
+  @Put('settings/industry-prompts')
+  async setIndustryPrompts(@Body() body: { prompts: Record<string, string> }) {
+    if (!body?.prompts || typeof body.prompts !== 'object') {
+      return { ok: false, message: 'prompts 必须是 { 行业: 话术 } 对象' };
+    }
+    await this.svc.setIndustryPrompts(body.prompts);
+    const saved = await this.svc.getIndustryPrompts();
+    return { ok: true, prompts: saved };
+  }
+
+  @Post('settings/industry-prompts/reset')
+  @HttpCode(HttpStatus.OK)
+  async resetIndustryPrompts() {
+    await this.svc.resetIndustryPrompts();
+    const prompts = await this.svc.getIndustryPrompts();
+    return { ok: true, prompts };
+  }
 }

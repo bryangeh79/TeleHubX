@@ -41,27 +41,47 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
    * Build a contextual system prompt for smart reply.
    * Base persona is loaded from platform_settings (editable in Admin panel).
    * If KB context found, inject it so AI answers from real product knowledge.
+   * customerType / industryPrompt are optional layered injections.
    */
-  private async buildSmartReplyPrompt(kbContext: string): Promise<string> {
-    // 从数据库读取全局人设（Admin 面板可编辑，默认是 18 章营销客服人格）
+  private async buildSmartReplyPrompt(opts: {
+    kbContext?: string;
+    customerType?: 'b2b' | 'b2c' | 'mixed';
+    industryPrompt?: string;
+  } = {}): Promise<string> {
+    const { kbContext = '', customerType, industryPrompt } = opts;
     const basePersonality = await this.platformConfig.getGlobalPersona();
 
-    if (!kbContext) {
-      return basePersonality + '\n\n如果客户问的问题超出你的了解范围，诚实告知并建议转人工。';
+    const layers: string[] = [basePersonality];
+
+    if (customerType === 'b2b') {
+      layers.push(
+        '【客户画像】客户为企业决策者：用「贵公司」「您」称呼，语气专业克制，避免过多 emoji，多强调 ROI / 效率 / 落地方案。',
+      );
+    } else if (customerType === 'b2c') {
+      layers.push(
+        '【客户画像】客户为个人消费者：用「你」称呼，语气亲切轻松，可以适度使用 emoji，多强调易用 / 体验 / 优惠。',
+      );
     }
 
-    return `${basePersonality}
+    if (industryPrompt && industryPrompt.trim()) {
+      layers.push(`【行业话术】${industryPrompt.trim()}`);
+    }
 
-==================================================
-当前知识库参考资料
-==================================================
-${kbContext}
-
-回复规则（优先于以上）：
+    if (kbContext) {
+      layers.push(
+        '==================================================\n当前知识库参考资料\n==================================================',
+        kbContext,
+        `回复规则（优先于以上）：
 1. 优先用上方知识库内容回答，用自己的话自然表达，不要照抄原文
 2. 如果知识库内容和问题相关性低，可以用通用常识回答，但不要捏造产品细节
 3. 保留原文中的任何联系方式（电话、链接、账号）不改变
-4. 不要在回复里透露"我有一份知识库"或"根据文档"等内部表达`;
+4. 不要在回复里透露"我有一份知识库"或"根据文档"等内部表达`,
+      );
+    } else {
+      layers.push('如果客户问的问题超出你的了解范围，诚实告知并建议转人工。');
+    }
+
+    return layers.join('\n\n');
   }
 
   /** TakeoverGateway 解耦查找 — avoids hard import to break circular dep with TakeoverModule. */
@@ -196,13 +216,52 @@ ${kbContext}
           }
 
           // Inject knowledge base context for truly intelligent replies
-          const { contextText } = await this.knowledge.searchForContext(
-            msg.text,
-            bot.tenantId,
-            5,
-          );
+          const search = await this.knowledge.searchForContext(msg.text, bot.tenantId, 5);
+          let contextText = search.contextText;
 
-          const systemPrompt = await this.buildSmartReplyPrompt(contextText);
+          // Read product KB metadata (customerType / useCompanyFallback) from first matched product KB
+          let customerType: 'b2b' | 'b2c' | 'mixed' | undefined;
+          let useCompanyFallback = false;
+          const productKb = search.matchedKbs.find(k => k.type === 'product');
+          if (productKb?.description) {
+            try {
+              const desc = JSON.parse(productKb.description);
+              if (desc.customerType === 'b2b' || desc.customerType === 'b2c' || desc.customerType === 'mixed') {
+                customerType = desc.customerType;
+              }
+              useCompanyFallback = desc.useCompanyFallback === true;
+            } catch { /* description not JSON, ignore */ }
+          }
+
+          // Trigger company fallback when product hits are weak
+          let companyFallbackUsed = false;
+          if (useCompanyFallback && search.productHitCount < 3) {
+            const company = await this.knowledge.searchCompanyContext(msg.text, bot.tenantId, 5);
+            if (company.hasResults) {
+              contextText = contextText
+                ? `${contextText}\n\n${company.contextText}`
+                : company.contextText;
+              companyFallbackUsed = true;
+            }
+          }
+
+          // Read industry from company KB → drive industry-specific prompt injection
+          let industryPrompt: string | undefined;
+          const companyKb = await this.knowledge.getCompanyKb(bot.tenantId);
+          if (companyKb?.description) {
+            try {
+              const desc = JSON.parse(companyKb.description);
+              if (desc.industry) {
+                industryPrompt = await this.platformConfig.getIndustryPrompt(String(desc.industry));
+              }
+            } catch { /* ignore */ }
+          }
+
+          const systemPrompt = await this.buildSmartReplyPrompt({
+            kbContext: contextText,
+            customerType,
+            industryPrompt,
+          });
 
           const result = await this.aiAgent.reply(
             {
@@ -218,7 +277,11 @@ ${kbContext}
             },
           );
           replyText = result.reply;
-          this.logger.debug(`BotGateway: AI reply via ${aiConfig.source} key, tenant=${bot.tenantId}, hasKbContext=${!!contextText}`);
+          this.logger.debug(
+            `BotGateway: AI reply via ${aiConfig.source} key, tenant=${bot.tenantId}, ` +
+            `hasKb=${!!contextText} customerType=${customerType ?? 'none'} ` +
+            `companyFallback=${companyFallbackUsed} industry=${!!industryPrompt}`,
+          );
           break;
         }
 

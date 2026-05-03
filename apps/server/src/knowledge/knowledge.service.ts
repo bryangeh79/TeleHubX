@@ -361,25 +361,29 @@ FAQ 要求：
   /**
    * Search across all KBs for a tenant and return formatted context string.
    * Used by BotGateway to inject relevant knowledge into AI system prompt.
-   * Returns top-N matches formatted as Q&A pairs.
+   * Returns top-N matches formatted as Q&A pairs PLUS metadata about which
+   * KBs were hit so callers can read description.customerType / useCompanyFallback.
    */
   async searchForContext(
     query: string,
     tenantId: string,
     topN = 5,
-  ): Promise<{ contextText: string; hasResults: boolean }> {
-    const kbIds = await this.getKbIdsByTenant(tenantId);
-    if (!kbIds.length) return { contextText: '', hasResults: false };
+  ): Promise<{
+    contextText: string;
+    hasResults: boolean;
+    matchedKbs: KnowledgeBase[];
+    productHitCount: number;
+  }> {
+    const kbs = await this.kbs.find({ where: { tenantId, enabled: true } });
+    if (!kbs.length) return { contextText: '', hasResults: false, matchedKbs: [], productHitCount: 0 };
+    const kbById = new Map<string, KnowledgeBase>(kbs.map(k => [k.id, k]));
+    const kbIds = kbs.map(k => k.id);
 
     const q = query.toLowerCase().trim();
     const tokens = q.split(/\s+/).filter(t => t.length >= 2);
-    if (!tokens.length) return { contextText: '', hasResults: false };
+    if (!tokens.length) return { contextText: '', hasResults: false, matchedKbs: [], productHitCount: 0 };
 
-    // Search across all tenant KBs
-    const candidates = await this.faqs.find({
-      where: { enabled: true },
-      relations: [],
-    });
+    const candidates = await this.faqs.find({ where: { enabled: true } });
     const tenantFaqs = candidates.filter(f => kbIds.includes(f.kbId));
 
     const scored = tenantFaqs.map(faq => {
@@ -388,7 +392,6 @@ FAQ 要求：
       for (const t of tokens) {
         if (haystack.includes(t)) hits++;
       }
-      // Also check answer for context relevance
       const answerHits = tokens.filter(t => faq.answer.toLowerCase().includes(t)).length;
       const score = (hits * 2 + answerHits * 0.5) / (tokens.length * 2);
       return { faq, score };
@@ -399,18 +402,88 @@ FAQ 要求：
       .sort((a, b) => b.score - a.score)
       .slice(0, topN);
 
-    if (!top.length) return { contextText: '', hasResults: false };
+    if (!top.length) return { contextText: '', hasResults: false, matchedKbs: [], productHitCount: 0 };
 
-    const lines = top.map(m =>
-      `问：${m.faq.question}\n答：${m.faq.answer}`
-    );
+    const matchedKbIds = new Set(top.map(m => m.faq.kbId));
+    const matchedKbs = Array.from(matchedKbIds).map(id => kbById.get(id)).filter((k): k is KnowledgeBase => !!k);
+    const productHitCount = top.filter(m => kbById.get(m.faq.kbId)?.type === KbType.PRODUCT).length;
 
+    const lines = top.map(m => `问：${m.faq.question}\n答：${m.faq.answer}`);
     const contextText = [
       '【产品知识库（相关内容）】',
       ...lines,
       '【以上是产品资料，请基于此回答客户问题，不要凭空捏造】',
     ].join('\n\n');
 
-    return { contextText, hasResults: true };
+    return { contextText, hasResults: true, matchedKbs, productHitCount };
+  }
+
+  /**
+   * Search ONLY company-type KBs as a fallback when product KB hits are weak.
+   * Returns formatted context tagged as 公司通用资料 so AI can distinguish.
+   */
+  async searchCompanyContext(
+    query: string,
+    tenantId: string,
+    topN = 5,
+  ): Promise<{ contextText: string; hasResults: boolean }> {
+    const companyKbs = await this.kbs.find({
+      where: { tenantId, enabled: true, type: KbType.COMPANY },
+    });
+    if (!companyKbs.length) return { contextText: '', hasResults: false };
+    const kbIdSet = new Set(companyKbs.map(k => k.id));
+
+    const q = query.toLowerCase().trim();
+    const tokens = q.split(/\s+/).filter(t => t.length >= 2);
+    if (!tokens.length) return { contextText: '', hasResults: false };
+
+    const candidates = await this.faqs.find({ where: { enabled: true } });
+    const companyFaqs = candidates.filter(f => kbIdSet.has(f.kbId));
+
+    const scored = companyFaqs.map(faq => {
+      const haystack = faq.question.toLowerCase() + ' ' + (faq.tags ?? []).join(' ').toLowerCase();
+      let hits = 0;
+      for (const t of tokens) {
+        if (haystack.includes(t)) hits++;
+      }
+      const answerHits = tokens.filter(t => faq.answer.toLowerCase().includes(t)).length;
+      const score = (hits * 2 + answerHits * 0.5) / (tokens.length * 2);
+      return { faq, score };
+    });
+
+    const top = scored
+      .filter(m => m.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topN);
+
+    // Even if no FAQ hits, fall back to company KB description/goalPrompt
+    if (!top.length) {
+      const desc = companyKbs[0]?.description?.trim();
+      const goal = companyKbs[0]?.goalPrompt?.trim();
+      const blob = [desc, goal].filter(Boolean).join('\n');
+      if (!blob) return { contextText: '', hasResults: false };
+      return {
+        contextText: `【公司通用资料】\n${blob}`,
+        hasResults: true,
+      };
+    }
+
+    const lines = top.map(m => `问：${m.faq.question}\n答：${m.faq.answer}`);
+    return {
+      contextText: ['【公司通用资料（兜底参考）】', ...lines].join('\n\n'),
+      hasResults: true,
+    };
+  }
+
+  /**
+   * Find the company KB for a tenant (type='company'). Used by general-FAQ
+   * convenience routes. Returns null if no company KB exists.
+   */
+  async getCompanyKb(tenantId: string): Promise<KnowledgeBase | null> {
+    const list = await this.kbs.find({
+      where: { tenantId, type: KbType.COMPANY },
+      order: { isDefault: 'DESC', createdAt: 'ASC' },
+    });
+    return list[0] ?? null;
   }
 }

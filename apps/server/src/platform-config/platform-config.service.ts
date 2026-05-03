@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { DEFAULT_INDUSTRY_PROMPTS } from './industry-prompts';
 import { PlatformAiConfig } from './platform-ai-config.entity';
 import { PlatformSetting } from './platform-setting.entity';
 
@@ -391,5 +392,43 @@ export class PlatformConfigService {
     if (data.privateDivert !== undefined) {
       await this.setSetting('ad_private_divert_msg', data.privateDivert.trim());
     }
+  }
+
+  // ── 行业话术（B 阶段）─────────────────────────────────────────────
+
+  async getIndustryPrompts(): Promise<Record<string, string>> {
+    const raw = await this.getSetting('industry_prompts');
+    if (!raw) return { ...DEFAULT_INDUSTRY_PROMPTS };
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const out: Record<string, string> = {};
+        for (const [k, v] of Object.entries(parsed)) {
+          if (typeof v === 'string') out[k] = v;
+        }
+        return Object.keys(out).length ? out : { ...DEFAULT_INDUSTRY_PROMPTS };
+      }
+    } catch { /* fallthrough */ }
+    return { ...DEFAULT_INDUSTRY_PROMPTS };
+  }
+
+  async setIndustryPrompts(map: Record<string, string>): Promise<void> {
+    const cleaned: Record<string, string> = {};
+    for (const [k, v] of Object.entries(map ?? {})) {
+      const key = String(k).trim();
+      const val = String(v ?? '').trim();
+      if (key && val) cleaned[key] = val;
+    }
+    await this.setSetting('industry_prompts', JSON.stringify(cleaned));
+  }
+
+  async resetIndustryPrompts(): Promise<void> {
+    await this.setSetting('industry_prompts', JSON.stringify(DEFAULT_INDUSTRY_PROMPTS));
+  }
+
+  /** Single lookup with fallback to "其他" then empty string. */
+  async getIndustryPrompt(industry: string): Promise<string> {
+    const all = await this.getIndustryPrompts();
+    return all[industry] ?? all['其他'] ?? '';
   }
 }

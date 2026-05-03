@@ -423,6 +423,10 @@ export const platformConfigApi = {
   setAdFaq: (data: { groupFaq?: string; privateDivert?: string }) =>
     api.put('/platform-config/ai/settings/ad-faq', data),
   resetAdFaq: () => api.post('/platform-config/ai/settings/ad-faq/reset'),
+  getIndustryPrompts: () => api.get('/platform-config/ai/settings/industry-prompts'),
+  setIndustryPrompts: (prompts: Record<string, string>) =>
+    api.put('/platform-config/ai/settings/industry-prompts', { prompts }),
+  resetIndustryPrompts: () => api.post('/platform-config/ai/settings/industry-prompts/reset'),
 };
 
 export const statsApi = {
