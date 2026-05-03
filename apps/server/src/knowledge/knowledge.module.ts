@@ -9,12 +9,11 @@ import { KbSource } from './kb-source.entity';
 import { KnowledgeBase } from './kb.entity';
 import { KnowledgeController } from './knowledge.controller';
 import { KnowledgeService } from './knowledge.service';
-import { PlatformConfigModule } from '../platform-config/platform-config.module';
+import { PlatformAiConfig } from '../platform-config/platform-ai-config.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([KnowledgeBase, Faq, KbSource, KbProtected]),
-    PlatformConfigModule,
+    TypeOrmModule.forFeature([KnowledgeBase, Faq, KbSource, KbProtected, PlatformAiConfig]),
   ],
   controllers: [KnowledgeController],
   providers: [

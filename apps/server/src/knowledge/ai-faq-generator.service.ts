@@ -1,8 +1,10 @@
 import { BadGatewayException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import { Repository } from 'typeorm';
 import { AI_PROVIDERS, isAiProviderId } from '../ai-agent/ai-providers';
-import { PlatformConfigService } from '../platform-config/platform-config.service';
+import { PlatformAiConfig } from '../platform-config/platform-ai-config.entity';
 
 interface GeneratedFaq {
   question: string;
@@ -26,16 +28,22 @@ export class AiFaqGeneratorService {
 
   constructor(
     private readonly config: ConfigService,
-    private readonly platformConfig: PlatformConfigService,
+    @InjectRepository(PlatformAiConfig)
+    private readonly platformAiRepo: Repository<PlatformAiConfig>,
   ) {}
 
   /**
    * 解析平台 AI 配置：优先读 DB（管理面板配置），再 fallback 到 .env。
-   * 与 AdTemplatesService.callPlatformAi 保持同一优先级逻辑。
+   * 直接查 DB 避免循环模块依赖。
    */
   private async resolveAiClient(): Promise<{ client: OpenAI; model: string }> {
-    // 1. 尝试从 DB 读取（通过管理面板配置的 Platform AI Providers）
-    const dbProvider = await this.platformConfig.getDefaultProvider().catch(() => null);
+    // 1. 直接查 DB：找默认启用的平台 AI Provider（含 apiKey）
+    const dbProvider = await this.platformAiRepo
+      .createQueryBuilder('p')
+      .addSelect('p.apiKey')
+      .where('p.isDefault = true AND p.isActive = true')
+      .getOne()
+      .catch(() => null);
     if (dbProvider?.apiKey) {
       const providerId = isAiProviderId(dbProvider.provider) ? dbProvider.provider : 'openai';
       const providerDef = AI_PROVIDERS[providerId];
