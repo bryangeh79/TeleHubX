@@ -179,6 +179,46 @@ export class KnowledgeController {
   }
 
   /**
+   * 从网址提取文字内容（用于公司官网 → 自动填充资料）。
+   * 简单 fetch + 去 HTML 标签，适合大部分静态/SSR 官网。
+   */
+  @Post('extract-url')
+  @HttpCode(HttpStatus.OK)
+  async extractUrl(@Body() body: { url: string }) {
+    if (!body.url?.startsWith('http')) throw new BadRequestException('url 必须以 http 开头');
+    try {
+      const html = await new Promise<string>((resolve, reject) => {
+        const mod = body.url.startsWith('https') ? require('https') : require('http');
+        const req = mod.get(body.url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TeleHubX/1.0)' } }, (res: any) => {
+          // Follow redirect once
+          if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
+            const rmod = res.headers.location.startsWith('https') ? require('https') : require('http');
+            rmod.get(res.headers.location, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (r2: any) => {
+              let d = ''; r2.on('data', (c: any) => { d += c; }); r2.on('end', () => resolve(d));
+            }).on('error', reject);
+            return;
+          }
+          let data = '';
+          res.on('data', (chunk: any) => { data += chunk; });
+          res.on('end', () => resolve(data));
+        });
+        req.setTimeout(10000, () => { req.destroy(); reject(new Error('超时')); });
+        req.on('error', reject);
+      });
+      const text = html
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s{2,}/g, ' ')
+        .trim()
+        .slice(0, 5000);
+      return { ok: true, text, length: text.length };
+    } catch (err: any) {
+      return { ok: false, text: '', error: `无法访问该网址：${err?.message ?? '网络错误'}` };
+    }
+  }
+
+  /**
    * 产品档案 AI 一键生成：输入产品名 + 文本描述，
    * 返回 overview / features / faq(30-50条) / suggestedGoal。
    * 前端向导第 3 步「AI 生成」按钮调用此接口。

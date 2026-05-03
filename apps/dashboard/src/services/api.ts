@@ -242,6 +242,7 @@ export const knowledgeApi = {
     api.delete(`/knowledge/kbs/${kbId}/sources/${srcId}`),
   generateProductProfile: (data: { productName: string; price?: string; rawText: string }) =>
     api.post('/knowledge/ai-generate-product-profile', data, { timeout: 120000 }),
+  extractUrl: (url: string) => api.post('/knowledge/extract-url', { url }, { timeout: 15000 }),
 
   listProtected: (kbId: string) => api.get(`/knowledge/kbs/${kbId}/protected`),
   addProtected: (kbId: string, entityType: string, value: string) =>
