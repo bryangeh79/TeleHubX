@@ -40,13 +40,13 @@ export class DiscoveredGroup {
   tenantId: string | null;
 
   /** TG numerical chat id（megagroup/channel 是负数 -100..., basic chat 是负数, 前端展示一律字符串） */
-  @Column()
+  @Column({ type: 'varchar', length: 64 })
   tgChatId: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', length: 128, nullable: true })
   tgUsername: string | null;
 
-  @Column()
+  @Column({ type: 'varchar', length: 256 })
   title: string;
 
   @Column({ type: 'enum', enum: DiscoveredGroupKind })
@@ -73,7 +73,7 @@ export class DiscoveredGroup {
   sampledRealSenders: number;
 
   /** 触发发现的关键词 */
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 256, nullable: true })
   keyword: string | null;
 
   /** 哪个账号发现的（agent 跑 discover task 时记录） */
