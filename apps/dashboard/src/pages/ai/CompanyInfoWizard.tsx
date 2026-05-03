@@ -100,13 +100,28 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
     if (!website?.startsWith('http')) { antdMessage.warning('请先填写正确的官网地址（以 http 开头）'); return; }
     setFetchingUrl(true);
     try {
+      // Step 1: 提取网页文字
       const res = await knowledgeApi.extractUrl(website);
-      if (res.data.ok && res.data.text) {
-        setExtraText(prev => `[从官网提取]\n${res.data.text}\n\n${prev}`);
-        antdMessage.success(`已从官网提取 ${res.data.length} 字内容`);
-      } else {
+      if (!res.data.ok || !res.data.text) {
         antdMessage.warning(res.data.error || '网页内容提取失败，请手动填写');
+        return;
       }
+      const extractedText = res.data.text;
+      setExtraText(`[从官网提取]\n${extractedText}`);
+
+      // Step 2: AI 生成简短公司简介，自动填入表单
+      const companyName = form.getFieldValue('companyName') || '该公司';
+      const genRes = await knowledgeApi.generateProductProfile({
+        productName: companyName,
+        rawText: extractedText,
+      });
+      const overview = genRes.data?.overview?.trim();
+      if (overview && !form.getFieldValue('about')?.trim()) {
+        // 只有「公司简介」还是空白时才自动填，不覆盖已有内容
+        form.setFieldValue('about', overview);
+      }
+
+      antdMessage.success(`已从官网提取 ${res.data.length} 字，并自动生成公司简介 ✅`);
     } catch {
       antdMessage.error('无法访问该网址，请手动填写公司资料');
     } finally {
