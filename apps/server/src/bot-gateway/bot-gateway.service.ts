@@ -227,24 +227,40 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
               }).join('\n')
             : '';
 
+          // Direct product-name detection — Jaccard search misses queries that are JUST a product name
+          // (e.g. "fahubx" or "M33") because FAQ questions are customer-style ("你们..."), not product names.
+          const lowerMsg = msg.text.toLowerCase();
+          const directlyMentionedProducts = roster.filter(p => {
+            const n = (p.name ?? '').toLowerCase().trim();
+            return n.length >= 2 && lowerMsg.includes(n);
+          });
+
           // Inject knowledge base context for truly intelligent replies
           const search = await this.knowledge.searchForContext(msg.text, bot.tenantId, 5);
           let contextText = rosterBlock
             ? (search.contextText ? `${rosterBlock}\n\n${search.contextText}` : rosterBlock)
             : search.contextText;
 
-          // Read product KB metadata (customerType / useCompanyFallback) from first matched product KB
+          // Read product KB metadata (customerType / useCompanyFallback) — prefer FAQ-matched product KB,
+          // fall back to direct-name-mentioned product, so "fahubx" alone still picks up that KB's settings.
           let customerType: 'b2b' | 'b2c' | 'mixed' | undefined;
           let useCompanyFallback = false;
-          const productKb = search.matchedKbs.find(k => k.type === 'product');
-          if (productKb?.description) {
+          let activeProductId: string | undefined;
+          const matchedProductKb = search.matchedKbs.find(k => k.type === 'product');
+          if (matchedProductKb?.description) {
             try {
-              const desc = JSON.parse(productKb.description);
+              const desc = JSON.parse(matchedProductKb.description);
               if (desc.customerType === 'b2b' || desc.customerType === 'b2c' || desc.customerType === 'mixed') {
                 customerType = desc.customerType;
               }
               useCompanyFallback = desc.useCompanyFallback === true;
+              activeProductId = matchedProductKb.id;
             } catch { /* description not JSON, ignore */ }
+          } else if (directlyMentionedProducts.length === 1) {
+            // Single direct-mention: use its settings
+            const p = directlyMentionedProducts[0];
+            customerType = p.customerType;
+            activeProductId = p.id;
           }
 
           // Trigger company fallback when product hits are weak
@@ -294,7 +310,9 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
           this.logger.debug(
             `BotGateway: AI reply via ${aiConfig.source} key, tenant=${bot.tenantId}, ` +
             `hasKb=${!!contextText} customerType=${customerType ?? 'none'} ` +
-            `companyFallback=${companyFallbackUsed} industry=${!!industryPrompt}`,
+            `companyFallback=${companyFallbackUsed} industry=${!!industryPrompt} ` +
+            `directMention=${directlyMentionedProducts.map(p => p.name).join('|') || 'none'} ` +
+            `activeProduct=${activeProductId ? activeProductId.slice(0, 8) : 'none'}`,
           );
           break;
         }
