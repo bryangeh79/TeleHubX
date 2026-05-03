@@ -385,22 +385,23 @@ export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
   const cutoff = Date.now() / 1000 - 30 * 86400; // 30 天活跃过的才要
 
   let totalInserted = 0;
+  const perGroupReport: string[] = [];
+
   for (let i = 0; i < chatIds.length; i++) {
     const chatId = chatIds[i].trim();
+    let groupTitle: string | null = null;
     try {
       const entity: any = await ctx.client.getEntity(chatId);
-      const groupTitle = entity?.title ?? null;
-      const participants = await ctx.client.getParticipants(entity, {
-        limit: 200,
-      });
+      groupTitle = entity?.title ?? null;
+      const participants = await ctx.client.getParticipants(entity, { limit: 200 });
 
       const items: any[] = [];
+      let filteredBot = 0, filteredInactive = 0;
       for (const p of participants) {
         const u: any = p;
-        // 只要真人: 非 bot, 非已删除, 30 天内活跃过
-        if (u.bot || u.deleted) continue;
+        if (u.bot || u.deleted) { filteredBot++; continue; }
         const lastSeenSec = (u.status?.wasOnline as number | undefined) ?? null;
-        if (lastSeenSec !== null && lastSeenSec < cutoff) continue;
+        if (lastSeenSec !== null && lastSeenSec < cutoff) { filteredInactive++; continue; }
         items.push({
           tgUserId: String(u.id),
           tgUsername: u.username ?? null,
@@ -423,14 +424,21 @@ export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
         if (items.length >= maxPer) break;
       }
 
+      let inserted = 0;
       if (items.length) {
         const result = await bulkUpsertCandidates(ctx.tenantId, items);
-        totalInserted += result?.inserted ?? 0;
+        inserted = result?.inserted ?? 0;
+        totalInserted += inserted;
       }
+      perGroupReport.push(
+        `「${groupTitle ?? chatId}」: 总成员=${(participants as any).length}, 过滤bot/已删=${filteredBot}, 过滤30天未活跃=${filteredInactive}, 入库=${inserted}`,
+      );
     } catch (err) {
-      // 单个群失败不中断整个任务
       const msg = (err as Error).message ?? '';
-      if (!msg.includes('CHAT_ADMIN_REQUIRED') && !msg.includes('PARTICIPANTS_FORBIDDEN')) {
+      // CHAT_ADMIN_REQUIRED / PARTICIPANTS_FORBIDDEN：群禁止非管理员看成员。记录但不中断。
+      if (msg.includes('CHAT_ADMIN_REQUIRED') || msg.includes('PARTICIPANTS_FORBIDDEN')) {
+        perGroupReport.push(`「${groupTitle ?? chatId}」: 群禁止非管理员查看成员列表 (${msg.match(/[A-Z_]+/)?.[0] ?? ''})`);
+      } else {
         throw err;
       }
     }
@@ -440,6 +448,14 @@ export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
       // 群之间间隔 10-30 分钟（防 ban）
       await sleep(gaussianDelayMs(10 * 60_000, 30 * 60_000));
     }
+  }
+
+  // 总入库 0 → 任务实质失败，给出详细诊断让客户能针对性处理
+  if (totalInserted === 0) {
+    throw new Error(
+      `共爬 ${chatIds.length} 个群，0 候选人入库。详情:\n${perGroupReport.join('\n')}\n\n` +
+      `常见原因: 1) 群禁止非管理员查成员；2) 群成员都是 bot 或长期不活跃；3) 群是空群/僵尸群。建议换更活跃的群或调整 30 天活跃过滤窗口。`,
+    );
   }
 }
 
