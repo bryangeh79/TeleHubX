@@ -13,6 +13,8 @@ import {
 } from '@nestjs/common';
 import { AccountRole, AccountStatus } from './account.entity';
 import { AccountsService } from './accounts.service';
+import { AuthUser, CurrentUser } from '../auth/current-user.decorator';
+import { resolveTenantIdSoft } from '../auth/tenant-resolver';
 import { BindOrchestratorService } from './bind/bind.service';
 import { BindInitDto } from './bind/dto/bind-init.dto';
 import { BindVerifyDto } from './bind/dto/bind-verify.dto';
@@ -31,16 +33,21 @@ export class AccountsController {
   ) {}
 
   @Post()
-  create(@Body() dto: CreateAccountDto) {
-    return this.service.create(dto);
+  create(@CurrentUser() user: AuthUser, @Body() dto: CreateAccountDto) {
+    return this.service.create(dto, resolveTenantIdSoft(user));
   }
 
   @Get()
   findAll(
+    @CurrentUser() user: AuthUser,
     @Query('role') role?: AccountRole,
     @Query('status') status?: AccountStatus,
+    @Query('tenantId') queryTid?: string,
   ) {
-    return this.service.findAll({ role, status });
+    // SUPER_ADMIN 可显式传 tenantId 跨租户查；普通用户强制用自己 tenantId；
+    // agent 不传 tenantId 时返回全量（agent 进程跨租户）
+    const tenantId = resolveTenantIdSoft(user, queryTid);
+    return this.service.findAll({ role, status, tenantId: tenantId ?? undefined });
   }
 
   @Get('health-stats')

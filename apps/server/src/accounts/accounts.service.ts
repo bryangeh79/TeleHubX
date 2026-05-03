@@ -1,7 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { parse } from 'csv-parse/sync';
 import { Account, AccountRole, AccountStatus } from './account.entity';
 import { CreateAccountDto } from './dto/create-account.dto';
@@ -10,6 +10,7 @@ import { CsvAccountRow, ImportResult } from './dto/import-accounts.dto';
 import { deriveKey, encryptSession, decryptSession } from '../crypto/session-crypto.util';
 import { generateDeviceFingerprint } from './device-fingerprint.util';
 import { SlotsService } from '../slots/slots.service';
+import { TenantsService } from '../tenants/tenants.service';
 
 export interface HealthStats {
   total: number;
@@ -22,7 +23,8 @@ export interface HealthStats {
 }
 
 @Injectable()
-export class AccountsService {
+export class AccountsService implements OnModuleInit {
+  private readonly logger = new Logger(AccountsService.name);
   private readonly encKey: Buffer | null;
 
   constructor(
@@ -30,13 +32,28 @@ export class AccountsService {
     private readonly repo: Repository<Account>,
     private readonly config: ConfigService,
     private readonly slots: SlotsService,
+    private readonly tenants: TenantsService,
   ) {
     const raw = this.config.get<string>('SESSION_ENCRYPTION_KEY');
     this.encKey = raw ? deriveKey(raw) : null;
   }
 
-  async create(dto: CreateAccountDto): Promise<Account> {
-    const account = this.repo.create(dto);
+  /** SaaS 多租户：把所有 tenantId=null 的旧账号绑到 default tenant，让老数据无缝进入隔离体系。 */
+  async onModuleInit(): Promise<void> {
+    const orphans = await this.repo.count({ where: { tenantId: IsNull() } });
+    if (orphans > 0) {
+      const defaultTenant = await this.tenants.getDefault().catch(() => null);
+      if (defaultTenant?.id) {
+        const r = await this.backfillTenantIds(defaultTenant.id);
+        this.logger.log(`backfilled ${r.updated} legacy accounts to default tenant=${defaultTenant.id.slice(0, 8)}`);
+      } else {
+        this.logger.warn(`${orphans} accounts have no tenantId but no default tenant exists`);
+      }
+    }
+  }
+
+  async create(dto: CreateAccountDto, tenantId?: string | null): Promise<Account> {
+    const account = this.repo.create({ ...dto, tenantId: tenantId ?? null });
     const saved = await this.repo.save(account);
     // Generate unique device fingerprint NOW, derived from the saved id.
     // 不能延后到 bind 时刻 — bind 失败重试时 id 不变指纹必须稳定。
@@ -59,11 +76,27 @@ export class AccountsService {
     return fp;
   }
 
-  findAll(filters: { role?: AccountRole; status?: AccountStatus }): Promise<Account[]> {
-    const where: Partial<Pick<Account, 'role' | 'status'>> = {};
+  findAll(filters: { role?: AccountRole; status?: AccountStatus; tenantId?: string | null }): Promise<Account[]> {
+    const where: any = {};
     if (filters.role) where.role = filters.role;
     if (filters.status) where.status = filters.status;
+    if (filters.tenantId === null) where.tenantId = IsNull();
+    else if (filters.tenantId !== undefined) where.tenantId = filters.tenantId;
     return this.repo.find({ where, order: { createdAt: 'DESC' } });
+  }
+
+  /**
+   * 启动时回填：把所有 tenantId=null 的旧账号绑到 default tenant。
+   * 让单租户老数据无缝进入多租户世界。
+   */
+  async backfillTenantIds(defaultTenantId: string): Promise<{ updated: number }> {
+    const r = await this.repo
+      .createQueryBuilder()
+      .update()
+      .set({ tenantId: defaultTenantId })
+      .where('"tenantId" IS NULL')
+      .execute();
+    return { updated: r.affected ?? 0 };
   }
 
   async findOne(id: string): Promise<Account> {

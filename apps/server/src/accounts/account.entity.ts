@@ -33,6 +33,10 @@ export class Account {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  /** SaaS 多租户：账号所属租户 id。null = 未分配（旧数据自动迁移到 default tenant） */
+  @Column({ type: 'uuid', nullable: true })
+  tenantId: string | null;
+
   @Column({ unique: true })
   phoneNumber: string;
 
