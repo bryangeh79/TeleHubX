@@ -356,15 +356,23 @@ export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
     let users = 0;
     let basicChats = 0;
     let megagroups = 0;
+    const dialogDump: string[] = [];
     for (const d of dialogs) {
       const ent: any = (d as any).entity;
       if (!ent) continue;
       totalDialogs++;
+      // 详细 dump（前 20 个），帮诊断"明明加了群但找不到"的怪现象
+      if (dialogDump.length < 20) {
+        dialogDump.push(
+          `[${ent.className}] ${ent.title ?? ent.username ?? ent.firstName ?? '?'} ` +
+          `(id=${ent.id} mega=${ent.megagroup} broadcast=${ent.broadcast} giga=${ent.gigagroup} ` +
+          `forbidden=${ent.className?.includes('Forbidden')})`,
+        );
+      }
       if (ent.megagroup) {
         megagroups++;
         found.push(String(ent.id));
       } else if (ent.className === 'Chat') {
-        // 基础群（旧版 chat，~200 人上限）也能爬成员
         basicChats++;
         found.push(String(ent.id));
       } else if (ent.broadcast) {
@@ -374,6 +382,7 @@ export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
       }
       if (found.length >= 10) break;
     }
+    console.info(`[group_scrape] dialog dump (${totalDialogs} total):\n  ${dialogDump.join('\n  ')}`);
     if (found.length) {
       chatIds = found;
     } else {
@@ -744,11 +753,15 @@ export async function joinGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
     if (verified.length >= maxPerDay * 3) break;
     try {
       let real = -1;
+      let isGigagroup = false;
       if (cand.kind === 'mega' || cand.kind === 'channel') {
         const full: any = await ctx.client.invoke(
           new Api.channels.GetFullChannel({ channel: cand.entity as any }),
         );
         real = (full?.fullChat?.participantsCount as number) ?? -1;
+        // 检测 gigagroup（超过 20 万成员的群，TG 自动转换并限制非 admin 查 participants）
+        // 实际 entity 上 chat.gigagroup 字段；fullChat 也有
+        isGigagroup = (cand.entity as any).gigagroup === true || (full?.chats?.[0]?.gigagroup === true);
       } else if (cand.kind === 'basic') {
         const full: any = await ctx.client.invoke(
           new Api.messages.GetFullChat({ chatId: (cand.entity as any).id }),
@@ -757,18 +770,20 @@ export async function joinGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
           ?? (full?.fullChat?.participants?.participants?.length as number)
           ?? -1;
       }
-      if (real >= minMembers) {
+      if (isGigagroup) {
+        // gigagroup 物理上不能 list 全部成员（仅 admin），加进去也爬不了
+        verifiedSkipped.push(`${cand.title}(gigagroup, 不能爬)`);
+      } else if (real >= minMembers) {
         cand.members = real;
         verified.push(cand);
       } else {
-        verifiedSkipped.push(`${cand.title}(${real})`);
+        verifiedSkipped.push(`${cand.title}(${real}成员)`);
       }
       // 验证之间小间隔（防 API 风控）
       await sleep(gaussianDelayMs(1500, 3500));
     } catch (err) {
       const msg = (err as Error).message ?? '';
       if (msg.includes('FLOOD')) throw err;
-      // 其他失败（CHANNEL_PRIVATE / INVITE_HASH_EMPTY 等）当作不合格
       verifiedSkipped.push(`${cand.title}(查询失败)`);
     }
   }
