@@ -215,9 +215,23 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
             break;
           }
 
+          // Always inject product roster (so AI can answer meta questions like "你有什么产品")
+          const roster = await this.knowledge.getProductRoster(bot.tenantId);
+          const rosterBlock = roster.length
+            ? '【在售产品列表（按需介绍，不要全部塞给客户）】\n' +
+              roster.map((p, i) => {
+                const parts = [`${i + 1}. ${p.name}`];
+                if (p.price) parts.push(`价格：${p.price}`);
+                if (p.overview) parts.push(`简介：${p.overview}`);
+                return parts.join(' · ');
+              }).join('\n')
+            : '';
+
           // Inject knowledge base context for truly intelligent replies
           const search = await this.knowledge.searchForContext(msg.text, bot.tenantId, 5);
-          let contextText = search.contextText;
+          let contextText = rosterBlock
+            ? (search.contextText ? `${rosterBlock}\n\n${search.contextText}` : rosterBlock)
+            : search.contextText;
 
           // Read product KB metadata (customerType / useCompanyFallback) from first matched product KB
           let customerType: 'b2b' | 'b2c' | 'mixed' | undefined;

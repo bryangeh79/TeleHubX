@@ -505,6 +505,42 @@ FAQ 要求：
   }
 
   /**
+   * 列出本租户在售的所有产品（产品 KB 的名称 + 简介）。
+   * 用于在 AI prompt 顶部注入产品菜单，让 AI 区分元问题（"你有什么产品"）
+   * vs 细节问题（"M33 多少钱"）。
+   */
+  async getProductRoster(tenantId: string): Promise<Array<{
+    id: string;
+    name: string;
+    overview: string;
+    price: string;
+    customerType?: 'b2b' | 'b2c' | 'mixed';
+  }>> {
+    const productKbs = await this.kbs.find({
+      where: { tenantId, enabled: true, type: KbType.PRODUCT },
+      order: { createdAt: 'ASC' },
+    });
+    return productKbs.map(kb => {
+      let overview = '';
+      let price = '';
+      let productName = kb.name?.replace(/\s*-\s*产品资料$/, '').trim() ?? kb.name;
+      let customerType: 'b2b' | 'b2c' | 'mixed' | undefined;
+      if (kb.description) {
+        try {
+          const desc = JSON.parse(kb.description);
+          overview = String(desc.overview ?? '').trim();
+          price = String(desc.price ?? '').trim();
+          if (desc.productName) productName = String(desc.productName).trim();
+          if (desc.customerType === 'b2b' || desc.customerType === 'b2c' || desc.customerType === 'mixed') {
+            customerType = desc.customerType;
+          }
+        } catch { /* description not JSON */ }
+      }
+      return { id: kb.id, name: productName, overview, price, customerType };
+    });
+  }
+
+  /**
    * Find the company KB for a tenant (type='company'). Used by general-FAQ
    * convenience routes. Returns null if no company KB exists.
    */
