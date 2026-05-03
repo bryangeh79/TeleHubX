@@ -5,6 +5,7 @@ import { logger } from './logger';
 import { registerSignalHandlers, onShutdown } from './shutdown';
 import { ConnectionManager } from './telegram/telegram-client.service';
 import { attachMessageHandler } from './telegram/message-handler';
+import { attachGroupLeadCollector, groupLeadCollector } from './telegram/group-lead-collector';
 import { KeepOnlineService } from './telegram/keeponline';
 import { AiReplyService } from './ai/ai-reply.service';
 
@@ -147,6 +148,22 @@ async function bootstrap(): Promise<void> {
   const ownNetwork = new Set<string>();
   const getOwnNetwork = () => ownNetwork;
 
+  // 启动时拿默认 tenant id（被动群监听采集到的 lead 入库需要 tenantId）。
+  // 当前系统单租户，后续多租户时需扩展为 per-account.tenantId。
+  let defaultTenantId: string | null = null;
+  try {
+    const t = await fetchJson<{ id: string }>('/tenants/default').catch(() => null);
+    defaultTenantId = t?.id ?? null;
+    if (defaultTenantId) {
+      logger.info(`[bootstrap] defaultTenantId=${defaultTenantId.slice(0, 8)} (passive group-lead-collector enabled)`);
+      groupLeadCollector.start();
+    } else {
+      logger.warn(`[bootstrap] /tenants/default returned null, group-lead-collector disabled`);
+    }
+  } catch (err) {
+    logger.warn(`[bootstrap] failed to fetch default tenant: ${(err as Error).message}`);
+  }
+
   // 广告号话术动态配置（从 server platform_settings 拉取，每 30s 刷新）
   const adFaqConfig = {
     groupFaq: process.env.AD_GROUP_FAQ_REPLY ?? 'For more details please DM our bot!',
@@ -270,6 +287,16 @@ async function bootstrap(): Promise<void> {
       aiReplyService: account.role === 'cs' ? aiReplyService : undefined,
       getOwnNetwork,
     });
+
+    // 被动群线索采集（D 方案）：所有账号挂监听，群里有人发言就收集为候选 lead
+    if (defaultTenantId) {
+      attachGroupLeadCollector(client, {
+        accountId: account.id,
+        tenantId: defaultTenantId,
+        selfTgUserId: account.tgUserId ?? null,
+        getOwnNetwork,
+      });
+    }
 
     const keepOnline = new KeepOnlineService();
     keepOnline.start(client);
@@ -429,6 +456,7 @@ async function bootstrap(): Promise<void> {
   onShutdown(async () => {
     clearInterval(pollTimer);
     clearInterval(taskTimer);
+    await groupLeadCollector.shutdown();
     for (const id of [...slots.keys()]) {
       await disconnect(id);
     }

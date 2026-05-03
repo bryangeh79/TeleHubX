@@ -408,15 +408,29 @@ export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
     try {
       const entity: any = await ctx.client.getEntity(chatId);
       groupTitle = entity?.title ?? null;
-      const participants = await ctx.client.getParticipants(entity, { limit: 200 });
+      const isGiga = entity?.gigagroup === true;
+
+      // 第一步：试 GetParticipants（小 megagroup / basic chat 直接成功）
+      let participants: any[] = [];
+      let participantError: string | null = null;
+      if (!isGiga) {
+        try {
+          participants = await ctx.client.getParticipants(entity, { limit: 200 }) as any[];
+        } catch (e) {
+          participantError = (e as Error).message ?? '';
+        }
+      }
 
       const items: any[] = [];
       let filteredBot = 0, filteredInactive = 0;
+      const seenIds = new Set<string>();
+
       for (const p of participants) {
         const u: any = p;
         if (u.bot || u.deleted) { filteredBot++; continue; }
         const lastSeenSec = (u.status?.wasOnline as number | undefined) ?? null;
         if (lastSeenSec !== null && lastSeenSec < cutoff) { filteredInactive++; continue; }
+        seenIds.add(String(u.id));
         items.push({
           tgUserId: String(u.id),
           tgUsername: u.username ?? null,
@@ -439,18 +453,69 @@ export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
         if (items.length >= maxPer) break;
       }
 
+      // 第二步：fallback 到 GetHistory 抽发言者（gigagroup 或 GetParticipants 失败/不足时）
+      let historyAdded = 0;
+      const needHistory = items.length < maxPer && (isGiga || participants.length === 0 || participantError);
+      if (needHistory) {
+        try {
+          const historyLimit = Math.min(1000, Math.max(200, maxPer * 5));
+          const messages = await ctx.client.getMessages(entity, { limit: historyLimit }) as any[];
+          // 收集 unique senders + 用 message.sender 直接拿用户对象（GramJS 已 resolve）
+          const senderUsers = new Map<string, any>();
+          for (const m of messages) {
+            const sid = m.senderId ? String(m.senderId) : null;
+            if (!sid || seenIds.has(sid) || senderUsers.has(sid)) continue;
+            const sender = m.sender;
+            if (!sender || sender.className !== 'User') continue;
+            if (sender.bot || sender.deleted) continue;
+            senderUsers.set(sid, sender);
+          }
+          for (const [sid, u] of senderUsers) {
+            if (items.length >= maxPer) break;
+            seenIds.add(sid);
+            const lastSeenSec = (u.status?.wasOnline as number | undefined) ?? null;
+            // 不严格过滤 30 天活跃（既然在群里发过言肯定活跃）
+            items.push({
+              tgUserId: sid,
+              tgUsername: u.username ?? null,
+              firstName: u.firstName ?? null,
+              lastName: u.lastName ?? null,
+              sourceGroupId: chatId,
+              sourceGroupTitle: groupTitle,
+              phone: u.phone ? `+${u.phone}` : null,
+              lastSeenAt: lastSeenSec ? new Date(lastSeenSec * 1000).toISOString() : null,
+              isPremium: u.premium === true,
+              isBot: false,
+              scrapedByAccountId: ctx.accountId ?? null,
+              huntTaskId: (ctx.payload.huntTaskId as string | undefined) ?? null,
+              // 发言者优先级 +20（活跃度高，引流转化率更好）
+              priorityScore: 70
+                + (u.username ? 10 : 0)
+                + (u.photo ? 5 : 0)
+                + (u.premium ? 3 : 0)
+                + (u.phone ? 8 : 0),
+            });
+            historyAdded++;
+          }
+        } catch (e) {
+          participantError = (participantError ? participantError + '; ' : '') + 'history: ' + (e as Error).message;
+        }
+      }
+
       let inserted = 0;
       if (items.length) {
         const result = await bulkUpsertCandidates(ctx.tenantId, items);
         inserted = result?.inserted ?? 0;
         totalInserted += inserted;
       }
-      perGroupReport.push(
-        `「${groupTitle ?? chatId}」: 总成员=${(participants as any).length}, 过滤bot/已删=${filteredBot}, 过滤30天未活跃=${filteredInactive}, 入库=${inserted}`,
-      );
+      const reportLine = `「${groupTitle ?? chatId}」` +
+        `${isGiga ? '[gigagroup→走历史回看]' : ''}` +
+        `: 成员API=${participants.length}, 历史回看抽发言者=${historyAdded}, ` +
+        `过滤bot/已删=${filteredBot}, 过滤30天未活跃=${filteredInactive}, 入库=${inserted}` +
+        `${participantError ? ` (注: ${participantError.slice(0, 80)})` : ''}`;
+      perGroupReport.push(reportLine);
     } catch (err) {
       const msg = (err as Error).message ?? '';
-      // CHAT_ADMIN_REQUIRED / PARTICIPANTS_FORBIDDEN：群禁止非管理员看成员。记录但不中断。
       if (msg.includes('CHAT_ADMIN_REQUIRED') || msg.includes('PARTICIPANTS_FORBIDDEN')) {
         perGroupReport.push(`「${groupTitle ?? chatId}」: 群禁止非管理员查看成员列表 (${msg.match(/[A-Z_]+/)?.[0] ?? ''})`);
       } else {
