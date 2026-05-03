@@ -24,6 +24,7 @@ import { AssetsModule } from './assets/assets.module';
 import { GroupsModule } from './groups/groups.module';
 import { LeadCandidatesModule } from './leads-candidates/leads-candidates.module';
 import { CustomerGroupsModule } from './customer-groups/customer-groups.module';
+import { DiscoveredGroupsModule } from './discovered-groups/discovered-groups.module';
 import { AdTemplatesModule } from './ad-templates/ad-templates.module';
 import { GreetingTemplatesModule } from './greeting-templates/greeting-templates.module';
 import { PlatformConfigModule } from './platform-config/platform-config.module';
@@ -72,6 +73,7 @@ import { PlatformConfigModule } from './platform-config/platform-config.module';
     GroupsModule,
     LeadCandidatesModule,
     CustomerGroupsModule,
+    DiscoveredGroupsModule,
     AdTemplatesModule,
     GreetingTemplatesModule,
     PlatformConfigModule,

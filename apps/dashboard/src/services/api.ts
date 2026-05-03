@@ -185,6 +185,19 @@ export const licensesApi = {
   revoke: (id: string) => api.post(`/licenses/${id}/revoke`),
 };
 
+export const discoveredGroupsApi = {
+  list: (params?: { tenantId?: string; status?: string; minQuality?: number; keyword?: string; limit?: number }) =>
+    api.get('/discovered-groups', { params }),
+  stats: (tenantId?: string) =>
+    api.get('/discovered-groups/stats', { params: tenantId ? { tenantId } : {} }),
+  queueScrape: (id: string, accountId: string) =>
+    api.post(`/discovered-groups/${id}/queue-scrape`, { accountId }),
+  ignore: (id: string) => api.post(`/discovered-groups/${id}/ignore`),
+  restore: (id: string) => api.post(`/discovered-groups/${id}/restore`),
+  bulkIgnore: (ids: string[]) => api.post('/discovered-groups/bulk-ignore', { ids }),
+  remove: (id: string) => api.delete(`/discovered-groups/${id}`),
+};
+
 export const tenantsApi = {
   list: () => api.get('/tenants'),
   get: (id: string) => api.get(`/tenants/${id}`),

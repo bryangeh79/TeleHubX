@@ -132,6 +132,43 @@ export async function markCandidateContacted(
   }
 }
 
+// ── DiscoveredGroups（关键词发现群池）────────────────────────────
+
+export interface DiscoveredGroupUpsertItem {
+  tgChatId: string;
+  tgUsername?: string | null;
+  title: string;
+  kind: 'mega' | 'channel' | 'basic' | 'gigagroup';
+  participantsCount?: number;
+  isGigagroup?: boolean;
+  hasRealSenders?: boolean;
+  sampledMessages?: number;
+  sampledRealSenders?: number;
+  keyword?: string | null;
+  discoveredByAccountId?: string | null;
+  discoverTaskId?: string | null;
+}
+
+export async function bulkUpsertDiscoveredGroups(
+  tenantId: string,
+  items: DiscoveredGroupUpsertItem[],
+): Promise<{ inserted: number; updated: number } | null> {
+  try {
+    const res = await fetch(`${API_BASE}/discovered-groups/bulk-upsert`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(),
+      },
+      body: JSON.stringify({ tenantId, items }),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as { inserted: number; updated: number };
+  } catch {
+    return null;
+  }
+}
+
 /** 上报 campaign 已发送 +1 (campaignSingle 执行器在每条发送完成后调用) */
 export async function reportCampaignSent(campaignId: string, delta = 1): Promise<void> {
   try {

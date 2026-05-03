@@ -4,6 +4,8 @@ import { gaussianDelayMs, sendMessageLikeHuman, simulateReading, sleep } from '.
 import { muteAccount, unmuteAccount } from './script-mute';
 import {
   bulkUpsertCandidates,
+  bulkUpsertDiscoveredGroups,
+  DiscoveredGroupUpsertItem,
   fetchAssetById,
   fetchAssetFile,
   markCandidateContacted,
@@ -455,47 +457,66 @@ export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
 
       // 第二步：fallback 到 GetHistory 抽发言者（gigagroup 或 GetParticipants 失败/不足时）
       let historyAdded = 0;
+      let historyMsgCount = 0;
       const needHistory = items.length < maxPer && (isGiga || participants.length === 0 || participantError);
       if (needHistory) {
         try {
           const historyLimit = Math.min(1000, Math.max(200, maxPer * 5));
           const messages = await ctx.client.getMessages(entity, { limit: historyLimit }) as any[];
-          // 收集 unique senders + 用 message.sender 直接拿用户对象（GramJS 已 resolve）
-          const senderUsers = new Map<string, any>();
+          historyMsgCount = messages.length;
+          // 收集 unique sender IDs + entities 字段
+          const senderIds = new Set<string>();
+          let nullSender = 0;
+          let channelSender = 0;
           for (const m of messages) {
-            const sid = m.senderId ? String(m.senderId) : null;
-            if (!sid || seenIds.has(sid) || senderUsers.has(sid)) continue;
-            const sender = m.sender;
-            if (!sender || sender.className !== 'User') continue;
-            if (sender.bot || sender.deleted) continue;
-            senderUsers.set(sid, sender);
+            // m.fromId 类型可能是 PeerUser / PeerChannel / PeerChat
+            const fromId = m.fromId;
+            if (!fromId) {
+              nullSender++;
+              continue;
+            }
+            // 只要 PeerUser（真用户发的）；PeerChannel = 群本身/admin 匿名签名，不是真人
+            if (fromId.className === 'PeerUser') {
+              const sid = String(fromId.userId);
+              if (!seenIds.has(sid)) senderIds.add(sid);
+            } else {
+              channelSender++;
+            }
           }
-          for (const [sid, u] of senderUsers) {
+          console.info(`[group_scrape] history sample for "${groupTitle}": ${messages.length} msgs, ${senderIds.size} unique users, ${channelSender} channel-signed, ${nullSender} no-sender`);
+          // 批量 resolve 用户实体（GramJS getMessages 不自动填充 sender，
+          // 需要 client.getEntity 或从 message._sender / event 拿；这里用 getEntity 逐个）
+          for (const sid of senderIds) {
             if (items.length >= maxPer) break;
-            seenIds.add(sid);
-            const lastSeenSec = (u.status?.wasOnline as number | undefined) ?? null;
-            // 不严格过滤 30 天活跃（既然在群里发过言肯定活跃）
-            items.push({
-              tgUserId: sid,
-              tgUsername: u.username ?? null,
-              firstName: u.firstName ?? null,
-              lastName: u.lastName ?? null,
-              sourceGroupId: chatId,
-              sourceGroupTitle: groupTitle,
-              phone: u.phone ? `+${u.phone}` : null,
-              lastSeenAt: lastSeenSec ? new Date(lastSeenSec * 1000).toISOString() : null,
-              isPremium: u.premium === true,
-              isBot: false,
-              scrapedByAccountId: ctx.accountId ?? null,
-              huntTaskId: (ctx.payload.huntTaskId as string | undefined) ?? null,
-              // 发言者优先级 +20（活跃度高，引流转化率更好）
-              priorityScore: 70
-                + (u.username ? 10 : 0)
-                + (u.photo ? 5 : 0)
-                + (u.premium ? 3 : 0)
-                + (u.phone ? 8 : 0),
-            });
-            historyAdded++;
+            try {
+              const u: any = await ctx.client.getEntity(sid);
+              if (!u || u.className !== 'User') continue;
+              if (u.bot || u.deleted) continue;
+              seenIds.add(sid);
+              const lastSeenSec = (u.status?.wasOnline as number | undefined) ?? null;
+              items.push({
+                tgUserId: sid,
+                tgUsername: u.username ?? null,
+                firstName: u.firstName ?? null,
+                lastName: u.lastName ?? null,
+                sourceGroupId: chatId,
+                sourceGroupTitle: groupTitle,
+                phone: u.phone ? `+${u.phone}` : null,
+                lastSeenAt: lastSeenSec ? new Date(lastSeenSec * 1000).toISOString() : null,
+                isPremium: u.premium === true,
+                isBot: false,
+                scrapedByAccountId: ctx.accountId ?? null,
+                huntTaskId: (ctx.payload.huntTaskId as string | undefined) ?? null,
+                priorityScore: 70
+                  + (u.username ? 10 : 0)
+                  + (u.photo ? 5 : 0)
+                  + (u.premium ? 3 : 0)
+                  + (u.phone ? 8 : 0),
+              });
+              historyAdded++;
+            } catch {
+              // 个别用户 resolve 失败跳过
+            }
           }
         } catch (e) {
           participantError = (participantError ? participantError + '; ' : '') + 'history: ' + (e as Error).message;
@@ -510,7 +531,7 @@ export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
       }
       const reportLine = `「${groupTitle ?? chatId}」` +
         `${isGiga ? '[gigagroup→走历史回看]' : ''}` +
-        `: 成员API=${participants.length}, 历史回看抽发言者=${historyAdded}, ` +
+        `: 成员API=${participants.length}, 历史拉到=${historyMsgCount}消息→抽发言者=${historyAdded}, ` +
         `过滤bot/已删=${filteredBot}, 过滤30天未活跃=${filteredInactive}, 入库=${inserted}` +
         `${participantError ? ` (注: ${participantError.slice(0, 80)})` : ''}`;
       perGroupReport.push(reportLine);
@@ -1338,6 +1359,128 @@ export async function groupInviteMembers(ctx: ExecutorCtx): Promise<void> {
   if (done === 0) throw new Error('一个成员都没邀请进去（可能全部隐私限制 / 已在群里）');
 }
 
+// ─── 24. DISCOVER_GROUPS_BY_KEYWORD ─────────────────────────────────
+/**
+ * 关键词搜群 + 评估质量 → 写入 discovered_groups 池。**不加群、不爬群**。
+ * 租户在 dashboard /discovered-groups 里人工挑选高质量群 → 触发现有 join + scrape。
+ *
+ * payload: {
+ *   keywords: string[],
+ *   minMembers?: 50,
+ *   sampleSize?: 100  // 抽样多少条历史评估发言者
+ * }
+ */
+export async function discoverGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
+  const keywords: string[] = (ctx.payload.keywords ?? []) as string[];
+  const minMembers: number = (ctx.payload.minMembers as number) ?? 50;
+  const sampleSize: number = Math.min(200, Math.max(20, (ctx.payload.sampleSize as number) ?? 100));
+  if (!keywords.length) throw new Error('payload.keywords 不能为空');
+  if (!ctx.tenantId) throw new Error('ctx.tenantId 缺失（无法落库 discovered_groups）');
+
+  const discovered: DiscoveredGroupUpsertItem[] = [];
+  const seenChatIds = new Set<string>();
+
+  for (const kw of keywords) {
+    let res: any;
+    try {
+      res = await ctx.client.invoke(new Api.contacts.Search({ q: kw.trim(), limit: 30 }));
+    } catch (err) {
+      const msg = (err as Error).message ?? '';
+      if (msg.includes('FLOOD')) throw err;
+      continue;
+    }
+    const chats = res?.chats ?? [];
+
+    for (const c of chats) {
+      const chatId = String(c.id ?? '');
+      if (!chatId || seenChatIds.has(chatId)) continue;
+      if (c.deactivated || c.kicked) continue;
+
+      const isMega = c.megagroup === true;
+      const isBasic = c.className === 'Chat';
+      const isBroadcast = c.broadcast === true;
+      let kind: 'mega' | 'channel' | 'basic' | 'gigagroup' | null = null;
+      if (c.gigagroup === true) kind = 'gigagroup';
+      else if (isMega) kind = 'mega';
+      else if (isBasic) kind = 'basic';
+      else if (isBroadcast) kind = 'channel';
+      if (!kind) continue;
+
+      seenChatIds.add(chatId);
+
+      // 真实成员数 + isGigagroup（GetFullChannel）
+      let participantsCount: number = (c.participantsCount as number) ?? -1;
+      let isGigagroup = (c.gigagroup === true);
+      if (kind !== 'basic' && participantsCount < 0) {
+        try {
+          const full: any = await ctx.client.invoke(new Api.channels.GetFullChannel({ channel: c }));
+          participantsCount = (full?.fullChat?.participantsCount as number) ?? participantsCount;
+          isGigagroup = isGigagroup || (full?.chats?.[0]?.gigagroup === true);
+        } catch {
+          // 拿不到就当不知道
+        }
+        await sleep(gaussianDelayMs(800, 1800));
+      }
+
+      // 抽样历史消息：是否有真用户发言（identifies announcement-only / spam）
+      let hasRealSenders = false;
+      let sampledMessages = 0;
+      let sampledRealSenders = 0;
+      // 必须能取到 entity 才能 getMessages；contacts.Search 返回的 chat 通常足够
+      try {
+        const msgs: any = await ctx.client.getMessages(c, { limit: sampleSize });
+        sampledMessages = (msgs as any[]).length;
+        const realSenderIds = new Set<string>();
+        for (const m of msgs as any[]) {
+          const fromId = m.fromId;
+          if (fromId?.className === 'PeerUser') {
+            realSenderIds.add(String(fromId.userId));
+          }
+        }
+        sampledRealSenders = realSenderIds.size;
+        hasRealSenders = sampledRealSenders > 0;
+      } catch {
+        // 抽样失败不致命，继续
+      }
+      await sleep(gaussianDelayMs(800, 1800));
+
+      // 跳过明显不合格（成员太少 + 不是 basic）
+      if (participantsCount > 0 && participantsCount < minMembers) continue;
+
+      discovered.push({
+        tgChatId: chatId,
+        tgUsername: (c.username as string) ?? null,
+        title: c.title ?? '',
+        kind,
+        participantsCount,
+        isGigagroup,
+        hasRealSenders,
+        sampledMessages,
+        sampledRealSenders,
+        keyword: kw,
+        discoveredByAccountId: ctx.accountId ?? null,
+        discoverTaskId: ctx.taskId ?? null,
+      });
+    }
+
+    // 关键词之间隔
+    await sleep(gaussianDelayMs(3_000, 8_000));
+  }
+
+  if (!discovered.length) {
+    throw new Error(`关键词 [${keywords.join(', ')}] 没找到任何匹配群组`);
+  }
+
+  const result = await bulkUpsertDiscoveredGroups(ctx.tenantId, discovered);
+  if (!result) throw new Error('bulkUpsertDiscoveredGroups 失败（server 不可达？）');
+
+  console.info(
+    `[discover_groups_by_keyword] 关键词=${keywords.join('|')} ` +
+    `搜出=${discovered.length} 个群 → 入库 inserted=${result.inserted} updated=${result.updated}`,
+  );
+  await ctx.reportProgress?.(100);
+}
+
 // ─── Dispatcher ─────────────────────────────────────────────────────
 export const EXECUTORS: Record<string, (ctx: ExecutorCtx) => Promise<void>> = {
   idle_keepalive:  idleKeepalive,
@@ -1359,6 +1502,7 @@ export const EXECUTORS: Record<string, (ctx: ExecutorCtx) => Promise<void>> = {
   chat_script_4p:  chatScript4p,
   chat_script_6p:  chatScript6p,
   join_groups_by_keyword: joinGroupsByKeyword,
+  discover_groups_by_keyword: discoverGroupsByKeyword,
   group_create:    groupCreate,
   group_invite_members: groupInviteMembers,
 };

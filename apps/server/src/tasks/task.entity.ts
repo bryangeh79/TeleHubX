@@ -25,8 +25,12 @@ export enum TaskType {
   // ── 群组发现 & 加入 ──
   /** 🌐 自动加群（邀请链接 / 群 chat_id）。payload: { inviteLinks?: [], chatIds?: [], inviteIntervalSec: [60,180] } */
   JOIN_GROUPS              = 'join_groups',
-  /** 🔍 关键词搜群+加（仅加，不爬）。payload: { keywords:[], minMembers:100, maxPerDay:3 } */
+  /** 🔍 关键词搜群+加（仅加，不爬）。payload: { keywords:[], minMembers:100, maxPerDay:3 }
+   *  注：盲跑命中 spam 群浪费配额。新流程建议用 DISCOVER_GROUPS_BY_KEYWORD 落库后人工挑。 */
   JOIN_GROUPS_BY_KEYWORD   = 'join_groups_by_keyword',
+  /** 🔭 关键词发现群（仅搜+评估质量，不加群）。租户在 dashboard 人工挑选 → 触发现有 join+scrape。
+   *  payload: { keywords:[], minMembers:50, sampleSize:100 } */
+  DISCOVER_GROUPS_BY_KEYWORD = 'discover_groups_by_keyword',
   /** ⭐ Follow 频道。payload: { channels: [@username 或 invite link 列表] } */
   JOIN_CHANNELS            = 'join_channels',
   /** 👥 接受所有 pending 群组邀请。payload: { autoAcceptAll: true } */
