@@ -352,16 +352,30 @@ export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
     // Telegram dialogs 默认按最近消息倒序，取前5个即为最活跃的
     const dialogs = await ctx.client.getDialogs({ limit: 200 });
     const found: string[] = [];
+    let totalDialogs = 0;
+    let channels = 0;
+    let basicChats = 0;
     for (const d of dialogs) {
       const ent: any = (d as any).entity;
-      if (!ent?.megagroup) continue;
-      found.push(String(ent.id));
-      if (found.length >= 5) break;
+      if (!ent) continue;
+      totalDialogs++;
+      if (ent.megagroup) {
+        found.push(String(ent.id));
+        if (found.length >= 5) break;
+      } else if (ent.broadcast) {
+        channels++;
+      } else if (ent.className === 'Chat') {
+        basicChats++;
+      }
     }
     if (found.length) {
       chatIds = found;
     } else {
-      throw new Error('动态查最近加的群: 账号尚未加入任何超级群，请先执行「关键词搜群+加」任务');
+      throw new Error(
+        `账号当前没有加入任何超级群（megagroup，唯一可爬成员的群类型）。` +
+        `统计：共 ${totalDialogs} 个 dialog · ${channels} 个频道(channel，不能爬) · ${basicChats} 个基础群。` +
+        `可能原因：1) 上一步「搜词加群」找到的全是频道而不是群组（已修复，请重新跑）；2) 账号刚开通还没加过任何群；3) 加的群被 leave 了。`,
+      );
     }
   }
 
@@ -641,7 +655,11 @@ export async function joinGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
 
   if (!keywords.length) throw new Error('payload.keywords 不能为空');
 
-  const candidates: Array<{ entity: any; members: number; title: string; username?: string }> = [];
+  // 默认只加 megagroup + basic chat（这两类才能爬成员引流）。
+  // channel/broadcast 不能爬成员（TG 限制），加了等于浪费账号加群配额。
+  // 如显式 payload.allowChannels=true 才把 broadcast 也加入候选。
+  const allowChannels = ctx.payload.allowChannels === true;
+  const candidates: Array<{ entity: any; members: number; title: string; username?: string; kind: 'mega' | 'basic' | 'channel' }> = [];
 
   for (const kw of keywords) {
     try {
@@ -650,11 +668,14 @@ export async function joinGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
       );
       const chats = res.chats ?? [];
       for (const c of chats) {
-        // 过滤: 必须是 megagroup OR basic chat OR 公开 channel (broadcast 也可能有用)
         const isMega = c.megagroup === true;
         const isBasic = c.className === 'Chat';
         const isBroadcast = c.broadcast === true;
-        if (!isMega && !isBasic && !isBroadcast) continue;
+        let kind: 'mega' | 'basic' | 'channel' | null = null;
+        if (isMega) kind = 'mega';
+        else if (isBasic) kind = 'basic';
+        else if (isBroadcast && allowChannels) kind = 'channel';
+        if (!kind) continue;
         if (c.deactivated || c.kicked) continue;
         // contacts.Search 经常不返回 participantsCount (未加入群拿不到), 默认放行
         const members = (c.participantsCount as number) ?? -1;
@@ -666,6 +687,7 @@ export async function joinGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
           members,
           title: c.title ?? '',
           username,
+          kind,
         });
       }
       // 关键词之间小间隔 (避 search API 风控)
@@ -679,7 +701,11 @@ export async function joinGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
   }
 
   if (!candidates.length) {
-    throw new Error(`关键词 [${keywords.join(', ')}] 在 TG 公开搜索里没匹配的群. 建议: 试英文关键词 (forex/crypto), 或者直接在「指定群」字段填具体群 id`);
+    throw new Error(
+      `关键词 [${keywords.join(', ')}] 在 TG 公开搜索里没匹配的群组（megagroup）。` +
+      `${allowChannels ? '' : '（已忽略频道 channel —— 频道无法爬成员）'} ` +
+      `建议: 1) 关键词换成更具体的（如「forex 中国」「Crypto Singapore」）；2) 直接在「指定群」字段填具体群 id；3) 任务参数加 allowChannels=true 让 channel 也算候选（但 channel 不能爬人）`,
+    );
   }
 
   // 按成员数降序 (未知 -1 排最后), 取前 maxPerDay
