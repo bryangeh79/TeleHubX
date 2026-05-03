@@ -145,6 +145,10 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
   // Wizard state
   const [step, setStep] = useState(0);
   const [form] = Form.useForm<ProductForm>();
+  // 用 useState 镜像 form 值，跨步骤切换时不丢失（form.getFieldValue 偶尔在 unmount 后失效）
+  const [formMirror, setFormMirror] = useState<Partial<ProductForm>>({
+    customerType: 'mixed', goalKey: 'general', useCompanyFallback: true,
+  });
   const [inputMode, setInputMode] = useState<'upload' | 'text'>('upload');
   const [rawText, setRawText] = useState('');
   const [uploadedFileName, setUploadedFileName] = useState('');
@@ -177,7 +181,9 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
     setEditingKbId(null);
     setInputMode('upload');
     form.resetFields();
-    form.setFieldsValue({ customerType: 'mixed', goalKey: 'general', useCompanyFallback: true });
+    const defaults = { customerType: 'mixed' as const, goalKey: 'general', useCompanyFallback: true };
+    form.setFieldsValue(defaults);
+    setFormMirror(defaults);
   };
 
   const openNewProduct = () => { resetWizard(); setShowEditor(true); };
@@ -187,14 +193,16 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
     setEditingKbId(kb.id);
     try {
       const saved = JSON.parse(kb.description ?? '{}');
-      form.setFieldsValue({
+      const formData = {
         productName: saved.productName ?? kb.name.replace(' - 产品资料', ''),
         price: saved.price,
         category: saved.category,
         customerType: saved.customerType ?? 'mixed',
         goalKey: saved.goalKey ?? 'general',
         useCompanyFallback: saved.useCompanyFallback ?? true,
-      });
+      };
+      form.setFieldsValue(formData);
+      setFormMirror(formData);
       setOverview(saved.overview ?? '');
       setFeatures(saved.features ?? []);
       const faqRes = await knowledgeApi.listFaqs({ kbId: kb.id });
@@ -213,15 +221,21 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
   };
 
   const handleGenerate = async () => {
-    let values: ProductForm;
-    try { values = await form.validateFields(); } catch { return; }
+    // 优先读 formMirror（跨步骤永不丢失），form 作为 fallback
+    const productName = (formMirror.productName ?? form.getFieldValue('productName') ?? '').trim();
+    const price = formMirror.price ?? form.getFieldValue('price');
+    if (!productName) {
+      antdMessage.warning('请回到第 2 步填写产品名称');
+      setStep(1);
+      return;
+    }
     if (!rawText.trim()) { antdMessage.warning('请先填写产品描述或上传介绍书'); return; }
 
     setGenerating(true);
     try {
       const res = await knowledgeApi.generateProductProfile({
-        productName: values.productName,
-        price: values.price,
+        productName,
+        price,
         rawText,
       });
       setOverview(res.data.overview ?? '');
@@ -234,22 +248,27 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
   };
 
   const handleSave = async () => {
-    let values: ProductForm;
-    try { values = await form.validateFields(); } catch { return; }
+    // 合并 form 实时值 + formMirror（跨步骤备份）
+    const fv = { ...formMirror, ...form.getFieldsValue() } as ProductForm;
+    if (!fv.productName?.trim()) {
+      antdMessage.warning('请回第 2 步填写产品名称');
+      setStep(1);
+      return;
+    }
 
     setSaving(true);
     try {
-      const goalPrompt = buildGoalPrompt(values.goalKey);
+      const goalPrompt = buildGoalPrompt(fv.goalKey ?? 'general');
       const dto = {
-        name: `${values.productName} - 产品资料`,
+        name: `${fv.productName} - 产品资料`,
         type: 'product',
         description: JSON.stringify({
-          productName: values.productName,
-          price: values.price,
-          category: values.category,
-          customerType: values.customerType,
-          goalKey: values.goalKey,
-          useCompanyFallback: values.useCompanyFallback,
+          productName: fv.productName,
+          price: fv.price,
+          category: fv.category,
+          customerType: fv.customerType ?? 'mixed',
+          goalKey: fv.goalKey ?? 'general',
+          useCompanyFallback: fv.useCompanyFallback ?? true,
           overview, features,
         }),
         goalPrompt,
@@ -335,7 +354,13 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
             ]}
           />
 
-          <Form form={form} layout="vertical" initialValues={{ customerType: 'mixed', goalKey: 'general', useCompanyFallback: true }}>
+          <Form
+            form={form}
+            layout="vertical"
+            preserve={true}
+            initialValues={{ customerType: 'mixed', goalKey: 'general', useCompanyFallback: true }}
+            onValuesChange={(_, all) => setFormMirror(prev => ({ ...prev, ...all }))}
+          >
 
             {/* Step 0: 欢迎页 */}
             {step === 0 && (
@@ -449,7 +474,8 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
                             multiple={false}
                             showUploadList={false}
                             beforeUpload={async (file) => {
-                              if (!form.getFieldValue('productName')) {
+                              const pn = formMirror.productName ?? form.getFieldValue('productName');
+                              if (!pn?.trim()) {
                                 antdMessage.warning('请先回上一步填写产品名称');
                                 return false;
                               }
