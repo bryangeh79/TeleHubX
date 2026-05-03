@@ -200,6 +200,25 @@ export const discoveredGroupsApi = {
   remove: (id: string) => api.delete(`/discovered-groups/${id}`),
 };
 
+export const adminApi = {
+  // tenants
+  listTenants: () => api.get('/admin/tenants'),
+  createTenant: (data: { name: string; plan?: string }) => api.post('/admin/tenants', data),
+  updateTenant: (id: string, data: { name?: string; plan?: string; maxAccounts?: number }) =>
+    api.patch(`/admin/tenants/${id}`, data),
+  suspendTenant: (id: string, reason?: string) => api.post(`/admin/tenants/${id}/suspend`, { reason }),
+  resumeTenant: (id: string) => api.post(`/admin/tenants/${id}/resume`),
+  deleteTenant: (id: string) => api.delete(`/admin/tenants/${id}`),
+  // licenses
+  listLicenses: (tenantId?: string) =>
+    api.get('/admin/licenses', { params: tenantId ? { tenantId } : {} }),
+  issueLicense: (data: { plan?: string; notes?: string; tenantId?: string; bindNow?: boolean }) =>
+    api.post('/admin/licenses/issue', data),
+  revokeLicense: (id: string) => api.post(`/admin/licenses/${id}/revoke`),
+  // stats
+  stats: () => api.get('/admin/stats'),
+};
+
 export const tenantsApi = {
   list: () => api.get('/tenants'),
   get: (id: string) => api.get(`/tenants/${id}`),

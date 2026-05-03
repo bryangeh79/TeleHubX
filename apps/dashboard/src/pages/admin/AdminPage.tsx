@@ -5,6 +5,7 @@ import {
   Card,
   Col,
   Empty,
+  Modal,
   Result,
   Row,
   Space,
@@ -29,7 +30,8 @@ import {
   SaveOutlined,
   UndoOutlined,
 } from '@ant-design/icons';
-import { platformConfigApi } from '../../services/api';
+import { adminApi, platformConfigApi } from '../../services/api';
+import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -507,12 +509,282 @@ function IndustryPromptTab() {
   );
 }
 
+// ── 租户管理 Tab ──────────────────────────────────────────────────────────
+function TenantsTab() {
+  const [tenants, setTenants] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [plan, setPlan] = useState<string>('basic');
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await adminApi.listTenants();
+      setTenants(res.data ?? []);
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '加载失败');
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { void load(); }, []);
+
+  const handleCreate = async () => {
+    if (!name.trim()) { antdMessage.warning('租户名必填'); return; }
+    try {
+      await adminApi.createTenant({ name: name.trim(), plan });
+      antdMessage.success(`已创建租户「${name}」`);
+      setCreateOpen(false);
+      setName('');
+      void load();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '创建失败');
+    }
+  };
+
+  const handleSuspend = (t: any) => {
+    Modal.confirm({
+      title: `暂停租户「${t.name}」？`,
+      content: '暂停后该租户登录失败、所有任务停止派发。可以随时恢复。',
+      okText: '暂停', okType: 'danger',
+      onOk: async () => {
+        try { await adminApi.suspendTenant(t.id); antdMessage.success('已暂停'); void load(); }
+        catch (err: any) { antdMessage.error(err?.response?.data?.message ?? '操作失败'); }
+      },
+    });
+  };
+
+  const handleResume = async (t: any) => {
+    try { await adminApi.resumeTenant(t.id); antdMessage.success('已恢复'); void load(); }
+    catch (err: any) { antdMessage.error(err?.response?.data?.message ?? '操作失败'); }
+  };
+
+  const handleDelete = (t: any) => {
+    if (t.name === 'default') { antdMessage.warning('不能删除 default 租户'); return; }
+    Modal.confirm({
+      title: `永久删除租户「${t.name}」？`,
+      content: '该租户的所有账号/数据/license 将全部丢失。该操作不可逆！',
+      okText: '永久删除', okType: 'danger',
+      onOk: async () => {
+        try { await adminApi.deleteTenant(t.id); antdMessage.success('已删除'); void load(); }
+        catch (err: any) { antdMessage.error(err?.response?.data?.message ?? '删除失败'); }
+      },
+    });
+  };
+
+  return (
+    <div>
+      <Space style={{ marginBottom: 16 }}>
+        <Button type="primary" onClick={() => setCreateOpen(true)}>+ 新建租户</Button>
+        <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>刷新</Button>
+      </Space>
+      <Table
+        dataSource={tenants}
+        rowKey="id"
+        size="small"
+        loading={loading}
+        columns={[
+          { title: '租户名称', dataIndex: 'name', render: (n: string) => <Text strong>{n}</Text> },
+          { title: '套餐', dataIndex: 'plan', width: 100, render: (p: string) => <Tag color="blue">{p?.toUpperCase()}</Tag> },
+          { title: '状态', dataIndex: 'status', width: 100, render: (s: string) =>
+            <Tag color={s === 'active' ? 'green' : s === 'suspended' ? 'red' : 'orange'}>{s}</Tag>
+          },
+          { title: '账号配额', width: 120, render: (_, r: any) => `${r.currentAccounts ?? 0} / ${r.maxAccounts}` },
+          { title: 'License 到期', dataIndex: 'licenseExpiresAt', width: 130, render: (d: string | null) =>
+            d ? dayjs(d).format('YYYY-MM-DD') : <Text type="secondary">未绑定</Text>
+          },
+          { title: '创建时间', dataIndex: 'createdAt', width: 130, render: (d: string) => dayjs(d).format('MM-DD HH:mm') },
+          { title: '操作', width: 200, render: (_, r: any) => (
+            <Space size={4}>
+              {r.status === 'active' && r.name !== 'default' && (
+                <Button size="small" danger onClick={() => handleSuspend(r)}>暂停</Button>
+              )}
+              {r.status === 'suspended' && (
+                <Button size="small" type="primary" onClick={() => handleResume(r)}>恢复</Button>
+              )}
+              {r.name !== 'default' && (
+                <Button size="small" type="text" danger onClick={() => handleDelete(r)}>删除</Button>
+              )}
+            </Space>
+          )},
+        ]}
+      />
+      <Modal
+        title="新建租户"
+        open={createOpen}
+        onCancel={() => setCreateOpen(false)}
+        onOk={handleCreate}
+        okText="创建"
+        cancelText="取消"
+      >
+        <div style={{ marginBottom: 12 }}>
+          <Text strong>租户名称（公司名）</Text>
+          <Input value={name} onChange={e => setName(e.target.value)} placeholder="例如：A 科技公司" style={{ marginTop: 4 }} />
+        </div>
+        <div>
+          <Text strong>套餐</Text>
+          <div style={{ marginTop: 4 }}>
+            <Space.Compact>
+              {['basic', 'pro', 'enterprise'].map(p => (
+                <Button
+                  key={p}
+                  type={plan === p ? 'primary' : 'default'}
+                  onClick={() => setPlan(p)}
+                >
+                  {p.toUpperCase()} ({p === 'basic' ? '10 号' : p === 'pro' ? '30 号' : '50 号'})
+                </Button>
+              ))}
+            </Space.Compact>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ── License Tab ───────────────────────────────────────────────────────────
+function LicensesTab() {
+  const [licenses, setLicenses] = useState<any[]>([]);
+  const [tenants, setTenants] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [issueOpen, setIssueOpen] = useState(false);
+  const [plan, setPlan] = useState<string>('basic');
+  const [boundTenantId, setBoundTenantId] = useState<string | undefined>();
+  const [notes, setNotes] = useState('');
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [l, t] = await Promise.all([adminApi.listLicenses(), adminApi.listTenants()]);
+      setLicenses(l.data ?? []);
+      setTenants(t.data ?? []);
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '加载失败');
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { void load(); }, []);
+
+  const handleIssue = async () => {
+    try {
+      const res = await adminApi.issueLicense({
+        plan,
+        notes: notes.trim() || undefined,
+        tenantId: boundTenantId,
+        bindNow: !!boundTenantId,
+      });
+      const key = res.data?.key;
+      Modal.success({
+        title: '✅ License 签发成功',
+        content: (
+          <div>
+            <p>License Key（请妥善保管）：</p>
+            <Text code copyable style={{ fontSize: 13 }}>{key}</Text>
+            {boundTenantId && <p style={{ marginTop: 12 }}>已直接绑定到租户「{tenants.find(t => t.id === boundTenantId)?.name}」</p>}
+          </div>
+        ),
+      });
+      setIssueOpen(false);
+      setNotes('');
+      setBoundTenantId(undefined);
+      void load();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '签发失败');
+    }
+  };
+
+  const handleRevoke = (l: any) => {
+    Modal.confirm({
+      title: `撤销 License「${l.key}」？`,
+      content: '撤销后该 license 不能再用于激活，已绑定的租户不受影响（除非也暂停租户）',
+      okText: '撤销', okType: 'danger',
+      onOk: async () => {
+        try { await adminApi.revokeLicense(l.id); antdMessage.success('已撤销'); void load(); }
+        catch (err: any) { antdMessage.error(err?.response?.data?.message ?? '撤销失败'); }
+      },
+    });
+  };
+
+  return (
+    <div>
+      <Space style={{ marginBottom: 16 }}>
+        <Button type="primary" onClick={() => setIssueOpen(true)}>+ 签发新 License</Button>
+        <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>刷新</Button>
+      </Space>
+      <Table
+        dataSource={licenses}
+        rowKey="id"
+        size="small"
+        loading={loading}
+        columns={[
+          { title: 'License Key', dataIndex: 'key', render: (k: string) => <Text code copyable style={{ fontSize: 11 }}>{k}</Text> },
+          { title: '套餐', dataIndex: 'plan', width: 100, render: (p: string) => <Tag color="blue">{p?.toUpperCase()}</Tag> },
+          { title: '状态', dataIndex: 'status', width: 100, render: (s: string) => {
+            const c = s === 'active' ? 'green' : s === 'pending' ? 'default' : s === 'revoked' ? 'red' : 'orange';
+            return <Tag color={c}>{s}</Tag>;
+          }},
+          { title: '绑定租户', dataIndex: 'tenantId', width: 120, render: (tid: string | null) =>
+            tid ? <Text>{tenants.find(t => t.id === tid)?.name ?? tid.slice(0, 8)}</Text> : <Text type="secondary">未绑定</Text>
+          },
+          { title: '到期', dataIndex: 'expiresAt', width: 110, render: (d: string | null) =>
+            d ? dayjs(d).format('YYYY-MM-DD') : '-'
+          },
+          { title: '签发时间', dataIndex: 'createdAt', width: 130, render: (d: string) => dayjs(d).format('MM-DD HH:mm') },
+          { title: '操作', width: 100, render: (_, r: any) => (
+            r.status === 'active' || r.status === 'pending' ? (
+              <Button size="small" danger onClick={() => handleRevoke(r)}>撤销</Button>
+            ) : null
+          )},
+        ]}
+      />
+      <Modal
+        title="签发新 License"
+        open={issueOpen}
+        onCancel={() => setIssueOpen(false)}
+        onOk={handleIssue}
+        okText="签发"
+        cancelText="取消"
+      >
+        <div style={{ marginBottom: 12 }}>
+          <Text strong>套餐</Text>
+          <div style={{ marginTop: 4 }}>
+            <Space.Compact>
+              {['basic', 'pro', 'enterprise'].map(p => (
+                <Button key={p} type={plan === p ? 'primary' : 'default'} onClick={() => setPlan(p)}>
+                  {p.toUpperCase()}
+                </Button>
+              ))}
+            </Space.Compact>
+          </div>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <Text strong>直接绑定到租户（可选）</Text>
+          <div style={{ marginTop: 4 }}>
+            <select
+              value={boundTenantId ?? ''}
+              onChange={e => setBoundTenantId(e.target.value || undefined)}
+              style={{ width: '100%', padding: 6, borderRadius: 4, border: '1px solid #d9d9d9' }}
+            >
+              <option value="">— 不绑定（让租户自助 /activate 激活）—</option>
+              {tenants.map(t => <option key={t.id} value={t.id}>{t.name} ({t.plan})</option>)}
+            </select>
+          </div>
+        </div>
+        <div>
+          <Text strong>备注</Text>
+          <Input.TextArea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="例如：A 公司年度 license" style={{ marginTop: 4 }} />
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────
 export default function AdminPage() {
   const [role, setRole] = useState<string>('OPERATOR');
+  const [stats, setStats] = useState<any>({ totalTenants: 0, activeTenants: 0, suspendedTenants: 0, totalLicenses: 0, activeLicenses: 0, expiringIn30d: 0 });
 
   useEffect(() => {
     setRole(readUserRole());
+    adminApi.stats().then(r => setStats(r.data)).catch(() => {});
   }, []);
 
   if (role !== 'SUPER_ADMIN') {
@@ -537,19 +809,11 @@ export default function AdminPage() {
         <Text type="secondary">公司层级控制台 · 多租户管理 · License 签发 · 全局默认配置</Text>
       </div>
 
-      <Alert
-        type="warning"
-        showIcon
-        style={{ marginBottom: 16 }}
-        message="前端骨架版（mock 数据）"
-        description="多租户后端隔离、License 签发服务、全局默认 AI Key 管理待立项。"
-      />
-
       <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}><Card><Statistic title="租户总数"     value={1}  prefix={<TeamOutlined />} /></Card></Col>
-        <Col span={6}><Card><Statistic title="活跃 License" value={1}  prefix={<SafetyCertificateOutlined />} /></Card></Col>
-        <Col span={6}><Card><Statistic title="即将到期"     value={0}  valueStyle={{ color: '#fa8c16' }} /></Card></Col>
-        <Col span={6}><Card><Statistic title="已暂停"        value={0}  valueStyle={{ color: '#cf1322' }} /></Card></Col>
+        <Col span={6}><Card><Statistic title="租户总数"     value={stats.totalTenants}     prefix={<TeamOutlined />} /></Card></Col>
+        <Col span={6}><Card><Statistic title="活跃 License" value={stats.activeLicenses}   prefix={<SafetyCertificateOutlined />} /></Card></Col>
+        <Col span={6}><Card><Statistic title="30 天内到期"   value={stats.expiringIn30d}    valueStyle={{ color: stats.expiringIn30d > 0 ? '#fa8c16' : undefined }} /></Card></Col>
+        <Col span={6}><Card><Statistic title="已暂停"        value={stats.suspendedTenants} valueStyle={{ color: stats.suspendedTenants > 0 ? '#cf1322' : undefined }} /></Card></Col>
       </Row>
 
       <Card>
@@ -559,43 +823,12 @@ export default function AdminPage() {
             {
               key: 'tenants',
               label: <span><TeamOutlined /> 租户管理</span>,
-              children: (
-                <div>
-                  <Space style={{ marginBottom: 16 }}>
-                    <Button type="primary">+ 新建租户</Button>
-                    <Button>导出 CSV</Button>
-                  </Space>
-                  <Table
-                    dataSource={[
-                      { id: '1', name: 'default', plan: 'BASIC', status: 'ACTIVE', signedAt: '2026-04-30', expiresAt: '2027-04-30', maxAccounts: 10, currentAccounts: 1 },
-                    ]}
-                    rowKey="id"
-                    size="small"
-                    columns={[
-                      { title: '租户名称', dataIndex: 'name' },
-                      { title: '套餐', dataIndex: 'plan', render: (p: string) => <Tag color="blue">{p}</Tag> },
-                      { title: '状态', dataIndex: 'status', render: (s: string) => <Tag color="green">{s}</Tag> },
-                      { title: '签署时间', dataIndex: 'signedAt' },
-                      { title: '到期时间', dataIndex: 'expiresAt' },
-                      { title: '账号配额', render: (_, r) => `${r.currentAccounts}/${r.maxAccounts}` },
-                      { title: '操作', render: () => <Space><Button size="small" type="text">详情</Button><Button size="small" type="text" danger>暂停</Button></Space> },
-                    ]}
-                  />
-                </div>
-              ),
+              children: <TenantsTab />,
             },
             {
               key: 'licenses',
               label: <span><SafetyCertificateOutlined /> License 签发</span>,
-              children: (
-                <div>
-                  <Space style={{ marginBottom: 16 }}>
-                    <Button type="primary">+ 签发新 License</Button>
-                    <Button>批量导入</Button>
-                  </Space>
-                  <Empty description="License 列表（待对接后端 /licenses 路由）" style={{ padding: 40 }} />
-                </div>
-              ),
+              children: <LicensesTab />,
             },
             {
               key: 'platform-ai',

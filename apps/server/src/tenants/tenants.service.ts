@@ -125,6 +125,40 @@ export class TenantsService implements OnModuleInit {
     return this.repo.save(t);
   }
 
+  /** SUPER_ADMIN: 暂停租户（账号都标 banned 等效，前端看不到操作权） */
+  async suspend(id: string, reason?: string): Promise<Tenant> {
+    const t = await this.findOne(id);
+    t.status = TenantStatus.SUSPENDED;
+    return this.repo.save(t);
+  }
+
+  /** SUPER_ADMIN: 恢复租户 */
+  async resume(id: string): Promise<Tenant> {
+    const t = await this.findOne(id);
+    t.status = TenantStatus.ACTIVE;
+    return this.repo.save(t);
+  }
+
+  async update(id: string, patch: Partial<Pick<Tenant, 'name' | 'plan' | 'maxAccounts'>>): Promise<Tenant> {
+    const t = await this.findOne(id);
+    if (patch.name) t.name = patch.name;
+    if (patch.plan) {
+      t.plan = patch.plan;
+      t.maxAccounts = patch.maxAccounts ?? PLAN_MAX_ACCOUNTS[patch.plan];
+    } else if (patch.maxAccounts !== undefined) {
+      t.maxAccounts = patch.maxAccounts;
+    }
+    return this.repo.save(t);
+  }
+
+  async remove(id: string): Promise<void> {
+    const t = await this.findOne(id);
+    if (t.name === 'default') {
+      throw new BadRequestException('cannot delete default tenant');
+    }
+    await this.repo.remove(t);
+  }
+
   // ── Bot CRUD ────────────────────────────────────────────────────────────────
 
   async createBot(tenantId: string, dto: CreateTenantBotDto, botUsername: string): Promise<TenantBot> {

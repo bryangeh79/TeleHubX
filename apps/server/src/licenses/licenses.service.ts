@@ -178,4 +178,14 @@ export class LicensesService {
     lic.status = LicenseStatus.REVOKED;
     return this.repo.save(lic);
   }
+
+  /** SUPER_ADMIN: 列出所有 license */
+  findAll(): Promise<License[]> {
+    return this.repo.find({ order: { createdAt: 'DESC' } });
+  }
+
+  /** 列出某租户的所有 license（含历史 revoked / expired） */
+  findByTenant(tenantId: string): Promise<License[]> {
+    return this.repo.find({ where: { tenantId }, order: { createdAt: 'DESC' } });
+  }
 }
