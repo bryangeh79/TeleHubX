@@ -9,7 +9,7 @@ import { PlatformConfigService } from '../platform-config/platform-config.servic
 import { TenantsService } from '../tenants/tenants.service';
 import { TenantBot } from '../tenants/tenant-bot.entity';
 import { BotReplyService } from './bot-reply.service';
-import { BotUpdateAdapter, TelegramUpdate } from './bot-update.adapter';
+import { BotUpdateAdapter, NormalizedMessage, TelegramUpdate } from './bot-update.adapter';
 
 /** Lazy lookup; avoids hard import on TakeoverGateway to dodge circular deps. */
 type TakeoverGatewayLike = {
@@ -82,6 +82,27 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
     }
 
     return layers.join('\n\n');
+  }
+
+  /**
+   * 判断客户消息是否在问"产品菜单"类元问题（用于决定是否附 inline keyboard）。
+   * 中文 + 英文常见说法。排除单产品细节问题（价格/功能/怎么用 → 走普通 reply）。
+   */
+  private isProductMenuIntent(text: string): boolean {
+    const t = text.toLowerCase().trim();
+    if (!t || t.length > 40) return false;
+    if (/价格|多少钱|功能|怎么用|教程|文档|case|价位/i.test(t)) return false;
+    return /有(什么|哪些|啥|没有)?(产品|服务|套餐|方案)|哪些(产品|服务)|产品列表|你们卖|介绍.{0,3}产品|product\s*list|^what\s+(do\s+you\s+have|products?|services?)|^products?\??$|^services?\??$/i.test(t);
+  }
+
+  /** 构造产品选择 inline keyboard。每行一个按钮（产品名长，竖排好看）。 */
+  private buildProductKeyboard(roster: Array<{ id: string; name: string }>) {
+    return {
+      inline_keyboard: roster.map(p => [{
+        text: `📦 ${p.name}`,
+        callback_data: `prod:${p.id}`,
+      }]),
+    };
   }
 
   /** TakeoverGateway 解耦查找 — avoids hard import to break circular dep with TakeoverModule. */
@@ -171,6 +192,11 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
     const msg = this.adapter.normalize(update);
     if (!msg) return;
 
+    if (msg.kind === 'callback') {
+      await this.handleProductPickCallback(msg, bot);
+      return;
+    }
+
     this.logger.debug(
       `BotGateway: update botId=${bot.id} tenantId=${bot.tenantId} chatId=${msg.chatId} text="${msg.text.slice(0, 40)}"`,
     );
@@ -193,6 +219,7 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
     }
 
     let replyText: string | null = null;
+    let replyMarkup: ReturnType<typeof this.buildProductKeyboard> | undefined;
 
     try {
       const settings = await this.tenants.getSettings(bot.tenantId);
@@ -217,6 +244,11 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
 
           // Always inject product roster (so AI can answer meta questions like "你有什么产品")
           const roster = await this.knowledge.getProductRoster(bot.tenantId);
+
+          // 客户问产品菜单 → 给 Bot 回复挂上产品按钮
+          if (this.isProductMenuIntent(msg.text) && roster.length >= 1) {
+            replyMarkup = this.buildProductKeyboard(roster);
+          }
           const rosterBlock = roster.length
             ? '【在售产品列表（按需介绍，不要全部塞给客户）】\n' +
               roster.map((p, i) => {
@@ -334,10 +366,122 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (replyText) {
+      await this.botReply.sendText(bot.rawToken, msg.chatId, replyText, replyMarkup);
+      await this.leads.addReply(lead.id, { sender: 'system', text: replyText });
+      await this.decider.recordReply(msg.chatId);
+      this.getTakeover()?.emitMessage(lead.id, { sender: 'system', text: replyText });
+    }
+  }
+
+  /**
+   * 客户点了 inline keyboard 上的产品按钮 → 进入该产品话术。
+   * 流程：解析 callback_data → 找产品 KB → AI 用合成 prompt 介绍该产品 → 回复 + answer callback。
+   */
+  private async handleProductPickCallback(
+    msg: NormalizedMessage,
+    bot: TenantBot & { rawToken: string },
+  ): Promise<void> {
+    const data = msg.callbackData ?? '';
+    if (!data.startsWith('prod:')) {
+      // 未知 callback 类型，仅 ack
+      if (msg.callbackQueryId) await this.botReply.answerCallbackQuery(bot.rawToken, msg.callbackQueryId);
+      return;
+    }
+    const kbId = data.slice(5);
+
+    let kb;
+    try { kb = await this.knowledge.getKb(kbId); } catch {
+      if (msg.callbackQueryId) await this.botReply.answerCallbackQuery(bot.rawToken, msg.callbackQueryId, '产品已下架');
+      return;
+    }
+
+    let productName = kb.name?.replace(/\s*-\s*产品资料$/, '').trim() ?? kb.name;
+    let overview = '';
+    let price = '';
+    let customerType: 'b2b' | 'b2c' | 'mixed' | undefined;
+    if (kb.description) {
+      try {
+        const d = JSON.parse(kb.description);
+        if (d.productName) productName = String(d.productName).trim();
+        overview = String(d.overview ?? '').trim();
+        price = String(d.price ?? '').trim();
+        if (d.customerType === 'b2b' || d.customerType === 'b2c' || d.customerType === 'mixed') customerType = d.customerType;
+      } catch { /* ignore */ }
+    }
+
+    this.logger.debug(
+      `BotGateway: callback prod chatId=${msg.chatId} product="${productName}" customerType=${customerType ?? 'none'}`,
+    );
+
+    const lead = await this.leads.findOrCreateByTgChatId(msg.tgUserId, bot.tenantId, msg.tgUsername);
+    const userTurnText = `[选择了 ${productName}]`;
+    await this.leads.addReply(lead.id, { sender: 'user', text: userTurnText });
+    this.getTakeover()?.emitMessage(lead.id, { sender: 'user', text: userTurnText });
+    this.getTakeover()?.emitLeadUpdate(lead.id);
+
+    if (lead.takeoverState === LeadTakeover.HUMAN || lead.takeoverState === LeadTakeover.CLOSED || lead.takeoverState === LeadTakeover.DNR) {
+      if (msg.callbackQueryId) await this.botReply.answerCallbackQuery(bot.rawToken, msg.callbackQueryId);
+      return;
+    }
+
+    const aiConfig = await this.tenants.getEffectiveAiConfig(bot.tenantId);
+    if (!aiConfig) {
+      if (msg.callbackQueryId) await this.botReply.answerCallbackQuery(bot.rawToken, msg.callbackQueryId, '稍后再试');
+      return;
+    }
+
+    // Industry prompt
+    let industryPrompt: string | undefined;
+    const companyKb = await this.knowledge.getCompanyKb(bot.tenantId);
+    if (companyKb?.description) {
+      try {
+        const d = JSON.parse(companyKb.description);
+        if (d.industry) industryPrompt = await this.platformConfig.getIndustryPrompt(String(d.industry));
+      } catch { /* ignore */ }
+    }
+
+    // 合成 user message：要求 AI 简短介绍该产品并询问需求
+    const synthesizedUserMsg = `客户从产品菜单点选了产品『${productName}』。请简短介绍这个产品（2-3 句，重点说能解决什么问题），然后问对方主要想用在什么场景，方便给更准确的建议。`;
+
+    // 合成 KB context：直接把该产品的 overview + price 注入，无需 search
+    const kbBlock = [
+      `【客户已选择产品】${productName}`,
+      price ? `价格：${price}` : '',
+      overview ? `简介：${overview}` : '',
+      kb.goalPrompt ? `\n销售目标：${kb.goalPrompt}` : '',
+    ].filter(Boolean).join('\n');
+
+    const systemPrompt = await this.buildSmartReplyPrompt({
+      kbContext: kbBlock,
+      customerType,
+      industryPrompt,
+    });
+
+    let replyText = '';
+    try {
+      const result = await this.aiAgent.reply(
+        { chatId: msg.chatId, userMessage: synthesizedUserMsg, systemPrompt },
+        {
+          apiKey: aiConfig.apiKey,
+          baseUrl: aiConfig.baseUrl,
+          model: aiConfig.model,
+          provider: aiConfig.provider === 'custom' ? 'openai' : aiConfig.provider,
+        },
+      );
+      replyText = result.reply;
+    } catch (err) {
+      this.logger.error(`BotGateway: callback AI error chatId=${msg.chatId}: ${(err as Error).message}`);
+    }
+
+    if (replyText) {
       await this.botReply.sendText(bot.rawToken, msg.chatId, replyText);
       await this.leads.addReply(lead.id, { sender: 'system', text: replyText });
       await this.decider.recordReply(msg.chatId);
       this.getTakeover()?.emitMessage(lead.id, { sender: 'system', text: replyText });
+    }
+
+    if (msg.callbackQueryId) {
+      await this.botReply.answerCallbackQuery(bot.rawToken, msg.callbackQueryId);
     }
   }
 }

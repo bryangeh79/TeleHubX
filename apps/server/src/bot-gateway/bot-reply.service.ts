@@ -47,7 +47,8 @@ export class BotReplyService {
   }
 
   async getUpdates(token: string, offset: number, timeout = 25): Promise<TelegramUpdate[]> {
-    const url = `${TG_API}/bot${token}/getUpdates?offset=${offset}&timeout=${timeout}&allowed_updates=["message"]`;
+    const allowed = encodeURIComponent('["message","callback_query"]');
+    const url = `${TG_API}/bot${token}/getUpdates?offset=${offset}&timeout=${timeout}&allowed_updates=${allowed}`;
     const res = await fetch(url, { signal: AbortSignal.timeout((timeout + 5) * 1000) });
     const body = (await res.json()) as { ok: boolean; result?: TelegramUpdate[]; description?: string };
     if (!body.ok) {
@@ -58,13 +59,21 @@ export class BotReplyService {
     return body.result ?? [];
   }
 
-  async sendText(token: string, chatId: string, text: string): Promise<void> {
+  /** Telegram inline_keyboard reply_markup. 二维数组：每一行一个 button 数组 */
+  async sendText(
+    token: string,
+    chatId: string,
+    text: string,
+    replyMarkup?: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> },
+  ): Promise<void> {
     let res: Response;
     try {
+      const payload: Record<string, unknown> = { chat_id: Number(chatId), text };
+      if (replyMarkup) payload.reply_markup = replyMarkup;
       res = await fetch(`${TG_API}/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: Number(chatId), text }),
+        body: JSON.stringify(payload),
       });
     } catch (err) {
       this.logger.error(`sendText network error chatId=${chatId}: ${(err as Error).message}`);
@@ -78,6 +87,24 @@ export class BotReplyService {
     if (!res.ok) {
       const body = await res.text();
       this.logger.error(`sendText failed chatId=${chatId} status=${res.status} body=${body}`);
+    }
+  }
+
+  /**
+   * 必须在收到 callback_query 后调用，否则客户端按钮上的 loading spinner 不会消失。
+   * text 可选 — 若提供，会作为 toast 弹一下（≤200 字符）。
+   */
+  async answerCallbackQuery(token: string, callbackQueryId: string, text?: string): Promise<void> {
+    try {
+      const payload: Record<string, unknown> = { callback_query_id: callbackQueryId };
+      if (text) payload.text = text.slice(0, 200);
+      await fetch(`${TG_API}/bot${token}/answerCallbackQuery`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      this.logger.warn(`answerCallbackQuery failed id=${callbackQueryId}: ${(err as Error).message}`);
     }
   }
 
