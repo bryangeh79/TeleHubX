@@ -344,7 +344,8 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
             `hasKb=${!!contextText} customerType=${customerType ?? 'none'} ` +
             `companyFallback=${companyFallbackUsed} industry=${!!industryPrompt} ` +
             `directMention=${directlyMentionedProducts.map(p => p.name).join('|') || 'none'} ` +
-            `activeProduct=${activeProductId ? activeProductId.slice(0, 8) : 'none'}`,
+            `activeProduct=${activeProductId ? activeProductId.slice(0, 8) : 'none'} ` +
+            `menuKeyboard=${replyMarkup ? `${replyMarkup.inline_keyboard.length}btn` : 'no'}`,
           );
           break;
         }
