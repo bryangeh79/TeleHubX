@@ -360,20 +360,46 @@ FAQ 要求：
   }
 
   /**
+   * 繁简归一映射表 — 覆盖客服场景最常见的 70+ 繁体字。
+   * 不追求完整 OpenCC 那种 8000+ 映射，只解决「同字 Jaccard 算不到」的痛点。
+   */
+  private static readonly TRAD_TO_SIMP: Record<string, string> = {
+    妳: '你', 您: '你', 們: '们', 嗎: '吗', 個: '个', 麼: '么', 後: '后',
+    為: '为', 與: '与', 來: '来', 對: '对', 會: '会', 開: '开', 關: '关',
+    點: '点', 號: '号', 體: '体', 動: '动', 業: '业', 樣: '样', 給: '给',
+    說: '说', 過: '过', 還: '还', 機: '机', 從: '从', 並: '并', 種: '种',
+    處: '处', 將: '将', 經: '经', 該: '该', 訊: '讯', 計: '计', 認: '认',
+    識: '识', 護: '护', 雙: '双', 幾: '几', 長: '长', 問: '问', 題: '题',
+    課: '课', 學: '学', 寫: '写', 萬: '万', 億: '亿', 變: '变', 樂: '乐',
+    達: '达', 線: '线', 連: '连', 應: '应', 類: '类', 訓: '训', 處: '处',
+    紹: '绍', 紙: '纸', 細: '细', 終: '终', 結: '结', 績: '绩', 統: '统',
+    網: '网', 資: '资', 費: '费', 質: '质', 買: '买', 賣: '卖', 賺: '赚',
+    錢: '钱', 鐘: '钟', 國: '国', 圖: '图', 處: '处', 報: '报', 務: '务',
+    場: '场', 員: '员', 簡: '简', 級: '级', 紅: '红', 綠: '绿', 藍: '蓝',
+    龍: '龙', 馬: '马', 鳥: '鸟', 魚: '鱼', 時: '时', 間: '间', 條: '条',
+    號: '号', 範: '范', 圍: '围', 戶: '户', 帳: '账', 數: '数', 億: '亿',
+    歲: '岁', 兒: '儿', 養: '养',
+  };
+
+  private normalizeTraditional(text: string): string {
+    let out = '';
+    for (const ch of text) {
+      out += KnowledgeService.TRAD_TO_SIMP[ch] ?? ch;
+    }
+    return out;
+  }
+
+  /**
    * Tokenize a query/text for Jaccard similarity scoring.
    * - 中文按字符（含基本 + 扩展 + 平假名 + 韩文）
    * - 拉丁/数字按 ≥2 字符的 word
-   * - 大小写归一化 + 繁简体常见映射（妳/您 → 你）
+   * - 大小写归一化 + 繁简体 70+ 常用字映射
    */
   private tokenize(text: string): Set<string> {
     const out = new Set<string>();
     const lowered = text.toLowerCase().trim();
     if (!lowered) return out;
-    // 简单繁简归一
-    const normalized = lowered
-      .replace(/[妳您]/g, '你')
-      .replace(/[們]/g, '们')
-      .replace(/[嗎]/g, '吗');
+    const normalized = this.normalizeTraditional(lowered);
     const cjkRe = /[一-鿿぀-ヿ가-힯]/;
     for (const ch of Array.from(normalized)) {
       if (cjkRe.test(ch)) out.add(ch);
