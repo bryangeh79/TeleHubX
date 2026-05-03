@@ -144,12 +144,20 @@ export class DiscoveredGroupsService {
     const now = new Date();
     const scrapeAt = new Date(Date.now() + 10 * 60_000);
 
+    // GramJS getEntity 需要 @username 或带前缀的 channel id（megagroup/channel: -100xxx，basic chat: -xxx）
+    // 否则纯数字会被当 PeerUser 解释 → "Could not find input entity"
+    const target = g.tgUsername
+      ? `@${g.tgUsername}`
+      : g.kind === 'basic'
+        ? `-${g.tgChatId}`
+        : `-100${g.tgChatId}`;
+
     const joinTask = await this.tasks.create({
       name: `加群: ${g.title.slice(0, 40)}`,
       type: TaskType.JOIN_GROUPS,
       accountId,
       payload: {
-        chatIds: [g.tgChatId],
+        chatIds: [target],
         inviteIntervalSec: [60, 180],
       },
       scheduledAt: now.toISOString(),
@@ -160,7 +168,7 @@ export class DiscoveredGroupsService {
       type: TaskType.GROUP_SCRAPE,
       accountId,
       payload: {
-        tgChatIds: [g.tgChatId],
+        tgChatIds: [target],
         maxScrapePerGroup: 200,
       },
       scheduledAt: scrapeAt.toISOString(),
