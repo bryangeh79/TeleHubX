@@ -28,7 +28,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { customerGroupsApi, leadCandidatesApi, tasksApi } from '../../services/api';
+import { customerGroupsApi, leadCandidatesApi, tasksApi, tenantsApi } from '../../services/api';
 
 const { Title, Text } = Typography;
 
@@ -412,12 +412,14 @@ export default function LeadCandidatesPage() {
         onOk={async () => {
           let v: { name: string; description?: string };
           try { v = await packForm.validateFields(); } catch { return; }
-          const tenantId = localStorage.getItem(TENANT_KEY) ?? '';
-          if (!tenantId) { antdMessage.error('未识别 tenantId'); return; }
           setPackSubmitting(true);
           try {
+            // 拿真实 tenant UUID（localStorage 可能是字符串别名，server 端要 UUID）
+            const tRes = await tenantsApi.getDefault();
+            const tenantUuid = tRes.data?.id;
+            if (!tenantUuid) { antdMessage.error('未识别 tenant'); setPackSubmitting(false); return; }
             const res = await customerGroupsApi.createFromCandidateIds({
-              tenantId,
+              tenantId: tenantUuid,
               name: v.name.trim(),
               description: v.description?.trim() || undefined,
               candidateIds: selectedRowKeys.map(String),
