@@ -335,9 +335,10 @@ export default function SchedulerPage() {
         const childrenRes = await tasksApi.children(logTask.id);
         setLogChildren(Array.isArray(childrenRes.data) ? childrenRes.data : []);
         if (isHunt) {
-          const tenantId = localStorage.getItem('telehubx:tenantId') ?? 'default';
+          const stored = localStorage.getItem('telehubx:tenantId');
+          const tenantId = stored && /^[0-9a-f-]{36}$/i.test(stored) ? stored : undefined;
           const [listRes, srcRes] = await Promise.all([
-            leadCandidatesApi.list({ tenantId, huntTaskId: logTask.id }),
+            leadCandidatesApi.list(tenantId ? { tenantId, huntTaskId: logTask.id } : { huntTaskId: logTask.id }),
             leadCandidatesApi.huntSources(logTask.id),
           ]);
           const list = Array.isArray(listRes.data) ? listRes.data.filter((c: any) => c.huntTaskId === logTask.id) : [];

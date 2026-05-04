@@ -455,12 +455,12 @@ export const dashboardApi = {
 };
 
 export const leadCandidatesApi = {
-  list: (params?: { tenantId: string; status?: string; huntTaskId?: string }) =>
+  list: (params?: { tenantId?: string; status?: string; huntTaskId?: string; onlyUnpacked?: string }) =>
     api.get('/lead-candidates', { params }),
-  pending: (tenantId: string, limit = 50) =>
-    api.get('/lead-candidates/pending', { params: { tenantId, limit } }),
-  stats: (tenantId: string) =>
-    api.get('/lead-candidates/stats', { params: { tenantId } }),
+  pending: (tenantId?: string, limit = 50) =>
+    api.get('/lead-candidates/pending', { params: tenantId ? { tenantId, limit } : { limit } }),
+  stats: (tenantId?: string) =>
+    api.get('/lead-candidates/stats', { params: tenantId ? { tenantId } : {} }),
   huntSources: (huntTaskId: string) =>
     api.get('/lead-candidates/hunt-sources', { params: { huntTaskId } }),
   get: (id: string) => api.get(`/lead-candidates/${id}`),

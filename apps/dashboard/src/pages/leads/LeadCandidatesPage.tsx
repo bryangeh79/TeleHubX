@@ -81,11 +81,14 @@ export default function LeadCandidatesPage() {
   const [contactForm] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
 
-  // 默认 tenant：先从 localStorage 取，若无则用 default
-  const tenantId = useMemo(
-    () => localStorage.getItem(TENANT_KEY) ?? 'default',
-    [],
-  );
+  // tenant：仅 super_admin 显式切换租户时使用 (写 localStorage)，
+  // 普通用户不传 → 后端从 JWT 自动取 user.tenantId
+  // 不能 fallback 成 'default' 字面量字符串，PG 校验 UUID 会 400
+  const tenantId = useMemo(() => {
+    const stored = localStorage.getItem(TENANT_KEY);
+    // 只接受真正的 UUID，'default' 这种历史脏值忽略
+    return stored && /^[0-9a-f-]{36}$/i.test(stored) ? stored : undefined;
+  }, []);
 
   // 支持 URL ?huntTaskId=xxx 跳转过滤 (从任务详情 Modal 跳过来)
   const huntTaskId = useMemo(() => {
@@ -96,12 +99,14 @@ export default function LeadCandidatesPage() {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const params: any = { tenantId, status: filterStatus };
+      const params: any = {};
+      if (tenantId) params.tenantId = tenantId;
+      if (filterStatus) params.status = filterStatus;
       if (huntTaskId) params.huntTaskId = huntTaskId;
       if (onlyUnpacked) params.onlyUnpacked = 'true';
       const [listRes, statsRes] = await Promise.all([
         leadCandidatesApi.list(params),
-        leadCandidatesApi.stats(tenantId),
+        leadCandidatesApi.stats(tenantId as any),
       ]);
       let arr = Array.isArray(listRes.data) ? listRes.data : [];
       if (huntTaskId) arr = arr.filter((c: any) => c.huntTaskId === huntTaskId);
