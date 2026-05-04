@@ -63,4 +63,8 @@ export class UpdateTaskDto {
   @IsOptional()
   @IsString()
   errorMsg?: string | null;
+
+  // Agent 任务退回 pending 时清 startedAt (防 watchdog 拿旧时间误杀)
+  @IsOptional()
+  startedAt?: string | null;
 }

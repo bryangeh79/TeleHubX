@@ -142,18 +142,16 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     }
 
     // 检查每个受影响账号最近 1 小时的 watchdog timeout 次数
+    // Codex Bug #7 修复: 之前 oneHourAgo 没用，导致全历史累计 → 误隔离
     const oneHourAgo = new Date(Date.now() - 60 * 60_000);
     for (const accountId of affectedAccounts) {
-      const recentTimeouts = await this.repo.count({
-        where: {
-          accountId,
-          status: TaskStatus.FAILED,
-          finishedAt: LessThan(new Date()) as any,
-          errorMsg: '任务超时：执行超过 15 分钟未完成（agent 可能已断线）',
-        },
-      });
-      // 简化：不查具体时间，只查最近所有匹配文案的（因为 watchdog 是周期性 run）
-      // 更精确的版本可加 finishedAt > oneHourAgo 的过滤；这里宽松判定
+      const recentTimeouts = await this.repo
+        .createQueryBuilder('t')
+        .where('t."accountId" = :aid', { aid: accountId })
+        .andWhere('t.status = :s', { s: TaskStatus.FAILED })
+        .andWhere('t."finishedAt" > :since', { since: oneHourAgo })
+        .andWhere('t."errorMsg" LIKE :em', { em: '任务超时：执行超过 15 分钟未完成%' })
+        .getCount();
       if (recentTimeouts >= 2) {
         const until = new Date(Date.now() + 30 * 60_000);
         await this.accountRepo.update(accountId, {
@@ -167,7 +165,6 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
       // 即便没触发 quarantine, 也提示这账号的 client 可能需要 force-reconnect
       // (agent 通过下次 heartbeat 看 quarantineReason 决定)
     }
-    void oneHourAgo;  // 留作后续精确化时间窗用
   }
 
   async create(dto: CreateTaskDto, tenantId?: string): Promise<Task> {
@@ -648,6 +645,26 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     if (dto.scheduledAt) {
       t.scheduledAt = new Date(dto.scheduledAt);
     }
+    // 取消保护 (Codex Bug #3): 用户已 cancel 的任务，agent 后续 PATCH done/progress
+    // 不能覆盖回 done。只允许 status→failed (确认取消) 或 errorMsg 写入。
+    if (t.cancelRequested) {
+      if (dto.status !== undefined && dto.status !== TaskStatus.FAILED) {
+        this.logger.warn(
+          `[update] task ${id.slice(0, 8)} cancelRequested=true, ignoring status=${dto.status}`,
+        );
+        // 强制 failed
+        if (!t.finishedAt) t.finishedAt = new Date();
+        t.status = TaskStatus.FAILED;
+      } else if (dto.status === TaskStatus.FAILED) {
+        if (!t.finishedAt) t.finishedAt = new Date();
+        t.status = TaskStatus.FAILED;
+      }
+      // errorMsg 仍允许 agent 写入诊断信息
+      if (dto.errorMsg !== undefined) t.errorMsg = dto.errorMsg;
+      // progress 不更新（防 100% 覆盖）
+      const saved = await this.repo.save(t);
+      return saved;
+    }
     if (dto.name !== undefined) t.name = dto.name;
     if (dto.status !== undefined) {
       // 首次进入 running → 记 startedAt
@@ -662,6 +679,10 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
         t.finishedAt = new Date();
       }
       t.status = dto.status;
+    }
+    // Codex Bug #6: 支持 startedAt 显式重置（agent 退回 pending 时清掉）
+    if (dto.startedAt !== undefined) {
+      t.startedAt = dto.startedAt ? new Date(dto.startedAt) : null;
     }
     if (dto.payload !== undefined) t.payload = dto.payload;
     if (dto.progress !== undefined) t.progress = dto.progress;
@@ -719,7 +740,18 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
 
     parent.progress = Math.round((done / total) * 100);
     if (done + failed >= total) {
-      parent.status = TaskStatus.DONE;
+      // Codex Bug #8: 区分 全成功 / 部分失败 / 全失败
+      if (done === 0) {
+        // 全失败 → 父任务也失败
+        parent.status = TaskStatus.FAILED;
+        parent.errorMsg = `全部 ${total} 个子任务失败`;
+      } else if (failed > 0) {
+        // 部分成功部分失败 → 父任务标 done 但 errorMsg 提示
+        parent.status = TaskStatus.DONE;
+        parent.errorMsg = `部分完成: ${done}/${total} 成功, ${failed} 失败`;
+      } else {
+        parent.status = TaskStatus.DONE;
+      }
       if (!parent.finishedAt) parent.finishedAt = new Date();
     } else if (running || done > 0 || failed > 0) {
       if (parent.status !== TaskStatus.RUNNING) {
@@ -988,16 +1020,29 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     );
     if (!eligibleIds.length) return [];
 
-    const candidates = await this.repo
+    // Codex Bug #5 修复: 同账号一次只派 1 条, 避免 server 派多条 → agent 退回多条 → 状态抖动
+    // 用 DISTINCT ON (accountId) 选每个账号最早的 1 条 pending
+    const rawRows = await this.repo
       .createQueryBuilder('t')
       .where('t.status = :s', { s: TaskStatus.PENDING })
       .andWhere('t."scheduledAt" <= :now', { now })
       .andWhere('t."accountId" IN (:...ids)', { ids: eligibleIds })
-      // 排除 preset_* / keyword_lead_hunt 父任务: 它们是配方编排器, 不是 agent 执行的单点任务
       .andWhere(`t.type::text NOT LIKE 'preset_%' AND t.type::text != 'keyword_lead_hunt'`)
-      .orderBy('t."scheduledAt"', 'ASC')
-      .limit(limit)
-      .getMany();
+      .orderBy('t."accountId"', 'ASC')
+      .addOrderBy('t."scheduledAt"', 'ASC')
+      .getRawMany(); // 不能用 distinctOn 直接 getMany, 改 raw
+    // PG-side dedup: 取每 accountId 第一条
+    const seen = new Set<string>();
+    const candidates: Task[] = [];
+    for (const r of rawRows) {
+      const aid = r.t_accountId;
+      if (!aid || seen.has(aid)) continue;
+      seen.add(aid);
+      // 重新水合 entity (rawMany 字段名带 alias 前缀，用 findBy 拿一次更安全)
+      const entity = await this.repo.findOneBy({ id: r.t_id });
+      if (entity) candidates.push(entity);
+      if (candidates.length >= limit) break;
+    }
 
     if (!candidates.length) return [];
 
