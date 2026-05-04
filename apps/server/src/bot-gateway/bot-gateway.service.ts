@@ -170,17 +170,36 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
   /** 构造产品选择 inline keyboard。每行一个按钮（产品名长，竖排好看）。 */
   /**
    * 构造产品选择 inline keyboard.
-   * 标签格式 "📦 ProductName · 简短关键词" — 简短部分必须能完整显示不被截
-   * Telegram mobile 按钮一行约 ~24 字符可完整显示, 超过会 ... 截掉变垃圾信息.
+   * 标签格式 "📦 ProductName · 简短关键词" — 必须能完整显示不被截断.
+   *
+   * Telegram inline button 不支持文字对齐, 只能按钮内文字默认 left-align.
+   * 但 Telegram 会按整行所有按钮的最长那个**统一宽度** (单按钮一行时整行就那个宽度).
+   * 所以让所有按钮 label 长度接近 (用空格补齐到最长那个), 视觉上就接近"对齐".
    */
   private buildProductKeyboard(roster: Array<{ id: string; name: string; overview?: string }>) {
+    // 先 compute 全部 label
+    const labels = roster.map(p => {
+      const namePart = `📦 ${p.name}`;
+      const tag = this.extractProductTag(p.name, p.overview);
+      return tag ? `${namePart} · ${tag}` : namePart;
+    });
+    // 对齐: pad 到最长那个的可视宽度 (中文 2, 其他 1)
+    const visualWidth = (s: string): number => {
+      let w = 0;
+      for (const ch of s) {
+        // CJK 范围算 2 宽, 其他 1 (含 emoji 简化按 2)
+        const code = ch.codePointAt(0) ?? 0;
+        if (code > 0x2e80) w += 2; else w += 1;
+      }
+      return w;
+    };
+    const maxW = Math.max(...labels.map(visualWidth));
     return {
-      inline_keyboard: roster.map(p => {
-        const namePart = `📦 ${p.name}`;
-        const tag = this.extractProductTag(p.name, p.overview);
-        // 简短 tag 才加, 否则只显示产品名 (避免 "..." 截断)
-        const label = tag ? `${namePart} · ${tag}` : namePart;
-        return [{ text: label, callback_data: `prod:${p.id}` }];
+      inline_keyboard: labels.map((label, i) => {
+        const pad = maxW - visualWidth(label);
+        // 用半角空格补尾, 视觉对齐 (Telegram 按钮不会 trim 中间空格)
+        const padded = label + ' '.repeat(Math.max(0, pad));
+        return [{ text: padded, callback_data: `prod:${roster[i].id}` }];
       }),
     };
   }
@@ -208,15 +227,13 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
     // 取首个短句 (碰到标点就停)
     const firstChunk = s.split(/[，。,.;；！!？?\n（(]/)[0]?.trim() ?? '';
     if (!firstChunk) return '';
-    // 长度限制 — 简单按字符数, 中文/英文都按 6-10 字符判
-    // (中文 1 字符渲染宽度 ≈ 英文 2 字符, 此处统一按 8 字符上限)
-    const MAX_CHARS = 8;
-    if (firstChunk.length > MAX_CHARS) {
-      // 超长 → 用更短的 fallback: 取前 MAX_CHARS 字的"末位词"
-      // 简化: 直接截取前 MAX_CHARS 不加 …
-      return firstChunk.slice(0, MAX_CHARS);
-    }
-    return firstChunk;
+    // 提取过短 (产品名重复抽掉了平台/关键词上下文) → 不显示 tag
+    if (firstChunk.length < 3) return '';
+    // 上限 16 字符 — 实测 Telegram mobile 一行可完整显示 ~24 字符,
+    // 减去 "📦 ProductName · " 头部后约 16 字符可不出 "..."
+    // 用户期望: "📦 FAhubX · Facebook 自动养号系统" (12 字, 完整显示)
+    const MAX_CHARS = 16;
+    return firstChunk.length > MAX_CHARS ? firstChunk.slice(0, MAX_CHARS) : firstChunk;
   }
 
   /** TakeoverGateway 解耦查找 — avoids hard import to break circular dep with TakeoverModule. */
