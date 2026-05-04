@@ -27,7 +27,16 @@ function randomDayTime(base: Date, dayOffset: number, startHour: number, endHour
   while (v === 0) v = Math.random();
   let g = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v) * 0.25 + 0.5;
   g = Math.max(0.05, Math.min(0.95, g));
-  return new Date(day.getTime() + spanMs * g);
+  const picked = new Date(day.getTime() + spanMs * g);
+
+  // 防 picked 在过去 (dayOffset=0 且现在已在窗口内 / 已过窗口的情况)
+  // 回退到 now + 1-10 min 随机抖动: 立即可拉, 同时保留少量自然延迟感
+  const now = Date.now();
+  if (picked.getTime() < now) {
+    const jitterMs = 60_000 + Math.floor(Math.random() * 9 * 60_000);
+    return new Date(now + jitterMs);
+  }
+  return picked;
 }
 
 /** 任务卡在 running 超过此毫秒数 → watchdog 强制 fail */
