@@ -122,13 +122,29 @@ export class KnowledgeService {
    * No vector DB / embeddings yet; this is the MVP that lets the auto-reply
    * decider have something useful to call.
    */
-  async search(query: string, kbId?: string, topN = 5): Promise<FaqMatch[]> {
+  /**
+   * Codex round-10 #1: tenantId 必传 (除非 kbId 明确指定 KB)
+   *   - kbId 给定: 仅在该 KB 内搜 (KB 已绑定一个租户)
+   *   - kbId 空 + tenantId 给定: 仅搜该租户的所有 FAQ
+   *   - kbId 空 + tenantId 空: 旧行为 (跨租户搜) — 已被标 deprecated, 仅留 admin 调试用
+   *
+   * BotGateway 调用此方法必须传 tenantId, 否则 A 客户问"价格"会命中 B 租户 FAQ
+   */
+  async search(query: string, kbId?: string, topN = 5, tenantId?: string): Promise<FaqMatch[]> {
     const qTokens = this.tokenize(query);
     if (!qTokens.size) return [];
 
-    const where: Partial<Pick<Faq, 'kbId' | 'enabled'>> = { enabled: true };
-    if (kbId) where.kbId = kbId;
-    const candidates = await this.faqs.find({ where });
+    const qb = this.faqs.createQueryBuilder('faq')
+      .where('faq.enabled = :en', { en: true });
+    if (kbId) qb.andWhere('faq.kbId = :kbId', { kbId });
+    if (tenantId) {
+      // FAQ 通过 KB 关联租户; 用 IN (SELECT id FROM kbs WHERE tenantId=) 子查询过滤
+      qb.andWhere(
+        `faq.kbId IN (SELECT id FROM knowledge_bases WHERE "tenantId" = :tid)`,
+        { tid: tenantId },
+      );
+    }
+    const candidates = await qb.getMany();
 
     const scored = candidates.map<FaqMatch>((faq) => {
       const { score } = this.faqMatchScore(qTokens, faq);

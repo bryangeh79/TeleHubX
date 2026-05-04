@@ -19,13 +19,16 @@ export class AiAgentController {
     };
   }
 
+  /** Codex round-10 #1: tenantId 必传 (admin 调试 / 平台测试用) */
   @Post('decide')
   @HttpCode(HttpStatus.OK)
-  decide(@Body() body: { chatId: string; userMessage: string; kbId?: string }) {
+  decide(@Body() body: { chatId: string; userMessage: string; kbId?: string; tenantId: string; botId?: string }) {
     return this.decider.decide({
       chatId: body.chatId,
       userMessage: body.userMessage,
       kbId: body.kbId,
+      tenantId: body.tenantId,
+      botId: body.botId,
     });
   }
 

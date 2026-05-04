@@ -196,6 +196,8 @@ export class AiAgentService {
   async reply(
     dto: AiReplyDto,
     override?: RuntimeAiOverride,
+    /** Codex round-10 #2: 多租户/多 bot 隔离的 conv key context. 不传走 legacy key (向后兼容). */
+    scope?: { tenantId?: string; botId?: string },
   ): Promise<{ reply: string; tokens: number; provider: AiProviderId; model: string }> {
     let provider: ResolvedProvider;
     if (override) {
@@ -211,7 +213,11 @@ export class AiAgentService {
       provider = this.resolve(dto.provider, dto.model);
     }
     const client = this.getClient(provider);
-    const key = `${CONV_KEY_PREFIX}${dto.chatId}`;
+    // Codex round-10 #2: 同 chatId 在不同租户/不同 bot 的对话历史不能串线
+    // 推荐: ai:conv:{tenantId}:{botId}:{chatId}; legacy 仅保留兼容老调用
+    const key = scope?.tenantId
+      ? `${CONV_KEY_PREFIX}${scope.tenantId}:${scope.botId ?? 'default'}:${dto.chatId}`
+      : `${CONV_KEY_PREFIX}${dto.chatId}`;
     const history = await this.loadHistory(key);
 
     const systemPrompt = dto.systemPrompt ?? DEFAULT_CS_SYSTEM;
@@ -283,8 +289,12 @@ export class AiAgentService {
     return { answer, tokens, provider: provider.id, model: provider.model };
   }
 
-  async clearHistory(chatId: string): Promise<{ ok: boolean }> {
-    await this.redis.del(`${CONV_KEY_PREFIX}${chatId}`);
+  /** Codex round-10 #2: 推荐传 scope 用新 key 删除; 不传走 legacy 删除 */
+  async clearHistory(chatId: string, scope?: { tenantId?: string; botId?: string }): Promise<{ ok: boolean }> {
+    const key = scope?.tenantId
+      ? `${CONV_KEY_PREFIX}${scope.tenantId}:${scope.botId ?? 'default'}:${chatId}`
+      : `${CONV_KEY_PREFIX}${chatId}`;
+    await this.redis.del(key);
     return { ok: true };
   }
 

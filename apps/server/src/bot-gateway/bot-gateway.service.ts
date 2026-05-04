@@ -265,10 +265,17 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
 
     try {
       const settings = await this.tenants.getSettings(bot.tenantId);
+      // Codex round-10 #1 #3 #4: 必传 tenantId/botId, 透传 daily limit + quiet hours
       const outcome = await this.decider.decide({
         chatId: msg.chatId,
         userMessage: msg.text,
         mode: settings.replyMode,
+        tenantId: bot.tenantId,
+        botId: bot.id,
+        dailyReplyLimit: (settings as any).dailyReplyLimit ?? null,
+        quietHoursEnabled: (settings as any).quietHoursEnabled ?? false,
+        quietHoursStart: (settings as any).quietHoursStart ?? null,
+        quietHoursEnd: (settings as any).quietHoursEnd ?? null,
       });
 
       switch (outcome.action) {
@@ -379,6 +386,8 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
               model: aiConfig.model,
               provider: aiConfig.provider === 'custom' ? 'openai' : aiConfig.provider,
             },
+            // Codex round-10 #2: 隔离 conv key 防跨租户/跨 bot 串线
+            { tenantId: bot.tenantId, botId: bot.id },
           );
           replyText = result.reply;
           this.logger.debug(
@@ -420,7 +429,7 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
     if (replyText) {
       await this.botReply.sendText(bot.rawToken, msg.chatId, replyText, replyMarkup);
       await this.leads.addReply(lead.id, { sender: 'system', text: replyText });
-      await this.decider.recordReply(msg.chatId);
+      await this.decider.recordReply(msg.chatId, bot.tenantId);
       this.getTakeover()?.emitMessage(lead.id, { sender: 'system', text: replyText });
     }
   }
@@ -444,6 +453,14 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
     let kb;
     try { kb = await this.knowledge.getKb(kbId); } catch {
       if (msg.callbackQueryId) await this.botReply.answerCallbackQuery(bot.rawToken, msg.callbackQueryId, '产品已下架');
+      return;
+    }
+    // Codex round-10 #6: 校验 KB 属于此 bot 的租户, 防 cross-tenant 信息泄漏
+    if (kb.tenantId && kb.tenantId !== bot.tenantId) {
+      this.logger.warn(
+        `BotGateway: callback prod blocked cross-tenant kbId=${kbId.slice(0, 8)} botTenant=${bot.tenantId}`,
+      );
+      if (msg.callbackQueryId) await this.botReply.answerCallbackQuery(bot.rawToken, msg.callbackQueryId, '产品不可用');
       return;
     }
 
@@ -519,6 +536,8 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
           model: aiConfig.model,
           provider: aiConfig.provider === 'custom' ? 'openai' : aiConfig.provider,
         },
+        // Codex round-10 #2: 隔离 conv key
+        { tenantId: bot.tenantId, botId: bot.id },
       );
       replyText = result.reply;
     } catch (err) {
@@ -528,7 +547,7 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
     if (replyText) {
       await this.botReply.sendText(bot.rawToken, msg.chatId, replyText);
       await this.leads.addReply(lead.id, { sender: 'system', text: replyText });
-      await this.decider.recordReply(msg.chatId);
+      await this.decider.recordReply(msg.chatId, bot.tenantId);
       this.getTakeover()?.emitMessage(lead.id, { sender: 'system', text: replyText });
     }
 
