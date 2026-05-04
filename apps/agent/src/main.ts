@@ -31,6 +31,8 @@ interface ApiAccount {
   phoneNumber: string;
   role: 'cs' | 'ad' | 'hybrid';
   sessionEncrypted: boolean;
+  /** Codex round-11 #3: per-account tenant 隔离, 被动群 lead 入正确租户 */
+  tenantId?: string | null;
   proxyConfig?: { host: string; port: number; username?: string; password?: string } | null;
   proxyId?: string | null;
   deviceFingerprint?: {
@@ -288,14 +290,22 @@ async function bootstrap(): Promise<void> {
       getOwnNetwork,
     });
 
-    // 被动群线索采集（D 方案）：所有账号挂监听，群里有人发言就收集为候选 lead
-    if (defaultTenantId) {
+    // 被动群线索采集 (D 方案)
+    // Codex round-11 #3: 用 account.tenantId 而非 defaultTenantId, 保证多租户 lead 入正确归属
+    // 缺失 tenantId 的账号 (旧数据 / 未绑) 跳过 + warn, 不再写入 default 租户造成跨租户污染
+    const accountTenantId = account.tenantId ?? null;
+    if (accountTenantId) {
       attachGroupLeadCollector(client, {
         accountId: account.id,
-        tenantId: defaultTenantId,
+        tenantId: accountTenantId,
         selfTgUserId: account.tgUserId ?? null,
         getOwnNetwork,
       });
+    } else {
+      logger.warn(
+        `[group-lead-collector] account ${account.id.slice(0, 8)} (phone=${account.phoneNumber}) ` +
+        `has no tenantId, skipping passive lead collector (避免错入 default 租户)`,
+      );
     }
 
     const keepOnline = new KeepOnlineService();
@@ -492,7 +502,16 @@ async function bootstrap(): Promise<void> {
 
       // 不 await — 让此 task 在后台跑，循环继续派下一个 (不同账号的)
       void executeTask(
-        { id: t.id, type: t.type, accountId: t.accountId, accountLabel: t.accountLabel, payload: t.payload, tenantId: t.tenantId ?? null },
+        {
+          id: t.id,
+          type: t.type,
+          accountId: t.accountId,
+          accountLabel: t.accountLabel,
+          payload: t.payload,
+          tenantId: t.tenantId ?? null,
+          // Codex round-11 #2: 透传 messageSentAt, campaign_single retry 真正能跳过已发消息
+          messageSentAt: t.messageSentAt ?? null,
+        },
         slot.client,
         taskCallbacks,
         allClients,
