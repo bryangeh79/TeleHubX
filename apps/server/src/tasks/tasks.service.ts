@@ -697,6 +697,12 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     if (dto.payload !== undefined) t.payload = dto.payload;
     if (dto.progress !== undefined) t.progress = dto.progress;
     if (dto.errorMsg !== undefined) t.errorMsg = dto.errorMsg;
+    // Auto-Recovery: agent 写入错误分类 / 重试计数
+    if (dto.errorClass !== undefined) t.errorClass = dto.errorClass;
+    if (dto.autoRetryCount !== undefined) t.autoRetryCount = dto.autoRetryCount;
+    if (dto.lastRetryAt !== undefined) {
+      t.lastRetryAt = dto.lastRetryAt ? new Date(dto.lastRetryAt) : null;
+    }
     const saved = await this.repo.save(t);
     // 子任务状态/进度变化 → 反推父任务汇总
     if (t.parentTaskId && (dto.status !== undefined || dto.progress !== undefined)) {
@@ -784,6 +790,19 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     if (t.status !== TaskStatus.PAUSED) return t;
     t.status = TaskStatus.RUNNING;
     return this.repo.save(t);
+  }
+
+  /**
+   * Auto-Recovery: agent 自动重试前调此方法记录状态.
+   * 原子 UPDATE: autoRetryCount, errorClass, lastRetryAt = NOW().
+   * 不改 status — 重试期间 task 仍 running, 等真正重试结果再 markDone/markFailed.
+   */
+  async markRetrying(id: string, errorClass: string, count: number): Promise<void> {
+    await this.repo.update(id, {
+      errorClass,
+      autoRetryCount: count,
+      lastRetryAt: new Date(),
+    });
   }
 
   /**

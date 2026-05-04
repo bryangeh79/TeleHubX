@@ -410,8 +410,13 @@ async function bootstrap(): Promise<void> {
       patchJson(`/tasks/${id}`, { status: 'done', progress: 100 }).catch(() => {}),
     markDoneWithMsg: (id: string, errorMsg: string) =>
       patchJson(`/tasks/${id}`, { status: 'done', progress: 100, errorMsg }).catch(() => {}),
-    markFailed: (id: string, errorMsg: string) =>
-      patchJson(`/tasks/${id}`, { status: 'failed', errorMsg }).catch(() => {}),
+    /** Auto-Recovery: errorClass 透传到 server, dashboard 用以渲染错误类别 tag */
+    markFailed: (id: string, errorMsg: string, errorClass?: string) =>
+      patchJson(`/tasks/${id}`, {
+        status: 'failed',
+        errorMsg,
+        ...(errorClass ? { errorClass } : {}),
+      }).catch(() => {}),
     quarantineAccount: async (accountId: string, untilEpochMs: number, reason: string) => {
       try {
         await patchJson(`/accounts/${accountId}`, {
@@ -420,6 +425,73 @@ async function bootstrap(): Promise<void> {
           status: 'error',
         });
       } catch {}
+    },
+    /**
+     * Auto-Recovery: 自动重试前调 server 端 mark-retrying endpoint.
+     * 红线: endpoint 必须 @AgentOnly().
+     */
+    markRetrying: async (taskId: string, errorClass: string, count: number) => {
+      try {
+        await fetch(`${API_BASE}/tasks/${taskId}/mark-retrying`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...AGENT_AUTH_HEADER },
+          body: JSON.stringify({ errorClass, count }),
+        });
+      } catch {}
+    },
+    /**
+     * Auto-Recovery: 重连账号 (B 类错误前置).
+     * 红线 (用户要求):
+     *   - 只允许 client.disconnect() + client.connect()
+     *   - 不允许 new TelegramClient(), 不允许覆盖 StringSession
+     *   - 不允许触发任何 auth.* RPC
+     * 30s 总超时.
+     */
+    reconnectAccount: async (accountId: string): Promise<boolean> => {
+      const slot = slots.get(accountId);
+      if (!slot) {
+        logger.warn(`[reconnect] ${accountId.slice(0, 8)} not in slots, abort`);
+        return false;
+      }
+      const timeoutMs = 30_000;
+      try {
+        await Promise.race([
+          (async () => {
+            try {
+              await slot.client.disconnect();
+            } catch {
+              // 已断开 / 未连接 — 忽略
+            }
+            await slot.client.connect();
+          })(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('reconnect timeout 30s')), timeoutMs),
+          ),
+        ]);
+        logger.info(`[reconnect] ${accountId.slice(0, 8)} ✓`);
+        return true;
+      } catch (err: unknown) {
+        logger.error(
+          `[reconnect] ${accountId.slice(0, 8)} failed: ${err instanceof Error ? err.message : err}`,
+        );
+        return false;
+      }
+    },
+    /**
+     * Auto-Recovery: G 类账号失效, 标账号 banned 通知用户重登.
+     * PATCH /accounts/{id} { state: 'banned', notes: reason }.
+     * 失败静默 — 主流程 (markFailed) 不应被阻塞.
+     */
+    markAccountBanned: async (accountId: string, reason: string) => {
+      try {
+        await patchJson(`/accounts/${accountId}`, {
+          state: 'banned',
+          notes: `Auto-detected: ${reason}`,
+        });
+        logger.warn(`[account-banned] ${accountId.slice(0, 8)} marked banned: ${reason}`);
+      } catch {
+        // 静默
+      }
     },
     // Codex #3: chat_script 多账号锁 (main loop pre-lock 已是主路径, 这两个保留作 backup)
     // Codex round-3 #2: ownership check — 只删自己的锁, 防 chat_script 结束误删别的任务锁
@@ -511,6 +583,8 @@ async function bootstrap(): Promise<void> {
           tenantId: t.tenantId ?? null,
           // Codex round-11 #2: 透传 messageSentAt, campaign_single retry 真正能跳过已发消息
           messageSentAt: t.messageSentAt ?? null,
+          // Auto-Recovery: 透传 autoRetryCount, retry 计数跨 dispatch 持久化
+          autoRetryCount: t.autoRetryCount ?? 0,
         },
         slot.client,
         taskCallbacks,

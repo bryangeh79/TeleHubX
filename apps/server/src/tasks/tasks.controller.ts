@@ -14,7 +14,7 @@ import {
 import { AuthUser, CurrentUser, isAgent, isSuperAdmin } from '../auth/current-user.decorator';
 import { AgentOnly, AllowAgent } from '../auth/roles.decorator';
 import { callerTenantId } from '../auth/tenant-resolver';
-import { CreateTaskDto, UpdateTaskDto } from './task.dto';
+import { CreateTaskDto, MarkRetryingDto, UpdateTaskDto } from './task.dto';
 import { TaskStatus, TaskType } from './task.entity';
 import { TasksService } from './tasks.service';
 
@@ -83,6 +83,20 @@ export class TasksController {
   @AgentOnly()
   async update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateTaskDto) {
     return this.service.update(id, dto);
+  }
+
+  /**
+   * Auto-Recovery: agent 在自动重试前调此 endpoint 记录重试状态.
+   * 红线 (用户要求): @AgentOnly() — 普通 user JWT 不能调用.
+   */
+  @Post(':id/mark-retrying')
+  @AgentOnly()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async markRetrying(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: MarkRetryingDto,
+  ) {
+    await this.service.markRetrying(id, dto.errorClass, dto.count);
   }
 
   @Post(':id/pause')

@@ -1,5 +1,6 @@
 import { TelegramClient } from 'telegram';
 import { EXECUTORS, ExecutorCtx } from './executors';
+import { classifyError, ErrorClass } from './error-classifier';
 
 export interface DispatchedTask {
   id: string;
@@ -10,6 +11,8 @@ export interface DispatchedTask {
   tenantId?: string | null;
   /** Codex round-8: 已成功发送过消息的标记 (campaign_single retry 防重发) */
   messageSentAt?: string | null;
+  /** Auto-Recovery: 已自动重试次数, 由 server dispatch 透传 */
+  autoRetryCount?: number;
 }
 
 export interface ServerCallbacks {
@@ -19,10 +22,28 @@ export interface ServerCallbacks {
   markDone(taskId: string): Promise<void>;
   /** 任务执行完成 + 写 errorMsg (用于 self-test 把 JSON 结果存入) */
   markDoneWithMsg(taskId: string, errorMsg: string): Promise<void>;
-  /** 任务执行失败 */
-  markFailed(taskId: string, errorMsg: string): Promise<void>;
+  /**
+   * 任务执行失败。
+   * Auto-Recovery: errorClass 可选, 由 task-runner 在分类后传入, server 写入 task.errorClass
+   */
+  markFailed(taskId: string, errorMsg: string, errorClass?: ErrorClass): Promise<void>;
   /** 触发 FloodWait → 把账号隔离一段时间 */
   quarantineAccount(accountId: string, untilEpochMs: number, reason: string): Promise<void>;
+  /**
+   * Auto-Recovery: 自动重试前调此回调, server 端原子 UPDATE autoRetryCount/errorClass/lastRetryAt.
+   */
+  markRetrying(taskId: string, errorClass: ErrorClass, count: number): Promise<void>;
+  /**
+   * Auto-Recovery: 重连账号 (B 类错误前置). 红线: 只允许 client.disconnect()/connect(),
+   * 不允许重建 TelegramClient, 不允许清 session.
+   * 返回 true 表示重连成功, false 表示失败 (此时 task 直接 markFailed).
+   */
+  reconnectAccount(accountId: string): Promise<boolean>;
+  /**
+   * Auto-Recovery: G 类账号失效 (AUTH_KEY_UNREGISTERED 等), 标账号 banned + 推送通知用户.
+   * 失败静默 (不阻塞 task fail 流程).
+   */
+  markAccountBanned(accountId: string, reason: string): Promise<void>;
   /**
    * Codex #3: 多账号 executor (chat_script_*) 需要锁额外参与账号。
    * 主 task.accountId 由 main loop 自动锁；这里给 B/C/D/E/F 用。
@@ -211,14 +232,71 @@ export async function executeTask(
       } catch { /* 不是 JSON, 走通用 failed */ }
     }
 
+    // ─── D 类: FloodWait 走原有 quarantine 路径 (红线: 不被新 retry 改坏) ────
     const floodSec = parseFloodWaitSeconds(e);
     if (floodSec && task.accountId) {
       const until = Date.now() + (floodSec + 30) * 1000; // 多加 30 秒 buffer
       await cb.quarantineAccount(task.accountId, until, `FloodWait ${floodSec}s @ task=${task.type}`);
       cb.log.warn(`[task ${task.id.slice(0, 8)}] FloodWait ${floodSec}s, quarantined account ${task.accountId.slice(0, 8)} until ${new Date(until).toISOString()}`);
-    } else {
-      cb.log.error(`[task ${task.id.slice(0, 8)}] failed: ${e.message}`);
+      await cb.markFailed(task.id, e.message ?? String(err), 'D');
+      return;
     }
-    await cb.markFailed(task.id, e.message ?? String(err));
+
+    // ─── Auto-Recovery: 错误分类 + 自动重试 (仅 A/B 类) ──────────────────
+    const classified = classifyError(e);
+
+    // G 类: 账号失效 → 标账号 banned (不重试)
+    if (classified.class === 'G' && task.accountId) {
+      await cb.markAccountBanned(task.accountId, classified.classLabel).catch(() => {});
+    }
+
+    // A/B 类 + 重试上限未到 → 自动重试
+    const MAX_AUTO_RETRY = 2;
+    const currentCount = task.autoRetryCount ?? 0;
+    if (classified.retryable && currentCount < MAX_AUTO_RETRY) {
+      const nextCount = currentCount + 1;
+      await cb.markRetrying(task.id, classified.class, nextCount).catch(() => {});
+
+      // 退避: 30s × 2^(count-1) ± 20% jitter
+      const baseBackoff = 30_000 * Math.pow(2, nextCount - 1);
+      const jitterRange = baseBackoff * 0.2;
+      const backoffMs = baseBackoff + (Math.random() * 2 - 1) * jitterRange;
+      cb.log.info(
+        `[task ${task.id.slice(0, 8)}] auto-retry ${nextCount}/${MAX_AUTO_RETRY} in ${Math.round(backoffMs / 1000)}s (class=${classified.class} ${classified.classLabel})`,
+      );
+      await new Promise((r) => setTimeout(r, backoffMs));
+
+      // B 类: 重试前 reconnect (红线: 只 connect/disconnect, 不重建 client)
+      if (classified.needReconnect && task.accountId) {
+        const ok = await cb.reconnectAccount(task.accountId).catch(() => false);
+        if (!ok) {
+          cb.log.error(`[task ${task.id.slice(0, 8)}] reconnect failed, abort retry`);
+          await cb.markFailed(
+            task.id,
+            `[${classified.classLabel}] 重连失败 — ${e.message ?? String(err)}`,
+            classified.class,
+          );
+          return;
+        }
+      }
+
+      // 递归重试 — 注意保留 task.messageSentAt (campaign_single 幂等关键)
+      // 红线: 必须传同一个 task object, 不可清 messageSentAt
+      return executeTask(
+        { ...task, autoRetryCount: nextCount },
+        client,
+        cb,
+        clients,
+      );
+    }
+
+    // ─── 不可重试 / 上限耗尽 → markFailed ────────────────────────────
+    const finalMsg = classified.permanent
+      ? `[${classified.classLabel}] ${e.message ?? String(err)}`
+      : currentCount > 0
+        ? `[${classified.classLabel}] 已自动重试 ${currentCount}/${MAX_AUTO_RETRY} — ${e.message ?? String(err)}`
+        : `[${classified.classLabel}] ${e.message ?? String(err)}`;
+    cb.log.error(`[task ${task.id.slice(0, 8)}] failed (class=${classified.class}): ${e.message}`);
+    await cb.markFailed(task.id, finalMsg, classified.class);
   }
 }
