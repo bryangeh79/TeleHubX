@@ -1,6 +1,6 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, MoreThanOrEqual, Repository } from 'typeorm';
+import { In, LessThan, MoreThanOrEqual, Repository } from 'typeorm';
 import {
   Campaign,
   CampaignStatus,
@@ -391,9 +391,16 @@ export class CampaignDispatchService {
     const seen = new Set<string>();
     const result: ResolvedTarget[] = [];
 
-    // 来自客户群
+    // 来自客户群 — Codex #3: 必须按 campaign.tenantId 过滤防跨租户读取
     if (campaign.customerGroupIds?.length) {
-      const groups = await this.groupRepo.findByIds(campaign.customerGroupIds);
+      const where: any = { id: In(campaign.customerGroupIds) };
+      if (campaign.tenantId) where.tenantId = campaign.tenantId;
+      const groups = await this.groupRepo.find({ where });
+      if (groups.length !== campaign.customerGroupIds.length) {
+        const found = new Set(groups.map((g) => g.id));
+        const missing = campaign.customerGroupIds.filter((id) => !found.has(id));
+        throw new ForbiddenException(`customerGroupIds 跨租户或不存在: ${missing.slice(0, 3).join(', ')}`);
+      }
       for (const g of groups) {
         for (const m of g.members ?? []) {
           if (m && !seen.has(m)) {
@@ -422,10 +429,16 @@ export class CampaignDispatchService {
   private async selectAccounts(campaign: Campaign): Promise<Account[]> {
     const tenantId = campaign.tenantId;
 
-    // 自定义槽位模式：用指定账号
+    // 自定义槽位模式：用指定账号 — Codex #3: 双条件过滤
     if (campaign.accountSourceMode === 'manual' && campaign.adAccountIds?.length) {
-      const accounts = await this.accountRepo.findByIds(campaign.adAccountIds);
-      // 仍然过滤掉 banned / quarantined
+      const where: any = { id: In(campaign.adAccountIds) };
+      if (tenantId) where.tenantId = tenantId;
+      const accounts = await this.accountRepo.find({ where });
+      if (accounts.length !== campaign.adAccountIds.length) {
+        const found = new Set(accounts.map((a) => a.id));
+        const missing = campaign.adAccountIds.filter((id) => !found.has(id));
+        throw new ForbiddenException(`adAccountIds 跨租户或不存在: ${missing.slice(0, 3).join(', ')}`);
+      }
       const now = new Date();
       return accounts.filter(a =>
         a.status !== AccountStatus.BANNED &&
@@ -433,15 +446,16 @@ export class CampaignDispatchService {
       );
     }
 
-    // 智能模式：自动筛选
+    // 智能模式：自动筛选 — Codex #4: 按 tenantId 过滤防 A 租户用 B 账号发广告
     const now = new Date();
     const matureCutoff = new Date();
     matureCutoff.setDate(matureCutoff.getDate() - MATURE_DAYS);
 
+    const baseWhere = tenantId ? { tenantId } : {};
     const all = await this.accountRepo.find({
       where: [
-        { role: AccountRole.AD },
-        { role: AccountRole.HYBRID },
+        { role: AccountRole.AD, ...baseWhere },
+        { role: AccountRole.HYBRID, ...baseWhere },
       ],
     });
 
@@ -464,7 +478,15 @@ export class CampaignDispatchService {
     const pool: string[] = [];
 
     if (ids.length) {
-      const tpls = await this.adRepo.findByIds(ids);
+      // Codex #3: 按 campaign.tenantId 双条件过滤
+      const where: any = { id: In(ids) };
+      if (campaign.tenantId) where.tenantId = campaign.tenantId;
+      const tpls = await this.adRepo.find({ where });
+      if (tpls.length !== ids.length) {
+        const found = new Set(tpls.map((t) => t.id));
+        const missing = ids.filter((id) => !found.has(id));
+        throw new ForbiddenException(`adTemplateIds 跨租户或不存在: ${missing.slice(0, 3).join(', ')}`);
+      }
       for (const t of tpls) {
         if (t.content) pool.push(t.content);
         for (const v of t.variants ?? []) {
@@ -483,7 +505,15 @@ export class CampaignDispatchService {
 
   private async loadGreetings(campaign: Campaign): Promise<string[]> {
     if (!campaign.greetingTemplateIds?.length) return [];
-    const greetings = await this.greetingRepo.findByIds(campaign.greetingTemplateIds);
+    // Codex #3: 按 campaign.tenantId 双条件
+    const where: any = { id: In(campaign.greetingTemplateIds) };
+    if (campaign.tenantId) where.tenantId = campaign.tenantId;
+    const greetings = await this.greetingRepo.find({ where });
+    if (greetings.length !== campaign.greetingTemplateIds.length) {
+      const found = new Set(greetings.map((g) => g.id));
+      const missing = campaign.greetingTemplateIds.filter((id) => !found.has(id));
+      throw new ForbiddenException(`greetingTemplateIds 跨租户或不存在: ${missing.slice(0, 3).join(', ')}`);
+    }
     const pool: string[] = [];
     for (const g of greetings) {
       if (g.text) pool.push(g.text);
