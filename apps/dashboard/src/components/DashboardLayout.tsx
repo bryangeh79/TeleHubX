@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
-import { Avatar, Button, Dropdown, Layout, Menu, Space, Typography, theme } from 'antd';
+import { useMemo, useState } from 'react';
+import { Alert, Avatar, Button, Dropdown, Form, Input, Layout, Menu, Modal, Space, Typography, message as antdMessage, theme } from 'antd';
 import {
   CrownOutlined,
   CustomerServiceOutlined,
   DashboardOutlined,
   InboxOutlined,
+  KeyOutlined,
   LogoutOutlined,
   ScheduleOutlined,
   SendOutlined,
@@ -13,6 +14,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { authApi } from '../services/api';
 
 const { Header, Content } = Layout;
 const { Title, Text } = Typography;
@@ -71,13 +73,19 @@ export default function DashboardLayout() {
     return match ?? '/';
   }, [location.pathname, menuItems]);
 
+  const [pwModalOpen, setPwModalOpen] = useState(false);
+
   const userMenuItems = [
-    { key: 'profile', label: '个人资料', icon: <UserOutlined /> },
+    { key: 'change-password', label: '修改密码', icon: <KeyOutlined /> },
     { type: 'divider' as const },
     { key: 'logout', label: '登出', icon: <LogoutOutlined />, danger: true },
   ];
 
   const handleUserMenuClick = ({ key }: { key: string }) => {
+    if (key === 'change-password') {
+      setPwModalOpen(true);
+      return;
+    }
     if (key === 'logout') {
       localStorage.removeItem('telehubx:token');
       localStorage.removeItem('telehubx:user');
@@ -142,6 +150,104 @@ export default function DashboardLayout() {
       >
         <Outlet />
       </Content>
+
+      <ChangePasswordModal
+        open={pwModalOpen}
+        onClose={() => setPwModalOpen(false)}
+        onSuccess={() => {
+          setPwModalOpen(false);
+          // 改密成功后强制重新登录（旧 token 仍有效，但提示用户用新密码）
+          antdMessage.success('密码已修改，请用新密码重新登录');
+          setTimeout(() => {
+            localStorage.removeItem('telehubx:token');
+            localStorage.removeItem('telehubx:user');
+            navigate('/login');
+          }, 1500);
+        }}
+      />
     </Layout>
+  );
+}
+
+// ── 修改密码 Modal ────────────────────────────────────────────────────
+function ChangePasswordModal({
+  open, onClose, onSuccess,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [form] = Form.useForm();
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    let values: { oldPassword: string; newPassword: string; confirmPassword: string };
+    try { values = await form.validateFields(); } catch { return; }
+    if (values.newPassword !== values.confirmPassword) {
+      antdMessage.error('两次输入的新密码不一致');
+      return;
+    }
+    if (values.newPassword === values.oldPassword) {
+      antdMessage.error('新密码不能与旧密码相同');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await authApi.changePassword(values.oldPassword, values.newPassword);
+      form.resetFields();
+      onSuccess();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '修改失败');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      title={<Space><KeyOutlined /> 修改密码</Space>}
+      onCancel={() => { form.resetFields(); onClose(); }}
+      onOk={handleSubmit}
+      okText="确认修改"
+      cancelText="取消"
+      confirmLoading={submitting}
+      width={460}
+      destroyOnClose
+    >
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16, fontSize: 13 }}
+        message="改密成功后会自动登出，请用新密码重新登录"
+      />
+      <Form form={form} layout="vertical" requiredMark="optional">
+        <Form.Item
+          name="oldPassword"
+          label="当前密码"
+          rules={[{ required: true, message: '请输入当前密码' }]}
+        >
+          <Input.Password placeholder="当前密码" autoComplete="current-password" />
+        </Form.Item>
+        <Form.Item
+          name="newPassword"
+          label="新密码"
+          rules={[
+            { required: true, message: '请输入新密码' },
+            { min: 6, message: '至少 6 位' },
+            { max: 64, message: '最长 64 位' },
+          ]}
+        >
+          <Input.Password placeholder="至少 6 位" autoComplete="new-password" />
+        </Form.Item>
+        <Form.Item
+          name="confirmPassword"
+          label="确认新密码"
+          rules={[{ required: true, message: '请再次输入新密码' }]}
+        >
+          <Input.Password placeholder="再次输入新密码" autoComplete="new-password" />
+        </Form.Item>
+      </Form>
+    </Modal>
   );
 }
