@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Alert, Avatar, Button, Dropdown, Form, Input, Layout, Menu, Modal, Space, Typography, message as antdMessage, theme } from 'antd';
+import { Alert, Avatar, Button, Dropdown, Form, Input, Layout, Menu, Modal, Select, Space, Typography, message as antdMessage, theme } from 'antd';
 import {
   CrownOutlined,
   CustomerServiceOutlined,
   DashboardOutlined,
+  GlobalOutlined,
   InboxOutlined,
   KeyOutlined,
   LogoutOutlined,
@@ -15,6 +16,7 @@ import {
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { authApi } from '../services/api';
+import { LANG_OPTIONS, useI18n } from '../i18n';
 
 const { Header, Content } = Layout;
 const { Title, Text } = Typography;
@@ -34,36 +36,37 @@ function readStoredUser(): StoredUser {
   }
 }
 
-const MENU_ITEMS_BASE = [
-  { key: '/',           icon: <DashboardOutlined />,        label: '仪表盘' },
-  { key: '/accounts',   icon: <TeamOutlined />,             label: '账号' },
-  { key: '/scheduler',  icon: <ScheduleOutlined />,         label: '任务调度' },
-  { key: '/campaigns',  icon: <SendOutlined />,             label: '广告投放' },
-  { key: '/cs',         icon: <CustomerServiceOutlined />,  label: '智能客服' },
-  { key: '/leads',      icon: <InboxOutlined />,            label: '人工接管' },
-  { key: '/lead-candidates', icon: <TeamOutlined />,        label: '候选人池' },
-  { key: '/discovered-groups', icon: <TeamOutlined />,      label: '群源发现' },
-  { key: '/settings',   icon: <SettingOutlined />,          label: '设置' },
-];
+function buildMenuItems(t: (k: string) => string) {
+  return [
+    { key: '/',                  icon: <DashboardOutlined />,        label: t('nav.dashboard') },
+    { key: '/accounts',          icon: <TeamOutlined />,             label: t('nav.accounts') },
+    { key: '/scheduler',         icon: <ScheduleOutlined />,         label: t('nav.scheduler') },
+    { key: '/campaigns',         icon: <SendOutlined />,             label: t('nav.campaigns') },
+    { key: '/cs',                icon: <CustomerServiceOutlined />,  label: t('nav.cs') },
+    { key: '/leads',             icon: <InboxOutlined />,            label: t('cs.handoff') },
+    { key: '/lead-candidates',   icon: <TeamOutlined />,             label: t('nav.candidates') },
+    { key: '/discovered-groups', icon: <TeamOutlined />,             label: t('nav.discoveredGroups') },
+    { key: '/settings',          icon: <SettingOutlined />,          label: t('nav.settings') },
+  ];
+}
 
-const MENU_ITEM_ADMIN = {
-  key: '/admin',
-  icon: <CrownOutlined />,
-  label: '管理面板',
-};
+function adminMenuItem(t: (k: string) => string) {
+  return { key: '/admin', icon: <CrownOutlined />, label: t('nav.admin') };
+}
 
 export default function DashboardLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { token } = theme.useToken();
+  const { lang, setLang, t } = useI18n();
 
   const user = readStoredUser();
   const isSuperAdmin = user.role?.toLowerCase() === 'super_admin';
 
-  const menuItems = useMemo(
-    () => (isSuperAdmin ? [...MENU_ITEMS_BASE, MENU_ITEM_ADMIN] : MENU_ITEMS_BASE),
-    [isSuperAdmin],
-  );
+  const menuItems = useMemo(() => {
+    const base = buildMenuItems(t);
+    return isSuperAdmin ? [...base, adminMenuItem(t)] : base;
+  }, [isSuperAdmin, t, lang]);
 
   const selectedKey = useMemo(() => {
     const match = menuItems
@@ -76,9 +79,9 @@ export default function DashboardLayout() {
   const [pwModalOpen, setPwModalOpen] = useState(false);
 
   const userMenuItems = [
-    { key: 'change-password', label: '修改密码', icon: <KeyOutlined /> },
+    { key: 'change-password', label: t('common.edit') + ' / ' + (lang === 'zh' ? '修改密码' : lang === 'en' ? 'Change Password' : lang === 'ms' ? 'Tukar Kata Laluan' : 'Đổi mật khẩu'), icon: <KeyOutlined /> },
     { type: 'divider' as const },
-    { key: 'logout', label: '登出', icon: <LogoutOutlined />, danger: true },
+    { key: 'logout', label: t('nav.logout'), icon: <LogoutOutlined />, danger: true },
   ];
 
   const handleUserMenuClick = ({ key }: { key: string }) => {
@@ -128,6 +131,15 @@ export default function DashboardLayout() {
         />
 
         <Space size={12} style={{ flexShrink: 0 }}>
+          <Select
+            size="small"
+            variant="borderless"
+            value={lang}
+            onChange={(v) => setLang(v as any)}
+            options={LANG_OPTIONS}
+            style={{ width: 130 }}
+            suffixIcon={<GlobalOutlined />}
+          />
           <Text type="secondary" style={{ fontSize: 12 }}>
             {user.tenantName ?? 'default'}
           </Text>

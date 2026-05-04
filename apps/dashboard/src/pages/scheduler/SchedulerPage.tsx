@@ -43,7 +43,8 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { accountsApi, assetsApi, chatScriptsApi, leadCandidatesApi, slotsApi, tasksApi } from '../../services/api';
-import { getErrorClassMeta } from '../../utils/error-class';
+import { resolveErrorClassMeta } from '../../utils/error-class';
+import { useT } from '../../i18n';
 
 const { Title, Text } = Typography;
 
@@ -171,6 +172,7 @@ const STATUS_META: Record<TaskStatus, { label: string; color: string }> = {
 };
 
 export default function SchedulerPage() {
+  const t = useT();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [stats, setStats] = useState<Stats>({ total: 0, pending: 0, running: 0, failed: 0, done: 0 });
   const [loading, setLoading] = useState(false);
@@ -868,35 +870,35 @@ export default function SchedulerPage() {
             {logTask.finishedAt && (
               <Descriptions.Item label="结束时间">{dayjs(logTask.finishedAt).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
             )}
-            {/* Auto-Recovery: 错误类别 + 自动重试状态 */}
-            {logTask.errorClass && getErrorClassMeta(logTask.errorClass) && (
-              <Descriptions.Item label="错误类别">
-                <Tag color={getErrorClassMeta(logTask.errorClass)!.color}>
-                  {getErrorClassMeta(logTask.errorClass)!.label} ({logTask.errorClass})
+            {/* Auto-Recovery: 错误类别 + 自动重试状态 (i18n) */}
+            {logTask.errorClass && resolveErrorClassMeta(logTask.errorClass, t) && (
+              <Descriptions.Item label={t('task.errorClass')}>
+                <Tag color={resolveErrorClassMeta(logTask.errorClass, t)!.color}>
+                  {resolveErrorClassMeta(logTask.errorClass, t)!.label} ({logTask.errorClass})
                 </Tag>
               </Descriptions.Item>
             )}
             {logTask.status === 'failed' && (logTask.autoRetryCount ?? 0) > 0 && (
-              <Descriptions.Item label="自动恢复">
+              <Descriptions.Item label={t('task.autoRecovery')}>
                 <Text style={{ fontSize: 13 }}>
-                  已自动重试 {logTask.autoRetryCount}/2 次
+                  {t('task.autoRetried', { n: logTask.autoRetryCount ?? 0, max: 2 })}
                   {logTask.lastRetryAt && (
                     <Text type="secondary" style={{ marginLeft: 8 }}>
-                      (最后一次: {dayjs(logTask.lastRetryAt).format('HH:mm:ss')})
+                      ({t('task.lastRetry')}: {dayjs(logTask.lastRetryAt).format('HH:mm:ss')})
                     </Text>
                   )}
                 </Text>
               </Descriptions.Item>
             )}
-            {logTask.errorClass && getErrorClassMeta(logTask.errorClass) && logTask.status === 'failed' && (
-              <Descriptions.Item label="系统建议">
+            {logTask.errorClass && resolveErrorClassMeta(logTask.errorClass, t) && logTask.status === 'failed' && (
+              <Descriptions.Item label={t('task.systemHint')}>
                 <Text style={{ fontSize: 13 }}>
-                  💡 {getErrorClassMeta(logTask.errorClass)!.hint}
+                  💡 {resolveErrorClassMeta(logTask.errorClass, t)!.hint}
                 </Text>
               </Descriptions.Item>
             )}
             {logTask.errorMsg && (
-              <Descriptions.Item label="错误详情">
+              <Descriptions.Item label={t('task.errorMsg')}>
                 <Text type="danger" style={{ fontSize: 13 }}>{humanizeError(logTask.errorMsg)}</Text>
               </Descriptions.Item>
             )}

@@ -13,6 +13,7 @@ import {
   CheckCircleFilled,
 } from '@ant-design/icons';
 import { dashboardApi, knowledgeApi, tenantsApi } from '../services/api';
+import { useT } from '../i18n';
 
 const { Title, Text } = Typography;
 
@@ -64,6 +65,7 @@ const FALLBACK: DashboardData = {
 };
 
 export default function DashboardPage() {
+  const t = useT();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -152,7 +154,7 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <Title level={4} style={{ marginBottom: 24 }}>仪表盘</Title>
+      <Title level={4} style={{ marginBottom: 24 }}>{t('page.dashboard.title')}</Title>
 
       {showOnboarding && (
         <Alert
