@@ -204,8 +204,9 @@ export async function reactionBoost(ctx: ExecutorCtx): Promise<void> {
     }
     await ctx.reportProgress?.(Math.round(((i + 1) / picks.length) * 100));
     if (i < picks.length - 1) {
-      // reaction 间隔 5-30s
-      await sleep(gaussianDelayMs(5_000, 30_000));
+      // reaction 间隔 5-30s — Codex round-9 #6: 改 cancellable, 取消能立即生效
+      await cancellableSleep(gaussianDelayMs(5_000, 30_000), ctx.abortSignal);
+      throwIfAborted(ctx.abortSignal);
     }
   }
 }
@@ -285,14 +286,30 @@ export async function joinGroups(ctx: ExecutorCtx): Promise<void> {
 
 // ─── 7. ACCEPT_INVITES ───────────────────────────────────────────────
 /**
- * 接受所有 pending 状态的群组邀请（join requests）。
- * 用 messages.GetDialogs 拉所有 dialogs，对每个 channel 检查 hasJoinRequest 并通过。
+ * Codex round-9 #4: 此 executor 之前的实现是错的 + 危险.
  *
- * payload: { autoAcceptAll?: true }
+ * 之前: messages.HideAllChatJoinRequests({approved:true}) — 这是给 GROUP ADMIN
+ * 用的"批量批准别人加入我管理的群"的 API. 如果账号是某些群的管理员, 跑这个 task
+ * 会自动批准所有陌生人入群, 完全不是用户期望的"接受我收到的群邀请".
+ *
+ * Telegram 没有 "auto-accept all pending invites I received" 的官方 API:
+ *   - InviteLinks 需要点链接 (messages.ImportChatInvite hash)
+ *   - 加好友后被拉群是自动的, 不需要 accept
+ *   - 群邀请 (invites_to_chats) 没有 list pending API 让账号批量同意
+ *
+ * 修法: 直接 throw 'unsupported', task 标 failed (不再假 done 静默批准群请求).
+ * 用户应该用 join_groups + 具体 inviteLinks 来加群.
  */
 export async function acceptInvites(ctx: ExecutorCtx): Promise<void> {
-  // 简化实现：拉 dialogs，对每个 channel 调 hideChatJoinRequest(approved=true)
-  // 大多数账号不会有大量 pending invites，循环几十个就够
+  throw new Error(
+    'accept_invites 不支持: Telegram 没有 "auto-accept invites I received" API. ' +
+    '请用 join_groups + 具体 inviteLinks 加群. ' +
+    '(之前的实现误调 HideAllChatJoinRequests, 那是给群管理员批准他人入群的, 已禁用防误操作.)',
+  );
+}
+
+/** 旧实现保留作历史参考, 不再 export — 防止意外调用. */
+async function _acceptInvitesLegacyDangerous(ctx: ExecutorCtx): Promise<void> {
   const dialogs = await ctx.client.getDialogs({ limit: 100 });
   let processed = 0;
   let total = dialogs.length || 1;
@@ -300,10 +317,8 @@ export async function acceptInvites(ctx: ExecutorCtx): Promise<void> {
   for (const d of dialogs) {
     try {
       const entity: any = d.entity;
-      // 只处理 channel/megagroup 且自己是 pending
       if (!entity || !entity.id) continue;
       if (entity.left === true || entity.kicked === true) continue;
-      // 试着 approve（若没有 pending 请求，TG 会返回错误，捕获跳过）
       try {
         await ctx.client.invoke(
           new Api.messages.HideAllChatJoinRequests({
@@ -334,12 +349,16 @@ export async function acceptInvites(ctx: ExecutorCtx): Promise<void> {
  *   photoPath: 本地图片绝对路径（agent 端可访问）
  */
 export async function profileUpdate(ctx: ExecutorCtx): Promise<void> {
-  const { firstName, lastName, bio, photoPath } = ctx.payload as {
-    firstName?: string; lastName?: string; bio?: string; photoPath?: string;
+  // Codex round-9 #3: SaaS 推荐用 photoAssetId 走 asset 仓库 (跨 agent 容器都能拉);
+  // photoPath 仅本地路径, 仅向后兼容, agent 容器化后基本无效
+  const { firstName, lastName, bio, photoAssetId, photoPath } = ctx.payload as {
+    firstName?: string; lastName?: string; bio?: string;
+    photoAssetId?: string; photoPath?: string;
   };
 
-  const fields = [firstName, lastName, bio, photoPath].filter(Boolean);
-  if (fields.length === 0) throw new Error('payload 至少要包含 firstName / lastName / bio / photoPath 之一');
+  const hasPhoto = !!(photoAssetId || photoPath);
+  const fields = [firstName, lastName, bio, hasPhoto ? 'photo' : null].filter(Boolean);
+  if (fields.length === 0) throw new Error('payload 至少要包含 firstName / lastName / bio / photoAssetId 之一');
 
   let step = 0;
   const total = fields.length;
@@ -354,13 +373,27 @@ export async function profileUpdate(ctx: ExecutorCtx): Promise<void> {
     );
     step++;
     await ctx.reportProgress?.(Math.round((step / total) * 100));
-    await sleep(gaussianDelayMs(30_000, 60_000));
+    await cancellableSleep(gaussianDelayMs(30_000, 60_000), ctx.abortSignal);
+    throwIfAborted(ctx.abortSignal);
   }
 
-  if (photoPath) {
-    const file = await ctx.client.uploadFile({ file: photoPath as any, workers: 1 });
+  if (hasPhoto) {
+    let uploadInput: any;
+    if (photoAssetId) {
+      // Codex #3: 优先 asset 仓库
+      const asset = await fetchAssetById(photoAssetId, ctx.tenantId);
+      if (!asset) throw new Error(`profile_update: 头像素材 ${photoAssetId} 不存在或不在租户内`);
+      const buf = await fetchAssetFile(asset.id, ctx.tenantId);
+      if (!buf) throw new Error(`profile_update: 头像素材 ${asset.fileName} 文件下载失败`);
+      // GramJS uploadFile 接受 Buffer 直接上传, 不必落盘
+      const file = new CustomFile(asset.fileName, buf.length, '', buf);
+      uploadInput = await ctx.client.uploadFile({ file, workers: 1 });
+    } else {
+      // 向后兼容: photoPath 本地路径
+      uploadInput = await ctx.client.uploadFile({ file: photoPath as any, workers: 1 });
+    }
     await ctx.client.invoke(
-      new Api.photos.UploadProfilePhoto({ file: file as any }),
+      new Api.photos.UploadProfilePhoto({ file: uploadInput as any }),
     );
     step++;
     await ctx.reportProgress?.(Math.round((step / total) * 100));
@@ -1520,7 +1553,9 @@ export async function groupInviteMembers(ctx: ExecutorCtx): Promise<void> {
 
     await ctx.reportProgress?.(Math.round(((i + 1) / limited.length) * 100));
     if (i < limited.length - 1) {
-      await sleep(gaussianDelayMs(20_000, 60_000));
+      // Codex round-9 #6: cancellable
+      await cancellableSleep(gaussianDelayMs(20_000, 60_000), ctx.abortSignal);
+      throwIfAborted(ctx.abortSignal);
     }
   }
 

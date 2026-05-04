@@ -80,7 +80,9 @@ export enum TaskType {
   REACTION_BOOST           = 'reaction_boost',
   /** 🌐 浏览频道（模拟阅读）。payload: { channels:[], readDurationSec:[20,90] } */
   BROWSE_CHANNEL           = 'browse_channel',
-  /** 📋 更新资料（bio/first_name/avatar）。payload: { firstName?, lastName?, bio?, photoAssetId? } */
+  /** 📋 更新资料（bio/first_name/avatar）。payload: { firstName?, lastName?, bio?, photoAssetId?, photoPath? }
+   *  photoAssetId: 推荐, 走 asset 仓库 (跨 agent 容器都能拉)
+   *  photoPath:    向后兼容, 本地绝对路径 (容器化后基本无效) */
   PROFILE_UPDATE           = 'profile_update',
   /** 🔌 挂机保活（单次）。无 payload，跑一次 account.UpdateStatus(offline:false) */
   IDLE_KEEPALIVE           = 'idle_keepalive',

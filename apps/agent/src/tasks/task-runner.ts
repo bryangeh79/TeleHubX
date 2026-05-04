@@ -79,6 +79,31 @@ const TASK_TIMEOUT_MS: Record<string, number> = {
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 默认 5 分钟（比原来的 10 紧）
 
 /**
+ * Codex round-9 #5: 某些 task 的耗时严重依赖 payload 数量, 静态 timeout 不够.
+ * 此函数为这些 task 计算动态 timeout 上限, 调用方在 TASK_TIMEOUT_MS 静态值之外二次校准.
+ */
+function dynamicTimeoutMs(type: string, payload: any): number | null {
+  const p = payload ?? {};
+  switch (type) {
+    case 'join_channels': {
+      // 每频道 60-180s sleep + RPC, 给 N×3min + 60s buffer
+      const n = Array.isArray(p.channels) ? p.channels.length : 0;
+      if (n > 1) return n * 3 * 60_000 + 60_000;
+      return null;
+    }
+    case 'join_groups': {
+      const n = (Array.isArray(p.inviteLinks) ? p.inviteLinks.length : 0) +
+                (Array.isArray(p.chatIds) ? p.chatIds.length : 0);
+      // 静态 30min 已较宽; 仅 N>10 时扩
+      if (n > 10) return n * 3 * 60_000 + 60_000;
+      return null;
+    }
+    default:
+      return null;
+  }
+}
+
+/**
  * 解析 GramJS 错误，识别 FloodWait（应该隔离账号一段时间）。
  * GramJS 的 FloodWait 错误消息格式：'A wait of N seconds is required (caused by ...)'.
  */
@@ -121,7 +146,10 @@ export async function executeTask(
     messageSentAt: task.messageSentAt ?? null,    // Codex round-8
   };
 
-  const timeoutMs = TASK_TIMEOUT_MS[task.type] ?? DEFAULT_TIMEOUT_MS;
+  // Codex round-9 #5: 静态 + 动态二取大, 让 N 频道/N 群任务时长足够
+  const staticTimeout = TASK_TIMEOUT_MS[task.type] ?? DEFAULT_TIMEOUT_MS;
+  const dynamicTimeout = dynamicTimeoutMs(task.type, task.payload);
+  const timeoutMs = dynamicTimeout ? Math.max(staticTimeout, dynamicTimeout) : staticTimeout;
 
   cb.log.info(`[task ${task.id.slice(0, 8)}] start type=${task.type} account=${task.accountLabel ?? task.accountId?.slice(0, 8)}`);
 
