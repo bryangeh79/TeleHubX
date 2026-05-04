@@ -100,11 +100,12 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
   /**
    * 扫描 AI 回复文本, 看是否提到了 roster 里的任何产品名.
    * 命中 → 附按钮让客户能点击进入该产品话术.
+   * 返回类型用泛型保留 overview 等字段.
    */
-  private detectMentionedProducts(
+  private detectMentionedProducts<T extends { id: string; name: string }>(
     replyText: string,
-    roster: Array<{ id: string; name: string }>,
-  ): Array<{ id: string; name: string }> {
+    roster: T[],
+  ): T[] {
     if (!replyText || !roster.length) return [];
     const lower = replyText.toLowerCase();
     return roster.filter((p) => {
@@ -167,12 +168,32 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** 构造产品选择 inline keyboard。每行一个按钮（产品名长，竖排好看）。 */
-  private buildProductKeyboard(roster: Array<{ id: string; name: string }>) {
+  /**
+   * 构造产品选择 inline keyboard.
+   * 每行一个按钮 (vertical 整齐), 标签格式: "📦 ProductName — 简短说明"
+   * 简短说明从 overview 取前 N 字 (Telegram 按钮 64 byte 上限, 中文 1 字 = 3 bytes)
+   * 没 overview 则只显示产品名.
+   */
+  private buildProductKeyboard(roster: Array<{ id: string; name: string; overview?: string }>) {
     return {
-      inline_keyboard: roster.map(p => [{
-        text: `📦 ${p.name}`,
-        callback_data: `prod:${p.id}`,
-      }]),
+      inline_keyboard: roster.map(p => {
+        let label = `📦 ${p.name}`;
+        const desc = (p.overview ?? '').trim();
+        if (desc) {
+          // 取第一句 (按 。/. /, /，/\n 切), 最长 18 字, 超长截断 + …
+          const firstSentence = desc.split(/[。.,，\n]/)[0]?.trim() ?? '';
+          const short = firstSentence.length > 18
+            ? firstSentence.slice(0, 17) + '…'
+            : firstSentence;
+          if (short) label = `📦 ${p.name} — ${short}`;
+        }
+        // Telegram 按钮 text 64 bytes 上限, 防超限
+        if (Buffer.byteLength(label, 'utf-8') > 60) {
+          // 中文场景: 截到大约 16 中文字 + emoji + 短横线
+          label = `📦 ${p.name}`.slice(0, 30);
+        }
+        return [{ text: label, callback_data: `prod:${p.id}` }];
+      }),
     };
   }
 
