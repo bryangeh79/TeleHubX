@@ -88,6 +88,32 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * 用户首次打招呼/简短试探类消息. 这种场景 AI 通常会枚举产品介绍, 应该附按钮让客户点选.
+   * "hi" / "hello" / "你好" / "在吗" / "/start" 等
+   */
+  private isGreetingIntent(text: string): boolean {
+    const t = text.trim().toLowerCase();
+    if (!t || t.length > 20) return false;
+    return /^(hi|hello|hey|yo|你好|您好|哈喽|嗨|在吗|在不在|有人吗|\/start)[\s,，.。!！?？]*$/i.test(t);
+  }
+
+  /**
+   * 扫描 AI 回复文本, 看是否提到了 roster 里的任何产品名.
+   * 命中 → 附按钮让客户能点击进入该产品话术.
+   */
+  private detectMentionedProducts(
+    replyText: string,
+    roster: Array<{ id: string; name: string }>,
+  ): Array<{ id: string; name: string }> {
+    if (!replyText || !roster.length) return [];
+    const lower = replyText.toLowerCase();
+    return roster.filter((p) => {
+      const n = p.name.trim().toLowerCase();
+      return n.length >= 2 && lower.includes(n);
+    });
+  }
+
+  /**
    * 判断客户消息是否在问"产品菜单"类元问题（用于决定是否附 inline keyboard）。
    * 中文 + 英文常见说法。排除单产品细节问题（价格/功能/怎么用 → 走普通 reply）。
    */
@@ -311,8 +337,11 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
           // Always inject product roster (so AI can answer meta questions like "你有什么产品")
           const roster = await this.knowledge.getProductRoster(bot.tenantId);
 
-          // 客户问产品菜单 → 给 Bot 回复挂上产品按钮
-          if (this.isProductMenuIntent(msg.text) && roster.length >= 1) {
+          // 客户问产品菜单 / 简短打招呼 → 给 Bot 回复挂上产品按钮 (用户反馈: hi 类消息也应有按钮)
+          if (
+            roster.length >= 1 &&
+            (this.isProductMenuIntent(msg.text) || this.isGreetingIntent(msg.text))
+          ) {
             replyMarkup = this.buildProductKeyboard(roster);
           }
           const rosterBlock = roster.length
@@ -407,6 +436,19 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
             { tenantId: bot.tenantId, botId: bot.id },
           );
           replyText = result.reply;
+
+          // 用户反馈: AI 回复中提到产品名时也应附按钮 (greeting 场景 AI 自然枚举产品)
+          // 已有 replyMarkup 不覆盖 (greeting/menuIntent 已挂); 否则扫描 reply 看提到哪些产品
+          if (!replyMarkup && roster.length >= 1) {
+            const mentionedInReply = this.detectMentionedProducts(replyText, roster);
+            if (mentionedInReply.length >= 1) {
+              // 只显示被提到的产品按钮 (而非全 roster) — 更聚焦; 多于 4 个降级显示全 roster
+              replyMarkup = mentionedInReply.length <= 4
+                ? this.buildProductKeyboard(mentionedInReply)
+                : this.buildProductKeyboard(roster);
+            }
+          }
+
           this.logger.debug(
             `BotGateway: AI reply via ${aiConfig.source} key, tenant=${bot.tenantId}, ` +
             `hasKb=${!!contextText} customerType=${customerType ?? 'none'} ` +
