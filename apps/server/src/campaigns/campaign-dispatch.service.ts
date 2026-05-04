@@ -56,6 +56,16 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
+/** Codex round-8: 候选池匹配用的 normalize helpers — 让 "@Alice" / "alice" / "ALICE" 都能匹配 */
+export function normalizeUsername(s: string): string {
+  return s.trim().replace(/^@/, '').toLowerCase();
+}
+
+/** "+60-123 456 789" / "60 123 456 789" / "+60123456789" → "60123456789" */
+export function normalizePhone(s: string): string {
+  return s.replace(/[^0-9]/g, '');
+}
+
 interface ResolvedTarget {
   value: string;       // phone / @username / tgUserId
   fromCandidate?: boolean;
@@ -556,22 +566,24 @@ export class CampaignDispatchService {
       if (v && !seen.has(v)) { seen.add(v); result.push({ value: v }); }
     }
 
-    // Codex round-7 #5: 候选池来源的目标批量回填 candidateId,
-    // 让 dispatch payload 带上 candidateId, agent 发送后能 markCandidateContacted
+    // Codex round-7 #5 + round-8 normalize: 候选池来源批量回填 candidateId
+    // 三种 normalize 解决格式不一致导致的匹配漏:
+    //   - username: 去 @ + lowercase
+    //   - phone: 去 + 空格 dash, 留纯数字
+    //   - tgUserId: trim
     const candidateTargets = result.filter((r) => r.fromCandidate);
     if (candidateTargets.length && campaign.tenantId) {
-      // 用 username (去掉 @) 或 phone 或 tgUserId 三种方式去匹配 lead_candidate
       const usernames: string[] = [];
       const phones: string[] = [];
       const tgUserIds: string[] = [];
       for (const t of candidateTargets) {
         const v = t.value;
         if (v.startsWith('@') || /^[A-Za-z][A-Za-z0-9_]{4,}$/.test(v)) {
-          usernames.push(v.replace(/^@/, ''));
-        } else if (/^\+?\d{6,}$/.test(v)) {
-          phones.push(v);
+          usernames.push(normalizeUsername(v));
+        } else if (/^\+?[\d\s\-]{6,}$/.test(v)) {
+          phones.push(normalizePhone(v));
         } else {
-          tgUserIds.push(v);
+          tgUserIds.push(v.trim());
         }
       }
       const qb = this.candidateRepo
@@ -580,11 +592,13 @@ export class CampaignDispatchService {
       const conditions: string[] = [];
       const params: any = { tid: campaign.tenantId };
       if (usernames.length) {
-        conditions.push('c."tgUsername" IN (:...usernames)');
+        // 入库 username 可能含大小写, 用 LOWER 比
+        conditions.push('LOWER(c."tgUsername") IN (:...usernames)');
         params.usernames = usernames;
       }
       if (phones.length) {
-        conditions.push('c.phone IN (:...phones)');
+        // 入库 phone 可能含 + / 空格 / dash, 用 regexp_replace 去掉再比
+        conditions.push(`regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g') IN (:...phones)`);
         params.phones = phones;
       }
       if (tgUserIds.length) {
@@ -594,16 +608,23 @@ export class CampaignDispatchService {
       if (conditions.length) {
         qb.andWhere(`(${conditions.join(' OR ')})`, params);
         const candidates = await qb.getMany();
-        // 建索引: username/phone/tgUserId → candidateId
+        // 建索引: 都用 normalize 后的 key
         const idx = new Map<string, string>();
         for (const c of candidates) {
-          if (c.tgUsername) idx.set(c.tgUsername, c.id);
-          if (c.phone) idx.set(c.phone, c.id);
-          if (c.tgUserId) idx.set(c.tgUserId, c.id);
+          if (c.tgUsername) idx.set(normalizeUsername(c.tgUsername), c.id);
+          if (c.phone) idx.set(normalizePhone(c.phone), c.id);
+          if (c.tgUserId) idx.set(c.tgUserId.trim(), c.id);
         }
         for (const t of candidateTargets) {
-          const k = t.value.replace(/^@/, '');
-          const cid = idx.get(k) ?? idx.get(t.value);
+          const v = t.value;
+          let cid: string | undefined;
+          if (v.startsWith('@') || /^[A-Za-z]/.test(v)) {
+            cid = idx.get(normalizeUsername(v));
+          } else if (/^\+?[\d\s\-]/.test(v)) {
+            cid = idx.get(normalizePhone(v));
+          } else {
+            cid = idx.get(v.trim());
+          }
           if (cid) t.candidateId = cid;
         }
       }

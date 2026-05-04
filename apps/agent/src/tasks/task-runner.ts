@@ -8,6 +8,8 @@ export interface DispatchedTask {
   accountLabel: string | null;
   payload: Record<string, any> | null;
   tenantId?: string | null;
+  /** Codex round-8: 已成功发送过消息的标记 (campaign_single retry 防重发) */
+  messageSentAt?: string | null;
 }
 
 export interface ServerCallbacks {
@@ -116,6 +118,7 @@ export async function executeTask(
     abortSignal: abortCtl.signal,
     lockExtraAccounts: (ids: string[]) => cb.lockExtraAccounts(ids, task.id),
     unlockExtraAccounts: (ids: string[]) => cb.unlockExtraAccounts(ids),
+    messageSentAt: task.messageSentAt ?? null,    // Codex round-8
   };
 
   const timeoutMs = TASK_TIMEOUT_MS[task.type] ?? DEFAULT_TIMEOUT_MS;

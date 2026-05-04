@@ -689,6 +689,10 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     if (dto.startedAt !== undefined) {
       t.startedAt = dto.startedAt ? new Date(dto.startedAt) : null;
     }
+    // Codex round-8: messageSentAt PATCH 支持 (agent 发完消息后立即标记)
+    if (dto.messageSentAt !== undefined) {
+      t.messageSentAt = dto.messageSentAt ? new Date(dto.messageSentAt) : null;
+    }
     if (dto.payload !== undefined) t.payload = dto.payload;
     if (dto.progress !== undefined) t.progress = dto.progress;
     if (dto.errorMsg !== undefined) t.errorMsg = dto.errorMsg;

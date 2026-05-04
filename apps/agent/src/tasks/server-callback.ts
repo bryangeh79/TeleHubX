@@ -190,6 +190,26 @@ export async function bulkUpsertDiscoveredGroups(
   }
 }
 
+/**
+ * Codex round-8: campaign_single 真消息发送成功后立即标记 task.messageSentAt,
+ * 防 reportCampaignSent 失败 → task failed → retry 重发同一消息给客户.
+ * 失败静默 — server 端 sentCountedAt 仍是最终幂等门.
+ */
+export async function markTaskMessageSent(taskId: string): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.AGENT_TOKEN ? { 'X-Agent-Token': process.env.AGENT_TOKEN } : {}),
+      },
+      body: JSON.stringify({ messageSentAt: new Date().toISOString() }),
+    });
+  } catch {
+    // 静默失败: 这是 best-effort 防重发标记, 失败也不应阻塞主流程
+  }
+}
+
 /** 上报 campaign 已发送 +1 (campaignSingle 执行器在每条发送完成后调用)
  *  Codex round-5 #1: taskId 必传, 防 sentCount 被刷 + server 端用 sentCountedAt 幂等
  *  Codex round-7 #1: 不再静默吞错, 3 次重试 + 失败抛出

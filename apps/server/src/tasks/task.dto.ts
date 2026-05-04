@@ -67,4 +67,8 @@ export class UpdateTaskDto {
   // Agent 任务退回 pending 时清 startedAt (防 watchdog 拿旧时间误杀)
   @IsOptional()
   startedAt?: string | null;
+
+  // Codex round-8: agent campaignSingle 真消息发送成功后立即标, 防 retry 重发
+  @IsOptional()
+  messageSentAt?: string | null;
 }

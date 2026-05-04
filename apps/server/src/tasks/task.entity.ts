@@ -188,6 +188,14 @@ export class Task {
   @Column({ type: 'timestamptz', nullable: true })
   sentCountedAt: Date | null;
 
+  /**
+   * Codex round-8: 真消息已成功发送但 reportCampaignSent 失败时, agent 在重试此 task 前
+   * 检查此字段, 若已 set 则跳过 sendMessage 只重试 reportCampaignSent.
+   * 防止 "消息已发送但回写失败 → task 标 failed → retry → 再发一次给客户" 的重复私信.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  messageSentAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

@@ -13,6 +13,7 @@ import {
   pickRandomChatScript,
   fetchChatScriptById,
   reportCampaignSent,
+  markTaskMessageSent,
 } from './server-callback';
 
 /**
@@ -45,6 +46,8 @@ export interface ExecutorCtx {
   /** Codex #3: chat_script_* 用,锁住所有参与账号防其他任务并发 */
   lockExtraAccounts?: (accountIds: string[]) => void;
   unlockExtraAccounts?: (accountIds: string[]) => void;
+  /** Codex round-8: 已发送过消息的标记, campaign_single 检查后跳过 send 只重试 report */
+  messageSentAt?: string | null;
 }
 
 /**
@@ -789,60 +792,71 @@ export async function campaignSingle(ctx: ExecutorCtx): Promise<void> {
     if (!value) { skipped++; skipReasons.push(`#${i+1} 空 value`); continue; }
 
     try {
-      // 手机号: 先 ImportContact (TG 协议要求)
-      if (isPhoneFormat(value)) {
-        await withTimeout(tryImportContact(ctx.client, value), 30_000, 'ImportContact 超时');
-      }
+      // Codex round-8: 检查 messageSentAt — 上一轮 attempt 已发过, 跳过 send 只重试 report
+      // 单 task 单 target (dispatch 标准路径) 这个判断成立; 多 target 旧 payload 会跳过所有 (保守安全)
+      const alreadySent = !!ctx.messageSentAt;
 
-      // 解析 entity (用 getEntity, 支持 username/phone/tgUserId) — 30s 超时防卡死
-      const entity = await withTimeout(
-        ctx.client.getEntity(value.replace(/^@/, '')),
-        30_000,
-        `解析目标 ${value} 超时`,
-      );
-
-      // 选 variant (随机抽)
-      const variant = variants[Math.floor(Math.random() * variants.length)];
-
-      // 拼装消息: greeting + \n\n + variant (如果有 greeting)
-      const message = greeting ? `${greeting}\n\n${variant.text}` : variant.text;
-
-      // Codex #11: 如果 variant 带 mediaAssetId, 用 sendFile 发媒体 + caption
-      if (variant.mediaAssetId) {
-        const asset = await fetchAssetById(variant.mediaAssetId, ctx.tenantId);
-        if (!asset) {
-          // 用户明确指定了媒体素材但拉不到 → 跳过此目标 (不退化成纯文本, 与 post_channel 一致)
-          skipped++;
-          skipReasons.push(`#${i + 1} 素材 ${variant.mediaAssetId.slice(0, 8)} 不存在`);
-          continue;
+      if (!alreadySent) {
+        // 手机号: 先 ImportContact (TG 协议要求)
+        if (isPhoneFormat(value)) {
+          await withTimeout(tryImportContact(ctx.client, value), 30_000, 'ImportContact 超时');
         }
-        const buf = await fetchAssetFile(asset.id, ctx.tenantId);
-        if (!buf) {
-          skipped++;
-          skipReasons.push(`#${i + 1} 素材 ${asset.fileName} 文件下载失败`);
-          continue;
-        }
-        const file = new CustomFile(asset.fileName, buf.length, '', buf);
-        await withTimeout(
-          ctx.client.sendFile(entity, { file, caption: message, forceDocument: false }),
-          120_000,
-          `发送媒体到 ${value} 超时`,
+
+        // 解析 entity (用 getEntity, 支持 username/phone/tgUserId) — 30s 超时防卡死
+        const entity = await withTimeout(
+          ctx.client.getEntity(value.replace(/^@/, '')),
+          30_000,
+          `解析目标 ${value} 超时`,
         );
+
+        // 选 variant (随机抽)
+        const variant = variants[Math.floor(Math.random() * variants.length)];
+
+        // 拼装消息: greeting + \n\n + variant (如果有 greeting)
+        const message = greeting ? `${greeting}\n\n${variant.text}` : variant.text;
+
+        // Codex #11: 如果 variant 带 mediaAssetId, 用 sendFile 发媒体 + caption
+        if (variant.mediaAssetId) {
+          const asset = await fetchAssetById(variant.mediaAssetId, ctx.tenantId);
+          if (!asset) {
+            skipped++;
+            skipReasons.push(`#${i + 1} 素材 ${variant.mediaAssetId.slice(0, 8)} 不存在`);
+            continue;
+          }
+          const buf = await fetchAssetFile(asset.id, ctx.tenantId);
+          if (!buf) {
+            skipped++;
+            skipReasons.push(`#${i + 1} 素材 ${asset.fileName} 文件下载失败`);
+            continue;
+          }
+          const file = new CustomFile(asset.fileName, buf.length, '', buf);
+          await withTimeout(
+            ctx.client.sendFile(entity, { file, caption: message, forceDocument: false }),
+            120_000,
+            `发送媒体到 ${value} 超时`,
+          );
+        } else {
+          await withTimeout(
+            sendMessageLikeHuman(ctx.client, entity, message),
+            60_000,
+            `发送消息到 ${value} 超时`,
+          );
+        }
+
+        // Codex round-8: 立即 PATCH messageSentAt, 防 reportCampaignSent 失败 retry 重发
+        // 即便 PATCH 失败也不 throw — server 端 sentCountedAt 仍是最终幂等门
+        if (ctx.taskId) {
+          markTaskMessageSent(ctx.taskId).catch(() => {});
+        }
       } else {
-        // 整个 sendMessageLikeHuman（含 typing + sendMessage）60s 超时
-        await withTimeout(
-          sendMessageLikeHuman(ctx.client, entity, message),
-          60_000,
-          `发送消息到 ${value} 超时`,
-        );
+        // 上轮已发过, 直接进入 report 重试路径
+        console.warn(`[campaign_single] task ${ctx.taskId?.slice(0, 8)} messageSentAt 已设, 跳过 send 只重试 report`);
       }
 
-      // 发送成功
       sent++;
 
       // 回写: campaign sentCount +1
       if (campaignId) {
-        // Codex round-5 #1: 必须传 taskId 让 server 用 sentCountedAt 幂等校验
         if (ctx.taskId) await reportCampaignSent(campaignId, ctx.taskId, 1);
       }
 
