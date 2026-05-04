@@ -51,6 +51,24 @@ export class KnowledgeBase {
   @Column({ default: true })
   enabled: boolean;
 
+  /**
+   * i18n V1 (Issue #1): KB 主语言.
+   * 默认 'zh'. 同 type+tenantId 下可有多个语言版本 (zh / en / ms / vi).
+   */
+  @Column({ type: 'varchar', length: 8, default: 'zh' })
+  language: string;
+
+  /**
+   * i18n V1: 草稿 / 已发布. 默认 'published' — 老 KB 视为已发布.
+   * AI 翻译生成的 KB 必须 'draft', 租户审核后改 'published'.
+   */
+  @Column({ type: 'varchar', length: 16, default: 'published' })
+  status: string;
+
+  /** 翻译来源 KB id (可选, 用于审计) */
+  @Column({ type: 'uuid', nullable: true })
+  translatedFromId: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

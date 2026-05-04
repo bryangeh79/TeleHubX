@@ -70,6 +70,20 @@ export class TenantSettings {
   @Column({ type: 'jsonb', nullable: true, default: () => "'[]'::jsonb" })
   humanAgents: Array<{ chatId: string; name?: string; enabled: boolean }> | null;
 
+  /**
+   * i18n V1 (Issue #1):
+   *   contentDefaultLanguage — 租户业务内容默认编辑/发布语言 (公司资讯 / FAQ / 产品资讯)
+   *   customerReplyLanguage  — 客户回复语言 (auto = 按客户消息识别)
+   *
+   * 红线: BotGateway / AI 智能客服回复主流程本轮不改, 仅做字段 + UI 预留.
+   * 默认 zh / auto 保证现有租户行为零变化.
+   */
+  @Column({ type: 'varchar', length: 8, default: 'zh' })
+  contentDefaultLanguage: string;
+
+  @Column({ type: 'varchar', length: 8, default: 'auto' })
+  customerReplyLanguage: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

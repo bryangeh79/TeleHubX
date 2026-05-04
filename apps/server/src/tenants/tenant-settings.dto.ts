@@ -76,4 +76,23 @@ export class UpdateTenantSettingsDto {
   @ValidateNested({ each: true })
   @Type(() => HumanAgentDto)
   humanAgents?: HumanAgentDto[];
+
+  /**
+   * i18n V1: 业务内容默认编辑/发布语言.
+   * zh / en / ms / vi 之一. 默认 'zh'.
+   */
+  @IsOptional()
+  @IsString()
+  @Matches(/^(zh|en|ms|vi)$/, { message: 'contentDefaultLanguage 必须是 zh/en/ms/vi 之一' })
+  contentDefaultLanguage?: string;
+
+  /**
+   * i18n V1: 客户回复语言.
+   * 'auto' (按客户消息识别) | 'zh' | 'en' | 'ms' | 'vi'. 默认 'auto'.
+   * 本轮仅持久化字段, BotGateway / AI 主流程未接入 — 仍按现有行为回复.
+   */
+  @IsOptional()
+  @IsString()
+  @Matches(/^(auto|zh|en|ms|vi)$/, { message: 'customerReplyLanguage 必须是 auto/zh/en/ms/vi 之一' })
+  customerReplyLanguage?: string;
 }
