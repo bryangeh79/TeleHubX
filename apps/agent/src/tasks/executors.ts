@@ -120,7 +120,11 @@ export async function joinChannels(ctx: ExecutorCtx): Promise<void> {
       } else {
         // @username → JoinChannel
         const username = target.replace(/^@/, '').replace(/^https:\/\/t\.me\//, '');
-        const entity = await ctx.client.getEntity(username);
+        const entity = await withTimeout(
+          ctx.client.getEntity(username),
+          30_000,
+          `join_groups getEntity(@${username}) 超时`,
+        );
         await ctx.client.invoke(new Api.channels.JoinChannel({ channel: entity as any }));
       }
     } catch (err) {
@@ -231,7 +235,11 @@ export async function groupBubble(ctx: ExecutorCtx): Promise<void> {
     : defaultPool;
   const count = Math.floor(Math.random() * (maxCount - minCount + 1)) + minCount;
 
-  const entity = await ctx.client.getEntity(tgChatId);
+  const entity = await withTimeout(
+    ctx.client.getEntity(tgChatId),
+    30_000,
+    `group_bubble getEntity(${tgChatId}) 超时`,
+  );
   for (let i = 0; i < count; i++) {
     const text = textPool[Math.floor(Math.random() * textPool.length)];
     await sendMessageLikeHuman(ctx.client, entity, text);
@@ -268,7 +276,11 @@ export async function joinGroups(ctx: ExecutorCtx): Promise<void> {
         await ctx.client.invoke(new Api.messages.ImportChatInvite({ hash }));
       } else {
         const username = target.replace(/^@/, '').replace(/^https:\/\/t\.me\//, '');
-        const entity = await ctx.client.getEntity(username);
+        const entity = await withTimeout(
+          ctx.client.getEntity(username),
+          30_000,
+          `join_channels getEntity(@${username}) 超时`,
+        );
         await ctx.client.invoke(new Api.channels.JoinChannel({ channel: entity as any }));
       }
     } catch (err) {
@@ -521,7 +533,11 @@ export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
     const chatId = chatIds[i].trim();
     let groupTitle: string | null = null;
     try {
-      const entity: any = await ctx.client.getEntity(chatId);
+      const entity: any = await withTimeout(
+        ctx.client.getEntity(chatId),
+        30_000,
+        `group_scrape getEntity(${chatId}) 超时`,
+      );
       groupTitle = entity?.title ?? null;
       const isGiga = entity?.gigagroup === true;
 
@@ -720,7 +736,11 @@ export async function contactAdd(ctx: ExecutorCtx): Promise<void> {
       } else {
         const handle = (t.username ?? '').replace(/^@/, '');
         if (!handle) { skipped++; skipReasons.push(`#${i+1} 无 username`); continue; }
-        entity = await ctx.client.getEntity(handle);
+        entity = await withTimeout(
+          ctx.client.getEntity(handle),
+          30_000,
+          `contact_add getEntity(@${handle}) 超时`,
+        );
         await ctx.client.invoke(
           new Api.contacts.AddContact({
             id: entity,
@@ -1262,7 +1282,11 @@ async function runChatScriptInner(
     if (!p.tgChatId) throw new Error('群聊模式需要 tgChatId');
     for (const r of rolesPresent) {
       try {
-        roleTarget[r] = await roleClient[r].getEntity(p.tgChatId);
+        roleTarget[r] = await withTimeout(
+          roleClient[r].getEntity(p.tgChatId),
+          30_000,
+          `chat_script 角色 ${r} getEntity(${p.tgChatId}) 超时`,
+        );
       } catch (err) {
         throw new Error(`角色 ${r} 无法加入群 ${p.tgChatId}: ${(err as Error).message}`);
       }
@@ -1271,12 +1295,10 @@ async function runChatScriptInner(
     // 私聊: A↔B 互发
     const aPhone = p.accountAPhone, bPhone = p.accountBPhone;
     if (!aPhone || !bPhone) throw new Error('私聊模式需要 accountAPhone / accountBPhone');
-    // A 端 import B → resolve B 实体
-    await tryImportContact(roleClient.A, bPhone);
-    roleTarget.A = await roleClient.A.getEntity(bPhone);
+    // A 端 import B → resolve B 实体 (用 ImportContacts 返回值, 避开 GetContacts 全量拉取)
+    roleTarget.A = await resolvePeerByPhone(roleClient.A, bPhone);
     // B 端 import A → resolve A 实体
-    await tryImportContact(roleClient.B, aPhone);
-    roleTarget.B = await roleClient.B.getEntity(aPhone);
+    roleTarget.B = await resolvePeerByPhone(roleClient.B, aPhone);
   }
 
   // 走所有 turns
@@ -1386,6 +1408,45 @@ async function tryImportContact(client: TelegramClient, phone: string): Promise<
   }
 }
 
+/**
+ * 通过 ImportContacts 直接拿到对方 InputPeer, 避开 getEntity(phone) 触发的
+ * `contacts.GetContacts` 全量联系人拉取 (#94 卡 60s timeout 的根因).
+ *
+ * ImportContacts 返回结构: { imported: [], users: [User], retryContacts: [], popularInvites: [] }
+ * - 已是联系人: users 仍会返回该 user
+ * - 对方未注册 TG: users 为空, 抛错
+ * - 对方隐私设置不允许通过手机号添加: users 可能为空, 退回 getEntity 兜底
+ */
+async function resolvePeerByPhone(client: TelegramClient, phone: string): Promise<any> {
+  try {
+    const res: any = await withTimeout(
+      client.invoke(
+        new Api.contacts.ImportContacts({
+          contacts: [
+            new Api.InputPhoneContact({
+              clientId: BigInt(Date.now()) as any,
+              phone,
+              firstName: phone,
+              lastName: '',
+            }),
+          ],
+        }),
+      ),
+      30_000,
+      'contacts.ImportContacts',
+    );
+    const user = res?.users?.[0];
+    if (user) {
+      await sleep(gaussianDelayMs(800, 1_800));
+      return user;
+    }
+  } catch (e) {
+    // ImportContacts 失败 → 继续走 getEntity 兜底
+  }
+  // 兜底: getEntity(phone) — 但加 30s 超时, 避免 GetContacts 全量卡死
+  return await withTimeout(client.getEntity(phone), 30_000, 'getEntity(phone)');
+}
+
 export async function chatScriptAb(ctx: ExecutorCtx): Promise<void> { return chatScriptImpl(ctx, 'A+B'); }
 export async function chatScript4p(ctx: ExecutorCtx): Promise<void> { return chatScriptImpl(ctx, 'A+B+C+D'); }
 export async function chatScript6p(ctx: ExecutorCtx): Promise<void> { return chatScriptImpl(ctx, 'A+B+C+D+E+F'); }
@@ -1489,7 +1550,11 @@ export async function groupInviteMembers(ctx: ExecutorCtx): Promise<void> {
   if (!ctx.clients) throw new Error('group_invite_members 需要 ctx.clients');
 
   const limited = targetAccIds.slice(0, 6);
-  const groupEntity: any = await ctx.client.getEntity(tgChatId);
+  const groupEntity: any = await withTimeout(
+    ctx.client.getEntity(tgChatId),
+    30_000,
+    `group_invite getEntity(${tgChatId}) 超时`,
+  );
   const isChannel = groupEntity?.megagroup === true || groupEntity?.broadcast === true;
 
   let done = 0;
