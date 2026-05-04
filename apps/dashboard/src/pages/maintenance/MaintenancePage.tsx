@@ -1,16 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Alert, Badge, Button, Card, Col, Empty, Modal, Popconfirm, Progress,
-  Row, Space, Statistic, Table, Tag, Typography, message as antdMessage,
+  Alert, Badge, Button, Card, Col, Empty, List, Modal, Popconfirm, Progress,
+  Row, Select, Space, Statistic, Table, Tag, Typography, message as antdMessage,
 } from 'antd';
 import {
   ApiOutlined, BugOutlined, CheckCircleOutlined, CloseCircleOutlined,
   CloudServerOutlined, ExclamationCircleOutlined, GlobalOutlined,
-  KeyOutlined, ReloadOutlined, RobotOutlined, ToolOutlined,
+  KeyOutlined, MedicineBoxOutlined, ReloadOutlined, RobotOutlined, ToolOutlined,
   UserOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { maintenanceApi, platformConfigApi, tenantsApi } from '../../services/api';
+import { accountsApi, maintenanceApi, platformConfigApi, tasksApi, tenantsApi } from '../../services/api';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -54,6 +54,7 @@ export default function MaintenancePage() {
         <Col xs={24} lg={12}><BotsDiagnoseCard /></Col>
         <Col xs={24} lg={12}><AiTestCard /></Col>
         <Col xs={24} lg={12}><ProxiesDiagnoseCard /></Col>
+        <Col xs={24}><SelfTestCard /></Col>
         <Col xs={24}><FailuresCard /></Col>
       </Row>
     </div>
@@ -573,6 +574,155 @@ function FailuresCard() {
               ))}
             </Space>
           )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ── M6: 账号自检 (Self-test) ────────────────────────────────────────────
+/**
+ * 派发 SELF_TEST 任务到选中账号 → polling 任务 status → 解析 errorMsg JSON 展示结果。
+ *
+ * 6 项检查：getMe / UpdateStatus / GetDialogs / contacts.Search / getEntity / getMessages
+ * 是否成功不看 task.status (SELF_TEST 总是会走 throw 标 failed), 而看 errorMsg JSON 里的 failed=0
+ */
+function SelfTestCard() {
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [accountId, setAccountId] = useState<string | undefined>();
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState<number>(0);
+  const [results, setResults] = useState<any[] | null>(null);
+  const [overall, setOverall] = useState<{ passed: number; failed: number } | null>(null);
+
+  useEffect(() => {
+    accountsApi.list({ limit: 200 }).then((r) => {
+      const arr = Array.isArray(r.data) ? r.data : [];
+      setAccounts(arr);
+    }).catch(() => {});
+  }, []);
+
+  const status: SectionStatus = running ? 'loading' :
+    !overall ? 'unknown' :
+    overall.failed === 0 ? 'ok' : 'error';
+
+  const run = async () => {
+    if (!accountId) { antdMessage.warning('请先选择账号'); return; }
+    setRunning(true);
+    setProgress(0);
+    setResults(null);
+    setOverall(null);
+    try {
+      const r = await maintenanceApi.selfTest(accountId);
+      const taskId: string = r.data?.taskId;
+      if (!taskId) throw new Error('未拿到 taskId');
+
+      // 轮询 task 状态 (最多 90s, 每 2s)
+      let lastTask: any = null;
+      for (let i = 0; i < 45; i++) {
+        await new Promise((res) => setTimeout(res, 2000));
+        const tr = await tasksApi.get(taskId);
+        lastTask = tr.data;
+        setProgress(lastTask?.progress ?? 0);
+        if (lastTask?.status !== 'running' && lastTask?.status !== 'pending') break;
+      }
+      if (!lastTask || (lastTask.status !== 'failed' && lastTask.status !== 'done')) {
+        throw new Error(`任务超时未完成 (status=${lastTask?.status})`);
+      }
+      // 解析 errorMsg JSON
+      try {
+        const parsed = JSON.parse(lastTask.errorMsg ?? '{}');
+        setResults(parsed.results ?? []);
+        setOverall({ passed: parsed.passed ?? 0, failed: parsed.failed ?? 0 });
+      } catch {
+        // 不是 JSON → 任务真的失败了 (executor 异常)
+        antdMessage.error(`自检任务异常: ${(lastTask.errorMsg ?? '').slice(0, 200)}`);
+      }
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? err?.message ?? '自检失败');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <Card styles={{ body: CARD_BODY_STYLE }}>
+      <CardHeader
+        icon={<MedicineBoxOutlined style={{ color: '#13c2c2' }} />}
+        title="账号自检 (M6)"
+        subtitle="派发轻量 RPC 探针，验证账号 + 客户端 + 网络全链路是否能跑通业务任务"
+        status={status}
+        action={
+          <Space>
+            <Select
+              size="small"
+              showSearch
+              placeholder="选择账号"
+              style={{ width: 220 }}
+              value={accountId}
+              onChange={setAccountId}
+              filterOption={(input, opt) =>
+                String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+              options={accounts.map((a) => ({
+                value: a.id,
+                label: `${a.phoneNumber} (${a.role}, health=${a.healthScore})`,
+              }))}
+              disabled={running}
+            />
+            <Button type="primary" icon={<MedicineBoxOutlined />} loading={running} onClick={run}>
+              一键自检
+            </Button>
+          </Space>
+        }
+      />
+      {running && (
+        <div style={{ marginTop: 16 }}>
+          <Progress percent={progress} status="active" />
+          <Text type="secondary" style={{ fontSize: 12 }}>正在跑 6 项 RPC 探针，每项 30s 上限...</Text>
+        </div>
+      )}
+      {!running && results && (
+        <div style={{ marginTop: 16 }}>
+          <Alert
+            type={overall && overall.failed === 0 ? 'success' : 'error'}
+            showIcon
+            style={{ marginBottom: 14 }}
+            message={
+              <Text style={RESULT_TEXT_FONT}>
+                {overall && overall.failed === 0
+                  ? `🎉 全部 ${overall.passed} 项通过 — 此账号已生产就绪`
+                  : `⚠️ ${overall?.failed ?? 0} 项失败 / ${(overall?.passed ?? 0) + (overall?.failed ?? 0)} 项总数 — 请看下方失败详情`}
+              </Text>
+            }
+          />
+          <List
+            size="small"
+            bordered
+            dataSource={results}
+            renderItem={(r: any) => (
+              <List.Item>
+                <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                  <Space>
+                    {r.ok
+                      ? <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 16 }} />
+                      : <CloseCircleOutlined style={{ color: '#cf1322', fontSize: 16 }} />}
+                    <Text style={{ fontSize: 13 }}>{r.label}</Text>
+                  </Space>
+                  <Space>
+                    <Tag color={r.durationMs < 1000 ? 'green' : r.durationMs < 5000 ? 'gold' : 'red'} style={{ fontSize: 11 }}>
+                      {r.durationMs} ms
+                    </Tag>
+                    {!r.ok && r.error && (
+                      <Text type="danger" style={{ fontSize: 12, maxWidth: 400 }} ellipsis={{ tooltip: r.error }}>
+                        {r.error}
+                      </Text>
+                    )}
+                  </Space>
+                </Space>
+              </List.Item>
+            )}
+          />
         </div>
       )}
     </Card>

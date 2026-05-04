@@ -84,6 +84,14 @@ export enum TaskType {
   PROFILE_UPDATE           = 'profile_update',
   /** 🔌 挂机保活（单次）。无 payload，跑一次 account.UpdateStatus(offline:false) */
   IDLE_KEEPALIVE           = 'idle_keepalive',
+
+  /**
+   * 🩺 账号自检 (Self-test) — 系统维护页一键派发。
+   * 跑 6 个轻量 RPC 探针：getMe / UpdateStatus / GetDialogs / contacts.Search /
+   *   getEntity(@telegram) / getMessages(@telegram limit=5)。
+   * 每项 30s timeout，结果以 JSON 写入 errorMsg 字段。无副作用。
+   */
+  SELF_TEST                = 'self_test',
 }
 
 export enum TaskStatus {

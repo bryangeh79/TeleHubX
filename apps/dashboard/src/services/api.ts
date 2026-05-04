@@ -207,6 +207,7 @@ export const maintenanceApi = {
   failureSummary:   (days = 7) => api.get('/maintenance/tasks/failure-summary', { params: { days } }),
   retryBucket:      (bucketId: string, days = 7) => api.post('/maintenance/tasks/retry-bucket', { bucketId, days }),
   dismissBucket:    (bucketId: string, days = 7) => api.post('/maintenance/tasks/dismiss-bucket', { bucketId, days }),
+  selfTest:         (accountId: string) => api.post(`/maintenance/self-test/${accountId}`),
 };
 
 export const adminApi = {

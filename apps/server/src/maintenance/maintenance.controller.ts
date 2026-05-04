@@ -1,6 +1,7 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Logger, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Logger, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { In } from 'typeorm';
 import { TasksService } from '../tasks/tasks.service';
+import { TaskType } from '../tasks/task.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuthUser, CurrentUser, isSuperAdmin } from '../auth/current-user.decorator';
@@ -361,6 +362,37 @@ export class MaintenanceController {
       { status: TaskStatus.PAUSED, errorMsg: () => `'(已忽略) ' || COALESCE("errorMsg", '')` },
     );
     return { dismissed: matched.length };
+  }
+
+  /**
+   * M6: 账号自检 — 派发 SELF_TEST 任务到指定账号。
+   * Agent 会跑 6 个轻量 RPC 探针，结果以 JSON 写入 task.errorMsg。
+   * 前端 polling 此 task 直到 status != running，然后解析 errorMsg JSON 展示。
+   */
+  @Post('self-test/:accountId')
+  @HttpCode(HttpStatus.OK)
+  async dispatchSelfTest(
+    @CurrentUser() user: AuthUser,
+    @Param('accountId', ParseUUIDPipe) accountId: string,
+  ) {
+    const tid = this.callerTenantId(user);
+    // 先校验账号存在 + 属于当前租户
+    const account = await this.accountRepo.findOneBy({ id: accountId });
+    if (!account) return { error: 'account not found' };
+    if (tid && account.tenantId !== tid) return { error: 'account not in your tenant' };
+
+    const task = await this.tasks.create(
+      {
+        name: `🩺 自检 ${account.phoneNumber ?? account.id.slice(0, 8)}`,
+        type: TaskType.SELF_TEST,
+        accountId,
+        payload: {},
+        scheduledAt: new Date().toISOString(),
+      },
+      account.tenantId ?? undefined,
+    );
+    this.logger.log(`self-test dispatched: account=${accountId.slice(0, 8)} task=${task.id.slice(0, 8)}`);
+    return { taskId: task.id };
   }
 }
 

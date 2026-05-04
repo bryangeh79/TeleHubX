@@ -1510,8 +1510,110 @@ export async function discoverGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
   await ctx.reportProgress?.(100);
 }
 
+// ─── 22. SELF_TEST ────────────────────────────────────────────────────
+/**
+ * 账号自检 — 跑 6 个轻量 RPC 探针验证账号 + client + 网络全链路。
+ * 无副作用：只读 + 修改在线状态（与正常 keepalive 一致）。
+ *
+ * 结果写入 errorMsg 字段（JSON 格式），前端读出并展示每项 ✓/✗。
+ *
+ * 失败定义：6 项中任何一项 throw（含超时） → 整任务标 failed，errorMsg 仍是完整结果 JSON。
+ */
+export async function selfTest(ctx: ExecutorCtx): Promise<void> {
+  const checks: Array<{
+    name: string;
+    label: string;
+    fn: () => Promise<unknown>;
+  }> = [
+    {
+      name: 'getMe',
+      label: '账号身份验证 (getMe)',
+      fn: () => ctx.client.getMe(),
+    },
+    {
+      name: 'updateStatus',
+      label: '在线状态更新 (account.UpdateStatus)',
+      fn: () => ctx.client.invoke(new Api.account.UpdateStatus({ offline: false })),
+    },
+    {
+      name: 'getDialogs',
+      label: '对话列表读取 (messages.GetDialogs)',
+      fn: () => ctx.client.getDialogs({ limit: 1 }),
+    },
+    {
+      name: 'getEntity',
+      label: '解析公开实体 (getEntity @telegram)',
+      fn: () => ctx.client.getEntity('telegram'),
+    },
+    {
+      name: 'getMessages',
+      label: '读取频道消息 (getMessages @telegram limit=5)',
+      fn: async () => {
+        const ent = await ctx.client.getEntity('telegram');
+        return ctx.client.getMessages(ent, { limit: 5 });
+      },
+    },
+    {
+      name: 'contactsSearch',
+      label: '关键词搜索 (contacts.Search) — 这是 #88 卡死的同款 RPC',
+      fn: () =>
+        ctx.client.invoke(
+          new Api.contacts.Search({ q: 'telegram', limit: 5 }),
+        ),
+    },
+  ];
+
+  const results: Array<{
+    name: string;
+    label: string;
+    ok: boolean;
+    durationMs: number;
+    error?: string;
+  }> = [];
+
+  for (let i = 0; i < checks.length; i++) {
+    const c = checks[i];
+    const t0 = Date.now();
+    try {
+      // 单项 30s 上限 (比全局 60s 严, 因为 self-test 应该快)
+      await Promise.race([
+        c.fn(),
+        new Promise((_, rej) =>
+          setTimeout(() => rej(new Error(`self-test 检查超时 (>30s)`)), 30_000),
+        ),
+      ]);
+      results.push({ name: c.name, label: c.label, ok: true, durationMs: Date.now() - t0 });
+    } catch (err: any) {
+      results.push({
+        name: c.name,
+        label: c.label,
+        ok: false,
+        durationMs: Date.now() - t0,
+        error: (err?.message ?? String(err)).slice(0, 200),
+      });
+    }
+    await ctx.reportProgress?.(Math.round(((i + 1) / checks.length) * 100));
+  }
+
+  const failed = results.filter((r) => !r.ok);
+  const summary = JSON.stringify({ results, passed: results.length - failed.length, failed: failed.length });
+
+  if (failed.length > 0) {
+    // 通过 throw 让 task 标 failed, 但带上完整结果 JSON
+    throw new Error(summary);
+  }
+  // 全部通过 — 把结果 JSON 暂存到 progress field？不行，progress 是 int。
+  // 用 throw 方式只在失败时触发，全成功时把结果存进 errorMsg 也合理（虽然名字叫 errorMsg）
+  // 折中：成功时通过 reportProgress 完成（100），结果存到 errorMsg 字段（用 markDone 后由 server 读 task 详情）
+  // 但 markDone 会清 errorMsg... 先 PATCH errorMsg, 再让 markDone 触发
+  // 最简单方案：成功也走 throw, 但 server 端识别到 SELF_TEST 类型时不当真 failed
+  // 这里用 throw 统一处理 — server 看 errorMsg 是 JSON 即认定 self-test 完成
+  throw new Error(summary);
+}
+
 // ─── Dispatcher ─────────────────────────────────────────────────────
 export const EXECUTORS: Record<string, (ctx: ExecutorCtx) => Promise<void>> = {
+  self_test:       selfTest,
   idle_keepalive:  idleKeepalive,
   join_channels:   joinChannels,
   browse_channel:  browseChannel,
