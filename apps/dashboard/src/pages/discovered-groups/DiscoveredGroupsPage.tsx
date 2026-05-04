@@ -296,14 +296,6 @@ export default function DiscoveredGroupsPage() {
         </Text>
       </div>
 
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 16 }}
-        message="为什么需要这一步？"
-        description="自动「搜+加+爬」流程在 forex/crypto 这类宽泛关键词上几乎全命中 spam-broadcast 群（gigagroup 不能爬成员 / 全 anonymous 发言）。改成「先搜并评估 → 你人工挑」可避免浪费宝贵的加群配额（账号上限 ~500 群）。"
-      />
-
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}><Card><Statistic title="总群数" value={stats.total} /></Card></Col>
         <Col span={6}><Card><Statistic title="未处理" value={stats.byStatus.new ?? 0} valueStyle={{ color: '#1890ff' }} /></Card></Col>

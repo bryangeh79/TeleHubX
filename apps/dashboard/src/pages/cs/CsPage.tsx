@@ -27,21 +27,26 @@ import {
   ApiOutlined,
   AppstoreOutlined,
   BankOutlined,
+  BookOutlined,
   CheckCircleFilled,
   ClockCircleOutlined,
   CustomerServiceOutlined,
   DeleteOutlined,
   EditOutlined,
   FileTextOutlined,
+  MessageOutlined,
   MoreOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
   PlusOutlined,
   QuestionCircleOutlined,
   RobotOutlined,
+  SafetyOutlined,
+  SendOutlined,
   StopOutlined,
   SwapOutlined,
   ThunderboltOutlined,
+  UserOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
 import CompanyInfoWizard from '../ai/CompanyInfoWizard';
@@ -242,6 +247,150 @@ function AdvancedSettingsTab({
           onClick={handleSave} loading={saving} disabled={!tenantId}>
           保存设置
         </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── 客户消息处理流程图 ────────────────────────────────────────────────
+// 视觉化展示 6 步消息流，FAQ 命中分支用绿/红 label 标注
+function MessageFlowDiagram() {
+  const steps = [
+    {
+      icon: <UserOutlined style={{ fontSize: 22, color: '#1677ff' }} />,
+      bg: '#e6f4ff',
+      title: '客户私信 Bot',
+      subtitle: '收到消息',
+    },
+    {
+      icon: <ClockCircleOutlined style={{ fontSize: 22, color: '#fa8c16' }} />,
+      bg: '#fff7e6',
+      title: '聚合 3s',
+      subtitle: '等待更多消息',
+    },
+    {
+      icon: <QuestionCircleOutlined style={{ fontSize: 22, color: '#722ed1' }} />,
+      bg: '#f9f0ff',
+      title: 'FAQ 命中?',
+      subtitle: '知识库匹配',
+      isBranch: true,
+    },
+    {
+      icon: <BookOutlined style={{ fontSize: 22, color: '#13c2c2' }} />,
+      bg: '#e6fffb',
+      title: 'AI 检索知识库',
+      subtitle: 'AI 生成回复',
+    },
+    {
+      icon: <SafetyOutlined style={{ fontSize: 22, color: '#fa8c16' }} />,
+      bg: '#fff7e6',
+      title: 'Guardrail 过滤',
+      subtitle: '安全与合规检查',
+    },
+    {
+      icon: <SendOutlined style={{ fontSize: 22, color: '#52c41a' }} />,
+      bg: '#f6ffed',
+      title: '发送 / 转人工',
+      subtitle: '回复客户 / 转人工',
+    },
+  ];
+
+  return (
+    <div style={{
+      background: '#fafafa',
+      border: '1px solid #f0f0f0',
+      borderRadius: 8,
+      padding: '24px 16px 16px',
+      marginTop: 12,
+      position: 'relative',
+      overflowX: 'auto',
+    }}>
+      <div style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+        gap: 4,
+        minWidth: 880,
+        position: 'relative',
+      }}>
+        {steps.map((s, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', flex: '1 1 auto' }}>
+            {/* 节点卡片 */}
+            <div style={{
+              background: 'white',
+              border: '1px solid #e5e5e5',
+              borderRadius: 8,
+              padding: '12px 10px',
+              textAlign: 'center',
+              minWidth: 110,
+              boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+            }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: '50%',
+                background: s.bg,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                margin: '0 auto 8px',
+              }}>
+                {s.icon}
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#262626' }}>{s.title}</div>
+              <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 2 }}>{s.subtitle}</div>
+            </div>
+
+            {/* 箭头 + 命中/未命中 label */}
+            {i < steps.length - 1 && (
+              <div style={{
+                flex: '0 0 auto',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                margin: '0 4px',
+                minWidth: 60,
+              }}>
+                {s.isBranch && (
+                  <span style={{
+                    fontSize: 11, color: '#52c41a', fontWeight: 600,
+                    marginBottom: 2,
+                  }}>
+                    命中 →
+                  </span>
+                )}
+                <span style={{
+                  color: '#bfbfbf',
+                  fontSize: 18,
+                  letterSpacing: -2,
+                  userSelect: 'none',
+                }}>
+                  ─ ─ ▶
+                </span>
+                {s.isBranch && (
+                  <span style={{
+                    fontSize: 11, color: '#cf1322', fontWeight: 600,
+                    marginTop: 2,
+                  }}>
+                    未命中 ↓
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* 命中分支说明 — 在底部画一行小注释，避免实际 SVG 折线复杂度 */}
+      <div style={{
+        marginTop: 14,
+        padding: '8px 12px',
+        background: '#fff',
+        border: '1px dashed #d9d9d9',
+        borderRadius: 6,
+        fontSize: 12,
+        color: '#595959',
+      }}>
+        <Space size={16} wrap>
+          <span><Tag color="success" style={{ fontSize: 11, marginRight: 4 }}>命中</Tag>FAQ 直接命中 → 跳过 AI 检索，直接进 Guardrail 过滤后发送</span>
+          <span><Tag color="error" style={{ fontSize: 11, marginRight: 4 }}>未命中</Tag>FAQ 没匹配 → 走 AI 检索知识库生成回复</span>
+        </Space>
       </div>
     </div>
   );
@@ -777,26 +926,10 @@ export default function CsPage() {
                     </Col>
                   </Row>
 
-                  <Divider orientation="left" plain>客户消息怎么处理的</Divider>
-                  <Space wrap size={8} align="center">
-                    {[
-                      { label: '客户私信 Bot', color: 'blue' },
-                      null,
-                      { label: '聚合 3s', color: 'default' },
-                      null,
-                      { label: 'FAQ 命中?', color: 'purple' },
-                      null,
-                      { label: 'AI 检索知识库', color: 'cyan' },
-                      null,
-                      { label: 'Guardrail 过滤', color: 'orange' },
-                      null,
-                      { label: '发送 / 转人工', color: 'green' },
-                    ].map((item, i) =>
-                      item
-                        ? <Tag key={i} color={item.color} style={{ fontSize: 13, padding: '4px 10px' }}>{item.label}</Tag>
-                        : <Text key={i} type="secondary">→</Text>
-                    )}
-                  </Space>
+                  <div style={{ marginTop: 16 }}>
+                    <Text strong style={{ fontSize: 14 }}>客户消息处理流程</Text>
+                  </div>
+                  <MessageFlowDiagram />
                   <Paragraph type="secondary" style={{ marginTop: 12, fontSize: 12 }}>
                     需要人工处理的对话会出现在「Leads」页的待处理列表
                   </Paragraph>
