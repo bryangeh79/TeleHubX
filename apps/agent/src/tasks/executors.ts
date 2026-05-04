@@ -763,10 +763,12 @@ export async function campaignSingle(ctx: ExecutorCtx): Promise<void> {
   if (!rawTargets.length) throw new Error('payload.targets 为空');
   if (!rawVariants.length) throw new Error('payload.variants 为空');
 
-  // 规范化 variants 池 (老版 string[]; 新版 [{text}])
-  const variants: string[] = rawVariants
-    .map(v => (typeof v === 'string' ? v : v?.text ?? ''))
-    .filter(Boolean);
+  // 规范化 variants 池 — Codex #11: 支持 mediaAssetId
+  const variants: Array<{ text: string; mediaAssetId?: string | null }> = rawVariants
+    .map((v: any) => typeof v === 'string'
+      ? { text: v, mediaAssetId: null }
+      : { text: v?.text ?? '', mediaAssetId: v?.mediaAssetId ?? null })
+    .filter((v: { text: string }) => v.text);
   if (!variants.length) throw new Error('variants 全部为空');
 
   // Codex #9: 计数防止"全跳过/全失败仍 DONE"
@@ -803,13 +805,37 @@ export async function campaignSingle(ctx: ExecutorCtx): Promise<void> {
       const variant = variants[Math.floor(Math.random() * variants.length)];
 
       // 拼装消息: greeting + \n\n + variant (如果有 greeting)
-      const message = greeting ? `${greeting}\n\n${variant}` : variant;
-      // 整个 sendMessageLikeHuman（含 typing + sendMessage）60s 超时
-      await withTimeout(
-        sendMessageLikeHuman(ctx.client, entity, message),
-        60_000,
-        `发送消息到 ${value} 超时`,
-      );
+      const message = greeting ? `${greeting}\n\n${variant.text}` : variant.text;
+
+      // Codex #11: 如果 variant 带 mediaAssetId, 用 sendFile 发媒体 + caption
+      if (variant.mediaAssetId) {
+        const asset = await fetchAssetById(variant.mediaAssetId, ctx.tenantId);
+        if (!asset) {
+          // 用户明确指定了媒体素材但拉不到 → 跳过此目标 (不退化成纯文本, 与 post_channel 一致)
+          skipped++;
+          skipReasons.push(`#${i + 1} 素材 ${variant.mediaAssetId.slice(0, 8)} 不存在`);
+          continue;
+        }
+        const buf = await fetchAssetFile(asset.id, ctx.tenantId);
+        if (!buf) {
+          skipped++;
+          skipReasons.push(`#${i + 1} 素材 ${asset.fileName} 文件下载失败`);
+          continue;
+        }
+        const file = new CustomFile(asset.fileName, buf.length, '', buf);
+        await withTimeout(
+          ctx.client.sendFile(entity, { file, caption: message, forceDocument: false }),
+          120_000,
+          `发送媒体到 ${value} 超时`,
+        );
+      } else {
+        // 整个 sendMessageLikeHuman（含 typing + sendMessage）60s 超时
+        await withTimeout(
+          sendMessageLikeHuman(ctx.client, entity, message),
+          60_000,
+          `发送消息到 ${value} 超时`,
+        );
+      }
 
       // 发送成功
       sent++;

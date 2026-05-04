@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, LessThan, MoreThanOrEqual, Repository } from 'typeorm';
 import {
@@ -67,6 +67,14 @@ interface SendUnit {
   target: string;
   greeting: string | null;
   adContent: string;
+  /** Codex #11: 用户在 ad-template 配了媒体素材 → 透到任务 payload, agent 用 sendFile */
+  mediaAssetId?: string | null;
+}
+
+/** Codex #11: ad variant 含 mediaAssetId, 让 distribute 阶段挑文案时同时知道带不带图 */
+interface AdVariantWithMedia {
+  text: string;
+  mediaAssetId?: string | null;
 }
 
 @Injectable()
@@ -90,6 +98,23 @@ export class CampaignDispatchService {
     const campaign = await this.campaignRepo.findOneBy({ id: campaignId });
     if (!campaign) throw new NotFoundException(`Campaign ${campaignId} not found`);
     if (!campaign.tenantId) throw new Error('Campaign 缺少 tenantId');
+
+    // Codex #6 幂等检查: 已 RUNNING/COMPLETED 不允许重复 dispatch
+    if (campaign.status === CampaignStatus.RUNNING) {
+      throw new ConflictException('campaign 已在投放中，请先取消或等结束再重新启动');
+    }
+    if (campaign.status === CampaignStatus.COMPLETED) {
+      throw new ConflictException('campaign 已完成，请创建新的 campaign 继续投放');
+    }
+    // 兜底: 即便状态是 draft/paused, 也不能有未完成的任务残留 (防止双击 send 在状态切换前抢跑)
+    const existingActive = await this.taskRepo
+      .createQueryBuilder('t')
+      .where(`t.payload->>'campaignId' = :id`, { id: campaignId })
+      .andWhere(`t.status IN (:...st)`, { st: [TaskStatus.PENDING, TaskStatus.RUNNING] })
+      .getCount();
+    if (existingActive > 0) {
+      throw new ConflictException(`campaign 已有 ${existingActive} 个 pending/running 任务, 请先清理`);
+    }
 
     // 1. 解析目标
     const targets = await this.resolveTargets(campaign);
@@ -122,6 +147,11 @@ export class CampaignDispatchService {
       : this.distribute({
           targets, accounts, days, dailyLimit, pace, adVariants, greetings,
           greetingMode: (campaign.greetingMode as GreetingMode) ?? GreetingMode.NONE,
+          // Codex #7: 透传调度时间参数
+          scheduleMode: (campaign.scheduleMode as ScheduleMode) ?? ScheduleMode.IMMEDIATE,
+          scheduledAt: (campaign as any).scheduledAt,
+          scheduleTime: (campaign as any).scheduleTime,
+          dayOfWeek: (campaign as any).dayOfWeek,
         });
 
     // 6. 落库为 CAMPAIGN_SINGLE 任务
@@ -136,7 +166,8 @@ export class CampaignDispatchService {
       payload: {
         campaignId: campaign.id,
         targets: [u.target],
-        variants: [{ text: u.adContent }],
+        // Codex #11: 把 mediaAssetId 透入 variant, agent campaignSingle 检测到 → sendFile
+        variants: [{ text: u.adContent, mediaAssetId: u.mediaAssetId ?? null }],
         greeting: u.greeting,
         intervalSec: [60, 90], // 单条任务用不上，但保留兼容
       } as any,
@@ -178,7 +209,7 @@ export class CampaignDispatchService {
   private fastImmediateDistribute(opts: {
     targets: ResolvedTarget[];
     accounts: Account[];
-    adVariants: string[];
+    adVariants: AdVariantWithMedia[];
     greetings: string[];
     greetingMode: GreetingMode;
   }): SendUnit[] {
@@ -188,10 +219,9 @@ export class CampaignDispatchService {
 
     for (let i = 0; i < targets.length; i++) {
       const acc = accounts[i % accounts.length];
-      // 同账号的多条之间间隔 60-120s；不同账号之间错开 0-60s
       const sameAccIndex = Math.floor(i / accounts.length);
-      const accStagger = (i % accounts.length) * 30 + Math.random() * 20; // 0-60s 错开
-      const sameAccGap = sameAccIndex * 90 + (Math.random() - 0.5) * 30;  // 90s/条 ± 15s
+      const accStagger = (i % accounts.length) * 30 + Math.random() * 20;
+      const sameAccGap = sameAccIndex * 90 + (Math.random() - 0.5) * 30;
       const offsetMs = (60 + accStagger + sameAccGap) * 1000;
       const scheduledAt = new Date(baseTime + offsetMs);
 
@@ -209,7 +239,8 @@ export class CampaignDispatchService {
         scheduledAt,
         target: targets[i].value,
         greeting,
-        adContent: ad,
+        adContent: ad.text,
+        mediaAssetId: ad.mediaAssetId ?? null,    // Codex #11
       });
     }
     return result;
@@ -277,13 +308,13 @@ export class CampaignDispatchService {
     const sendUnits = useFastPath
       ? this.fastImmediateDistribute({
           targets, accounts,
-          adVariants: ['[preview]'],
+          adVariants: [{ text: '[preview]', mediaAssetId: null }],
           greetings: [],
           greetingMode: GreetingMode.NONE,
         })
       : this.distribute({
           targets, accounts, days, dailyLimit, pace,
-          adVariants: ['[preview]'],
+          adVariants: [{ text: '[preview]', mediaAssetId: null }],
           greetings: [],
           greetingMode: GreetingMode.NONE,
         });
@@ -470,15 +501,15 @@ export class CampaignDispatchService {
 
   // ── helper: 文案池加载 ──────────────────────────────────────────────
 
-  private async loadAdVariants(campaign: Campaign): Promise<string[]> {
+  /** Codex #11: 返回带 mediaAssetId 的 variant 数组. 同 template 的 content + variants 共享 mediaAssetId */
+  private async loadAdVariants(campaign: Campaign): Promise<AdVariantWithMedia[]> {
     const ids: string[] = [];
     if (campaign.adTemplateId) ids.push(campaign.adTemplateId);
     if (campaign.adTemplateIds?.length) ids.push(...campaign.adTemplateIds);
 
-    const pool: string[] = [];
+    const pool: AdVariantWithMedia[] = [];
 
     if (ids.length) {
-      // Codex #3: 按 campaign.tenantId 双条件过滤
       const where: any = { id: In(ids) };
       if (campaign.tenantId) where.tenantId = campaign.tenantId;
       const tpls = await this.adRepo.find({ where });
@@ -488,19 +519,28 @@ export class CampaignDispatchService {
         throw new ForbiddenException(`adTemplateIds 跨租户或不存在: ${missing.slice(0, 3).join(', ')}`);
       }
       for (const t of tpls) {
-        if (t.content) pool.push(t.content);
+        const mediaAssetId = t.hasMedia && t.mediaAssetId ? t.mediaAssetId : null;
+        if (t.content) pool.push({ text: t.content, mediaAssetId });
         for (const v of t.variants ?? []) {
-          if (v.text) pool.push(v.text);
+          if (v.text) pool.push({ text: v.text, mediaAssetId });
         }
       }
     }
 
-    // 向后兼容老字段 messageVariants
+    // 向后兼容老字段 messageVariants (没有媒体)
     for (const v of campaign.messageVariants ?? []) {
-      if (v.text) pool.push(v.text);
+      if (v.text) pool.push({ text: v.text, mediaAssetId: null });
     }
 
-    return [...new Set(pool)]; // 去重
+    // 按 text 去重 (mediaAssetId 同 text 视为同变体)
+    const seen = new Set<string>();
+    const uniq: AdVariantWithMedia[] = [];
+    for (const v of pool) {
+      if (seen.has(v.text)) continue;
+      seen.add(v.text);
+      uniq.push(v);
+    }
+    return uniq;
   }
 
   private async loadGreetings(campaign: Campaign): Promise<string[]> {
@@ -532,21 +572,26 @@ export class CampaignDispatchService {
     days: number;
     dailyLimit: number;
     pace: PacePreset;
-    adVariants: string[];
+    adVariants: AdVariantWithMedia[];
     greetings: string[];
     greetingMode: GreetingMode;
+    /** Codex #7: 用户配置的定时投放起点 (once 模式). 为空则按 now 起 */
+    scheduledAt?: Date | null;
+    /** daily/weekly 模式的每日投放时间 "HH:mm" */
+    scheduleTime?: string | null;
+    /** weekly 模式的星期 0-6 (0=周日) */
+    dayOfWeek?: number | null;
+    /** 调度模式 */
+    scheduleMode?: ScheduleMode;
   }): SendUnit[] {
     const { targets, accounts, days, dailyLimit, pace, adVariants, greetings, greetingMode } = opts;
     const windows = PACE_WINDOWS[pace];
 
     // Round-robin 分目标到 (account, day)
-    // accountIdx in [0..K), 第 i 个目标 → account[i % K]
-    // dayIdx：account 内累计 dailyLimit 个换天
-    const buckets: Map<string, ResolvedTarget[]> = new Map(); // key: `${accId}:${day}`
+    const buckets: Map<string, ResolvedTarget[]> = new Map();
     for (let i = 0; i < targets.length; i++) {
       const accIdx = i % accounts.length;
       const acc = accounts[accIdx];
-      // 计算当前 acc 已有多少
       const accTotalSoFar = Math.floor(i / accounts.length);
       const dayIdx = Math.min(days - 1, Math.floor(accTotalSoFar / dailyLimit));
       const key = `${acc.id}:${dayIdx}`;
@@ -556,15 +601,40 @@ export class CampaignDispatchService {
 
     const result: SendUnit[] = [];
     const now = new Date();
-    const baseDate = new Date();
+    let baseDate = new Date();
     baseDate.setHours(0, 0, 0, 0);
 
-    // 检查今天所有时段是否都已结束 → 是则起始日期推到明天
-    const todayLastWinEnd = new Date(now);
-    const lastWin = windows[windows.length - 1];
-    todayLastWinEnd.setHours(lastWin.endH, lastWin.endM, 0, 0);
-    if (now.getTime() > todayLastWinEnd.getTime() - 60_000) {
-      baseDate.setDate(baseDate.getDate() + 1);
+    // Codex #7: 按 scheduleMode 选 baseDate
+    if (opts.scheduleMode === ScheduleMode.ONCE && opts.scheduledAt) {
+      // once: 用户指定时间起算
+      baseDate = new Date(opts.scheduledAt);
+      baseDate.setHours(0, 0, 0, 0);
+    } else if (opts.scheduleMode === ScheduleMode.DAILY && opts.scheduleTime) {
+      // daily: 今天的 scheduleTime 已过则推到明天
+      const [h, m] = opts.scheduleTime.split(':').map(Number);
+      const todayAt = new Date();
+      todayAt.setHours(h ?? 9, m ?? 0, 0, 0);
+      if (todayAt.getTime() < now.getTime()) baseDate.setDate(baseDate.getDate() + 1);
+    } else if (opts.scheduleMode === ScheduleMode.WEEKLY && opts.dayOfWeek !== undefined && opts.dayOfWeek !== null) {
+      // weekly: 推到本周或下周指定 dayOfWeek
+      const targetDow = opts.dayOfWeek;
+      const todayDow = now.getDay();
+      let daysAhead = (targetDow - todayDow + 7) % 7;
+      if (daysAhead === 0 && opts.scheduleTime) {
+        const [h, m] = opts.scheduleTime.split(':').map(Number);
+        const todayAt = new Date();
+        todayAt.setHours(h ?? 9, m ?? 0, 0, 0);
+        if (todayAt.getTime() < now.getTime()) daysAhead = 7;
+      } else if (daysAhead === 0) daysAhead = 7;
+      baseDate.setDate(baseDate.getDate() + daysAhead);
+    } else {
+      // immediate (默认): 今天所有时段已结束 → 推到明天
+      const todayLastWinEnd = new Date(now);
+      const lastWin = windows[windows.length - 1];
+      todayLastWinEnd.setHours(lastWin.endH, lastWin.endM, 0, 0);
+      if (now.getTime() > todayLastWinEnd.getTime() - 60_000) {
+        baseDate.setDate(baseDate.getDate() + 1);
+      }
     }
 
     for (const [key, bucketTargets] of buckets) {
@@ -634,7 +704,8 @@ export class CampaignDispatchService {
             scheduledAt,
             target: t.value,
             greeting,
-            adContent: ad,
+            adContent: ad.text,
+            mediaAssetId: ad.mediaAssetId ?? null,    // Codex #11
           });
         }
       }
