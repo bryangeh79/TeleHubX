@@ -97,103 +97,124 @@ export class CampaignDispatchService {
    * 每个任务 = (账号, 一个目标, 一条文案, 一个时间)。
    */
   async dispatch(campaignId: string): Promise<{ tasksCreated: number; days: number; accountsUsed: number; targetCount: number }> {
-    const campaign = await this.campaignRepo.findOneBy({ id: campaignId });
-    if (!campaign) throw new NotFoundException(`Campaign ${campaignId} not found`);
-    if (!campaign.tenantId) throw new Error('Campaign 缺少 tenantId');
+    // Codex round-5 #5: 用事务 + SELECT...FOR UPDATE 行锁原子化幂等检查 + 状态切换
+    // 防止双击 send 或并发请求同时通过 status check 创建重复任务
+    const campaign = await this.campaignRepo.manager.transaction(async (mgr) => {
+      // 1) 行锁住此 campaign (PG 等价 SELECT...FOR UPDATE) 防并发 send
+      const c = await mgr.findOne(Campaign, {
+        where: { id: campaignId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!c) throw new NotFoundException(`Campaign ${campaignId} not found`);
+      if (!c.tenantId) throw new Error('Campaign 缺少 tenantId');
 
-    // Codex #6 幂等检查: 已 RUNNING/COMPLETED 不允许重复 dispatch
-    if (campaign.status === CampaignStatus.RUNNING) {
-      throw new ConflictException('campaign 已在投放中，请先取消或等结束再重新启动');
+      if (c.status === CampaignStatus.RUNNING) {
+        throw new ConflictException('campaign 已在投放中，请先取消或等结束再重新启动');
+      }
+      if (c.status === CampaignStatus.COMPLETED) {
+        throw new ConflictException('campaign 已完成，请创建新的 campaign 继续投放');
+      }
+      // 兜底: 检查未完成任务残留 (在事务内)
+      const existingActive = await mgr
+        .createQueryBuilder(Task, 't')
+        .where(`t.payload->>'campaignId' = :id`, { id: campaignId })
+        .andWhere(`t.status IN (:...st)`, { st: [TaskStatus.PENDING, TaskStatus.RUNNING] })
+        .getCount();
+      if (existingActive > 0) {
+        throw new ConflictException(`campaign 已有 ${existingActive} 个 pending/running 任务, 请先清理`);
+      }
+
+      // 2) 原子标 RUNNING (CAS 防并发) — 后续解析/落库在事务外做以避免长事务
+      // 这里只占位状态, dispatch 失败时 catch 块回滚
+      c.status = CampaignStatus.RUNNING;
+      await mgr.save(Campaign, c);
+      return c;
+    });
+
+    // Codex #5: 资源解析 + 落库在事务外 (避免长事务). 失败时回滚 campaign.status
+    try {
+      // 1. 解析目标
+      const targets = await this.resolveTargets(campaign);
+      if (!targets.length) throw new Error('没有任何目标可投放');
+
+      // 2. 选账号
+      const accounts = await this.selectAccounts(campaign);
+      if (!accounts.length) throw new Error('没有可用的发送账号');
+
+      // 3. 计算每号配额 & 跨天
+      const pace = (campaign.pacePreset as PacePreset) ?? 'conservative';
+      const dailyLimit = Math.min(PACE_LIMITS[pace].dailyLimit, HARD_DAILY_CAP);
+      const perAccountTotal = Math.ceil(targets.length / accounts.length);
+      const days = Math.max(1, Math.ceil(perAccountTotal / dailyLimit));
+
+      // 4. 加载文案池
+      const adVariants = await this.loadAdVariants(campaign);
+      if (!adVariants.length) throw new Error('没有可用的广告文案');
+      const greetings = await this.loadGreetings(campaign);
+
+      // 5. 分配目标
+      const isImmediate = (campaign.scheduleMode ?? ScheduleMode.IMMEDIATE) === ScheduleMode.IMMEDIATE;
+      const useFastPath = isImmediate && targets.length <= accounts.length * 5;
+
+      const sendUnits = useFastPath
+        ? this.fastImmediateDistribute({
+            targets, accounts, adVariants, greetings,
+            greetingMode: (campaign.greetingMode as GreetingMode) ?? GreetingMode.NONE,
+          })
+        : this.distribute({
+            targets, accounts, days, dailyLimit, pace, adVariants, greetings,
+            greetingMode: (campaign.greetingMode as GreetingMode) ?? GreetingMode.NONE,
+            scheduleMode: (campaign.scheduleMode as ScheduleMode) ?? ScheduleMode.IMMEDIATE,
+            scheduledAt: (campaign as any).scheduledAt,
+            scheduleTime: (campaign as any).scheduleTime,
+            dayOfWeek: (campaign as any).scheduleDayOfWeek,
+          });
+
+      // 6. 落库为 CAMPAIGN_SINGLE 任务
+      const tasks = sendUnits.map(u => this.taskRepo.create({
+        tenantId: campaign.tenantId,
+        type: TaskType.CAMPAIGN_SINGLE,
+        status: TaskStatus.PENDING,
+        name: `广告投放 · ${campaign.name} → ${u.target}`,
+        accountId: u.accountId,
+        accountLabel: u.accountLabel,
+        scheduledAt: u.scheduledAt,
+        payload: {
+          campaignId: campaign.id,
+          targets: [u.target],
+          variants: [{ text: u.adContent, mediaAssetId: u.mediaAssetId ?? null }],
+          greeting: u.greeting,
+          intervalSec: [60, 90],
+        } as any,
+      }));
+      await this.taskRepo.save(tasks);
+
+      const actualDays = this.countDays(sendUnits.map(u => u.scheduledAt));
+
+      this.logger.log(
+        `Campaign ${campaign.id} dispatched: ${tasks.length} tasks, ${actualDays} day(s), ${accounts.length} accounts, ${targets.length} targets, fastPath=${useFastPath}`,
+      );
+
+      // 7. 记录 totalTargetCount (status 已在事务里设为 RUNNING)
+      campaign.totalTargetCount = targets.length;
+      await this.campaignRepo.save(campaign);
+
+      return {
+        tasksCreated: tasks.length,
+        days: actualDays,
+        accountsUsed: accounts.length,
+        targetCount: targets.length,
+      };
+    } catch (err) {
+      // Codex #5 兜底: 任何错误回滚 campaign.status, 防止 "状态 RUNNING 但实际没派发" 的死锁
+      this.logger.warn(
+        `Campaign ${campaign.id} dispatch failed mid-way, rolling back status: ${err instanceof Error ? err.message : err}`,
+      );
+      try {
+        await this.campaignRepo.update({ id: campaign.id }, { status: CampaignStatus.DRAFT });
+      } catch { /* swallow */ }
+      throw err;
     }
-    if (campaign.status === CampaignStatus.COMPLETED) {
-      throw new ConflictException('campaign 已完成，请创建新的 campaign 继续投放');
-    }
-    // 兜底: 即便状态是 draft/paused, 也不能有未完成的任务残留 (防止双击 send 在状态切换前抢跑)
-    const existingActive = await this.taskRepo
-      .createQueryBuilder('t')
-      .where(`t.payload->>'campaignId' = :id`, { id: campaignId })
-      .andWhere(`t.status IN (:...st)`, { st: [TaskStatus.PENDING, TaskStatus.RUNNING] })
-      .getCount();
-    if (existingActive > 0) {
-      throw new ConflictException(`campaign 已有 ${existingActive} 个 pending/running 任务, 请先清理`);
-    }
-
-    // 1. 解析目标
-    const targets = await this.resolveTargets(campaign);
-    if (!targets.length) throw new Error('没有任何目标可投放');
-
-    // 2. 选账号
-    const accounts = await this.selectAccounts(campaign);
-    if (!accounts.length) throw new Error('没有可用的发送账号');
-
-    // 3. 计算每号配额 & 跨天
-    const pace = (campaign.pacePreset as PacePreset) ?? 'conservative';
-    const dailyLimit = Math.min(PACE_LIMITS[pace].dailyLimit, HARD_DAILY_CAP);
-    const perAccountTotal = Math.ceil(targets.length / accounts.length);
-    const days = Math.max(1, Math.ceil(perAccountTotal / dailyLimit));
-
-    // 4. 加载文案池
-    const adVariants = await this.loadAdVariants(campaign);
-    if (!adVariants.length) throw new Error('没有可用的广告文案');
-    const greetings = await this.loadGreetings(campaign);
-
-    // 5. 分配目标 — 立即模式 + 小批量(≤账号数×5) 走 fast-path 立即发
-    const isImmediate = (campaign.scheduleMode ?? ScheduleMode.IMMEDIATE) === ScheduleMode.IMMEDIATE;
-    const useFastPath = isImmediate && targets.length <= accounts.length * 5;
-
-    const sendUnits = useFastPath
-      ? this.fastImmediateDistribute({
-          targets, accounts, adVariants, greetings,
-          greetingMode: (campaign.greetingMode as GreetingMode) ?? GreetingMode.NONE,
-        })
-      : this.distribute({
-          targets, accounts, days, dailyLimit, pace, adVariants, greetings,
-          greetingMode: (campaign.greetingMode as GreetingMode) ?? GreetingMode.NONE,
-          // Codex #7: 透传调度时间参数 (round-5 #2: 字段名修正 dayOfWeek → scheduleDayOfWeek)
-          scheduleMode: (campaign.scheduleMode as ScheduleMode) ?? ScheduleMode.IMMEDIATE,
-          scheduledAt: (campaign as any).scheduledAt,
-          scheduleTime: (campaign as any).scheduleTime,
-          dayOfWeek: (campaign as any).scheduleDayOfWeek,
-        });
-
-    // 6. 落库为 CAMPAIGN_SINGLE 任务
-    const tasks = sendUnits.map(u => this.taskRepo.create({
-      tenantId: campaign.tenantId,
-      type: TaskType.CAMPAIGN_SINGLE,
-      status: TaskStatus.PENDING,
-      name: `广告投放 · ${campaign.name} → ${u.target}`,
-      accountId: u.accountId,
-      accountLabel: u.accountLabel,
-      scheduledAt: u.scheduledAt,
-      payload: {
-        campaignId: campaign.id,
-        targets: [u.target],
-        // Codex #11: 把 mediaAssetId 透入 variant, agent campaignSingle 检测到 → sendFile
-        variants: [{ text: u.adContent, mediaAssetId: u.mediaAssetId ?? null }],
-        greeting: u.greeting,
-        intervalSec: [60, 90], // 单条任务用不上，但保留兼容
-      } as any,
-    }));
-    await this.taskRepo.save(tasks);
-
-    // 实际跨天数（用 sendUnits 算，可能因为 fast-path 或 past-windows 调整后变少/多）
-    const actualDays = this.countDays(sendUnits.map(u => u.scheduledAt));
-
-    this.logger.log(
-      `Campaign ${campaign.id} dispatched: ${tasks.length} tasks, ${actualDays} day(s), ${accounts.length} accounts, ${targets.length} targets, fastPath=${useFastPath}`,
-    );
-
-    // 7. 更新 campaign 状态 + 记录总目标数
-    campaign.status = CampaignStatus.RUNNING;
-    campaign.totalTargetCount = targets.length;
-    await this.campaignRepo.save(campaign);
-
-    return {
-      tasksCreated: tasks.length,
-      days: actualDays,
-      accountsUsed: accounts.length,
-      targetCount: targets.length,
-    };
   }
 
   /** 计算这批任务跨了多少天（按本地日期） */
