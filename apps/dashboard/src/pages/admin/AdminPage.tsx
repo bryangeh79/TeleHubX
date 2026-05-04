@@ -25,6 +25,7 @@ import {
   SafetyCertificateOutlined,
   TeamOutlined,
   ToolOutlined,
+  UserOutlined,
   FileTextOutlined,
   ReloadOutlined,
   SaveOutlined,
@@ -32,6 +33,8 @@ import {
 } from '@ant-design/icons';
 import { adminApi, platformConfigApi } from '../../services/api';
 import dayjs from 'dayjs';
+import PlatformAiProvidersTab from './PlatformAiProvidersTab';
+import UsersTab from './UsersTab';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -833,18 +836,12 @@ export default function AdminPage() {
             {
               key: 'platform-ai',
               label: <span><KeyOutlined /> 全局 AI 默认</span>,
-              children: (
-                <div>
-                  <Alert
-                    type="info"
-                    showIcon
-                    style={{ marginBottom: 16 }}
-                    message="平台兜底 AI Key（公司付费）"
-                    description="用于 FAQ 自动生成、文案优化、翻译等内部工具，租户没自配 key 时也可作为客户聊天兜底。当前在服务端 .env 中通过 PLATFORM_OPENAI_API_KEY / PLATFORM_DEEPSEEK_API_KEY 配置。"
-                  />
-                  <Empty description="后续从 .env 迁移到此可视化配置（含使用量/账单统计）" style={{ padding: 40 }} />
-                </div>
-              ),
+              children: <PlatformAiProvidersTab />,
+            },
+            {
+              key: 'users',
+              label: <span><UserOutlined /> 用户管理</span>,
+              children: <UsersTab />,
             },
             {
               key: 'prompt-config',

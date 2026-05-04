@@ -200,6 +200,13 @@ export const discoveredGroupsApi = {
   remove: (id: string) => api.delete(`/discovered-groups/${id}`),
 };
 
+export const maintenanceApi = {
+  diagnoseAccounts: () => api.get('/maintenance/accounts/diagnose'),
+  diagnoseBots:     () => api.get('/maintenance/bots/diagnose'),
+  diagnoseProxies:  () => api.get('/maintenance/proxies/diagnose'),
+  failureSummary:   (days = 7) => api.get('/maintenance/tasks/failure-summary', { params: { days } }),
+};
+
 export const adminApi = {
   // tenants
   listTenants: () => api.get('/admin/tenants'),
@@ -217,6 +224,16 @@ export const adminApi = {
   revokeLicense: (id: string) => api.post(`/admin/licenses/${id}/revoke`),
   // stats
   stats: () => api.get('/admin/stats'),
+  // users
+  listUsers: (tenantId?: string) =>
+    api.get('/admin/users', { params: tenantId ? { tenantId } : {} }),
+  createUser: (data: { username: string; password: string; role: string; tenantId: string | null; enabled?: boolean }) =>
+    api.post('/admin/users', data),
+  updateUser: (id: string, data: { role?: string; tenantId?: string | null; enabled?: boolean }) =>
+    api.patch(`/admin/users/${id}`, data),
+  resetUserPassword: (id: string) =>
+    api.post(`/admin/users/${id}/reset-password`),
+  deleteUser: (id: string) => api.delete(`/admin/users/${id}`),
 };
 
 export const tenantsApi = {

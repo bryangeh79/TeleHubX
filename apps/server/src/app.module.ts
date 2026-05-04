@@ -29,6 +29,7 @@ import { AdTemplatesModule } from './ad-templates/ad-templates.module';
 import { GreetingTemplatesModule } from './greeting-templates/greeting-templates.module';
 import { PlatformConfigModule } from './platform-config/platform-config.module';
 import { AdminModule } from './admin/admin.module';
+import { MaintenanceModule } from './maintenance/maintenance.module';
 
 @Module({
   imports: [
@@ -79,6 +80,7 @@ import { AdminModule } from './admin/admin.module';
     GreetingTemplatesModule,
     PlatformConfigModule,
     AdminModule,
+    MaintenanceModule,
   ],
   controllers: [HealthController],
 })

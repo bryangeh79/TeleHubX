@@ -15,11 +15,13 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Roles } from '../auth/roles.decorator';
+import { AuthUser, CurrentUser } from '../auth/current-user.decorator';
 import { UserRole } from '../auth/user.entity';
 import { LicensesService } from '../licenses/licenses.service';
 import { Account } from '../accounts/account.entity';
 import { TenantPlan } from '../tenants/tenant.entity';
 import { TenantsService } from '../tenants/tenants.service';
+import { CreateUserDto, UpdateUserDto, UsersService } from './users.service';
 
 /**
  * SaaS 平台管理后台接口。所有端点要求 SUPER_ADMIN 角色。
@@ -31,6 +33,7 @@ export class AdminController {
   constructor(
     private readonly tenants: TenantsService,
     private readonly licenses: LicensesService,
+    private readonly usersService: UsersService,
     @InjectRepository(Account) private readonly accountRepo: Repository<Account>,
   ) {}
 
@@ -118,6 +121,41 @@ export class AdminController {
   @HttpCode(HttpStatus.OK)
   revokeLicense(@Param('id', ParseUUIDPipe) id: string) {
     return this.licenses.revoke(id);
+  }
+
+  // ── Users ────────────────────────────────────────────────────────────
+
+  @Get('users')
+  listUsers(@Query('tenantId') tenantId?: string) {
+    return this.usersService.list(tenantId);
+  }
+
+  @Post('users')
+  createUser(@Body() body: CreateUserDto) {
+    return this.usersService.create(body);
+  }
+
+  @Patch('users/:id')
+  updateUser(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpdateUserDto,
+  ) {
+    return this.usersService.update(id, body);
+  }
+
+  @Post('users/:id/reset-password')
+  @HttpCode(HttpStatus.OK)
+  resetPassword(@Param('id', ParseUUIDPipe) id: string) {
+    return this.usersService.resetPassword(id);
+  }
+
+  @Delete('users/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeUser(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() caller: AuthUser,
+  ) {
+    return this.usersService.remove(id, caller.sub);
   }
 
   // ── Stats ────────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, Col, Drawer, Row, Space, Tag, Typography } from 'antd';
 import {
   ApiOutlined,
@@ -7,7 +8,6 @@ import {
   DatabaseOutlined,
   GlobalOutlined,
   RocketOutlined,
-  SafetyCertificateOutlined,
   TeamOutlined,
   ToolOutlined,
 } from '@ant-design/icons';
@@ -29,6 +29,7 @@ interface SettingItem {
   title: string;
   desc: string;
   drawerKey?: SettingKey;
+  navigateTo?: string;          // 跳转外部路由（如 /settings/maintenance）
   badge?: string;
   disabled?: boolean;
   drawerWidth?: number;
@@ -83,29 +84,13 @@ const SETTING_ITEMS: SettingItem[] = [
     drawerKey: 'groups',
     drawerWidth: 900,
   },
+  // License + 用户管理 已搬到 /admin（SUPER_ADMIN 专属）
   {
-    key: 'license',
-    icon: <SafetyCertificateOutlined style={{ fontSize: 28, color: '#13c2c2' }} />,
-    title: 'License',
-    desc: '当前激活状态、签署时间、续期；首次激活在登录页输入 key',
-    badge: '即将上线',
-    disabled: true,
-  },
-  {
-    key: 'users',
-    icon: <TeamOutlined style={{ fontSize: 28, color: '#eb2f96' }} />,
-    title: '用户管理',
-    desc: '租户内的子账号 / 角色 / 权限',
-    badge: '即将上线',
-    disabled: true,
-  },
-  {
-    key: 'system',
+    key: 'maintenance',
     icon: <ToolOutlined style={{ fontSize: 28, color: '#8c8c8c' }} />,
     title: '系统维护',
-    desc: '备份 / 恢复 / 日志 / 健康检查',
-    badge: '即将上线',
-    disabled: true,
+    desc: '账号自检 / Bot 状态 / AI Key 测试 / 代理诊断 / 失败任务分析',
+    navigateTo: '/settings/maintenance',
   },
 ];
 
@@ -129,6 +114,7 @@ const DRAWER_TITLE: Record<SettingKey, string> = {
 
 export default function SettingsHubPage() {
   const [activeKey, setActiveKey] = useState<SettingKey | null>(null);
+  const navigate = useNavigate();
 
   const activeItem = SETTING_ITEMS.find(i => i.drawerKey === activeKey);
   const drawerWidth = activeItem?.drawerWidth ?? 800;
@@ -149,9 +135,9 @@ export default function SettingsHubPage() {
             <Card
               hoverable={!item.disabled}
               onClick={() => {
-                if (!item.disabled && item.drawerKey) {
-                  setActiveKey(item.drawerKey);
-                }
+                if (item.disabled) return;
+                if (item.navigateTo) navigate(item.navigateTo);
+                else if (item.drawerKey) setActiveKey(item.drawerKey);
               }}
               style={{
                 height: '100%',

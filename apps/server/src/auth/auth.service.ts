@@ -88,7 +88,8 @@ export class AuthService implements OnModuleInit {
 
   // === Password hashing (scrypt — built into Node, no bcrypt dep needed) ===
 
-  private hashPassword(password: string): { passwordHash: string; passwordSalt: string } {
+  /** 公开供 UsersService 创建用户/重置密码使用 */
+  public hashPassword(password: string): { passwordHash: string; passwordSalt: string } {
     const salt = randomBytes(16).toString('hex');
     const hash = scryptSync(password, salt, SCRYPT_KEYLEN).toString('hex');
     return { passwordHash: hash, passwordSalt: salt };
