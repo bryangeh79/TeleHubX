@@ -13,6 +13,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { AuthUser, CurrentUser, isAgent, isSuperAdmin } from '../auth/current-user.decorator';
+import { AllowAgent } from '../auth/roles.decorator';
 import { CandidateStatus } from './lead-candidate.entity';
 import { BulkUpsertItem, LeadCandidatesService } from './leads-candidates.service';
 
@@ -43,6 +44,7 @@ export class LeadCandidatesController {
    * body: { tenantId, items: BulkUpsertItem[] }
    */
   @Post('bulk-upsert')
+  @AllowAgent()
   bulkUpsert(
     @CurrentUser() user: AuthUser,
     @Body() body: { tenantId: string; items: BulkUpsertItem[] },
@@ -88,6 +90,7 @@ export class LeadCandidatesController {
 
   /** 标记已联系（agent 触达完成后回写）。 */
   @Post(':id/mark-contacted')
+  @AllowAgent()
   markContacted(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: { contactedByAccountId: string; contactTaskId?: string },

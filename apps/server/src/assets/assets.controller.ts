@@ -19,6 +19,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import * as fs from 'fs';
+import { AllowAgent } from '../auth/roles.decorator';
 import { AssetCategory, AssetSource } from './asset.entity';
 import { AssetsService } from './assets.service';
 import { TenantsService } from '../tenants/tenants.service';
@@ -91,6 +92,7 @@ export class AssetsController {
    * 返回 row（不含 content）— agent 拿到 id 后再用 GET /assets/:id/file 拉文件。
    */
   @Get('random')
+  @AllowAgent()
   async pickRandom(
     @Query('poolName') poolName?: string,
     @Query('category') category?: AssetCategory,
@@ -106,12 +108,14 @@ export class AssetsController {
   }
 
   @Get(':id')
+  @AllowAgent()
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.findOne(id);
   }
 
   /** 下载原始字节（DB bytea 或 builtin 磁盘文件，统一透出）。 */
   @Get(':id/file')
+  @AllowAgent()
   async streamFile(@Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
     const a = await this.service.findOne(id);
 

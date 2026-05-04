@@ -14,6 +14,7 @@ import {
 import { AccountRole, AccountStatus } from './account.entity';
 import { AccountsService } from './accounts.service';
 import { AuthUser, CurrentUser } from '../auth/current-user.decorator';
+import { AllowAgent } from '../auth/roles.decorator';
 import { resolveTenantIdSoft } from '../auth/tenant-resolver';
 import { BindOrchestratorService } from './bind/bind.service';
 import { BindInitDto } from './bind/dto/bind-init.dto';
@@ -38,6 +39,7 @@ export class AccountsController {
   }
 
   @Get()
+  @AllowAgent()
   findAll(
     @CurrentUser() user: AuthUser,
     @Query('role') role?: AccountRole,
@@ -61,6 +63,7 @@ export class AccountsController {
   }
 
   @Patch(':id')
+  @AllowAgent()
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateAccountDto,
@@ -91,6 +94,7 @@ export class AccountsController {
   }
 
   @Post(':id/heartbeat')
+  @AllowAgent()
   @HttpCode(HttpStatus.OK)
   heartbeat(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.heartbeat(id);
@@ -135,7 +139,9 @@ export class AccountsController {
     return this.service.bindIp(id, ip);
   }
 
+  /** 仅 agent 用于 boot 时拉账号 session 上线 — 普通用户不能拉解密 session */
   @Get(':id/session/raw')
+  @AllowAgent()
   getDecryptedSession(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.getDecryptedSession(id).then((session) => ({ session }));
   }

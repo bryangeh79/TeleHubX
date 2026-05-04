@@ -12,6 +12,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { AuthUser, CurrentUser, isAgent, isSuperAdmin } from '../auth/current-user.decorator';
+import { AllowAgent } from '../auth/roles.decorator';
 import { CreateTaskDto, UpdateTaskDto } from './task.dto';
 import { TaskStatus, TaskType } from './task.entity';
 import { TasksService } from './tasks.service';
@@ -58,6 +59,7 @@ export class TasksController {
    * agent 通道，不做租户隔离（一个 agent 进程服务多租户）。
    */
   @Post('dispatch')
+  @AllowAgent()
   dispatch(@Body() body: { accountIds: string[]; limit?: number }) {
     return this.service.dispatchToAgent(body.accountIds ?? [], body.limit);
   }
@@ -74,6 +76,7 @@ export class TasksController {
   }
 
   @Patch(':id')
+  @AllowAgent()
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateTaskDto) {
     return this.service.update(id, dto);
   }

@@ -10,8 +10,16 @@ import {
   PlatformConfigService,
 } from './platform-config.service';
 import { AiAgentService } from '../ai-agent/ai-agent.service';
+import { AllowAgent, Roles } from '../auth/roles.decorator';
+import { UserRole } from '../auth/user.entity';
 
+/**
+ * 平台级配置（AI Provider Keys / 全局人设 / 行业话术 / 转接话术 / 广告话术 / 变体 prompt）。
+ * 全控制器要求 SUPER_ADMIN（影响所有租户的全局设置）。
+ * 个别 GET 端点 agent 也要读 → 单独标 @AllowAgent()。
+ */
 @Controller('platform-config/ai')
+@Roles(UserRole.SUPER_ADMIN)
 export class PlatformConfigController {
   constructor(
     private readonly svc: PlatformConfigService,
@@ -142,6 +150,7 @@ export class PlatformConfigController {
   // ── 广告号话术 ─────────────────────────────────────────────────────
 
   @Get('settings/ad-faq')
+  @AllowAgent()
   getAdFaq() {
     return this.svc.getAdFaqConfig();
   }

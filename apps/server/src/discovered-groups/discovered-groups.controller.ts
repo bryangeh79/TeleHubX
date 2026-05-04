@@ -10,6 +10,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { AllowAgent } from '../auth/roles.decorator';
 import { DiscoveredGroupStatus } from './discovered-group.entity';
 import {
   DiscoveredGroupUpsertItem,
@@ -49,6 +50,7 @@ export class DiscoveredGroupsController {
 
   /** Agent discover_groups_by_keyword executor 调用 */
   @Post('bulk-upsert')
+  @AllowAgent()
   @HttpCode(HttpStatus.OK)
   bulkUpsert(@Body() body: { tenantId: string; items: DiscoveredGroupUpsertItem[] }) {
     if (!body?.tenantId || !Array.isArray(body?.items)) {

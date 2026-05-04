@@ -6,6 +6,7 @@ import { CampaignStatus, PacePreset } from './campaign.entity';
 import { CampaignsService } from './campaigns.service';
 import { CampaignDispatchService } from './campaign-dispatch.service';
 import { AuthUser, CurrentUser } from '../auth/current-user.decorator';
+import { AllowAgent } from '../auth/roles.decorator';
 import { resolveTenantIdSoft } from '../auth/tenant-resolver';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
 import { UpdateCampaignDto } from './dto/update-campaign.dto';
@@ -109,6 +110,7 @@ export class CampaignsController {
 
   /** Agent 回写：单条发送完成 +1 */
   @Post(':id/sent')
+  @AllowAgent()
   @HttpCode(HttpStatus.OK)
   incrementSent(@Param('id', ParseUUIDPipe) id: string, @Body() body?: { delta?: number }) {
     return this.service.incrementSent(id, body?.delta ?? 1);

@@ -18,6 +18,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ChatScriptStatus, ChatScriptType } from './chat-script.entity';
 import { ChatScriptsService } from './chat-scripts.service';
 import { AuthUser, CurrentUser } from '../auth/current-user.decorator';
+import { AllowAgent } from '../auth/roles.decorator';
 import { resolveTenantIdSoft } from '../auth/tenant-resolver';
 import { CreateChatScriptDto } from './dto/create-chat-script.dto';
 import { UpdateChatScriptDto } from './dto/update-chat-script.dto';
@@ -73,6 +74,7 @@ export class ChatScriptsController {
 
   /** Agent 端 chat_script_* 任务调用：随机抽一个 active 剧本（含 rawScript）。 */
   @Get('random')
+  @AllowAgent()
   async pickRandom(
     @Query('packId') packId?: string,
     @Query('category') category?: string,

@@ -26,11 +26,13 @@ export const CurrentUser = createParamDecorator(
 );
 
 /** Super admin / SaaS 平台管理员（可跨租户读取所有数据）。 */
-export function isSuperAdmin(user: AuthUser): boolean {
-  return user.role === ('SUPER_ADMIN' as UserRole);
+export function isSuperAdmin(user: AuthUser | undefined | null): boolean {
+  if (!user) return false;
+  // enum 值是 'super_admin' 小写，之前误比 'SUPER_ADMIN' 永远 false
+  return user.role === UserRole.SUPER_ADMIN;
 }
 
 /** Agent 通道（X-Agent-Token），不属于任何租户。 */
-export function isAgent(user: AuthUser): boolean {
-  return user.role === 'AGENT';
+export function isAgent(user: AuthUser | undefined | null): boolean {
+  return !!user && user.role === 'AGENT';
 }

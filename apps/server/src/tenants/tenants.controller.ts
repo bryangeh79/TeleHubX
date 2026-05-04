@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import OpenAI from 'openai';
 import { BotReplyService } from '../bot-gateway/bot-reply.service';
+import { AllowAgent } from '../auth/roles.decorator';
 import { UpdateTenantSettingsDto } from './tenant-settings.dto';
 import { TenantsService } from './tenants.service';
 
@@ -15,6 +16,7 @@ export class TenantsController {
   findAll() { return this.service.findAll(); }
 
   @Get('default')
+  @AllowAgent()
   getDefault() { return this.service.getDefault(); }
 
   @Get(':id')

@@ -11,6 +11,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { AllowAgent } from '../auth/roles.decorator';
 import { CreateProxyDto } from './dto/create-proxy.dto';
 import { UpdateProxyDto } from './dto/update-proxy.dto';
 import { ProxyStatus } from './proxy.entity';
@@ -67,6 +68,7 @@ export class ProxiesController {
    * 仅在内网 (localhost) 调用安全；公网部署应加 JWT 守卫。
    */
   @Get(':id/gram-config')
+  @AllowAgent()
   gramConfig(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.toGramConfig(id);
   }
