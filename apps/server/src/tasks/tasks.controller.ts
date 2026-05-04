@@ -12,7 +12,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { AuthUser, CurrentUser, isAgent, isSuperAdmin } from '../auth/current-user.decorator';
-import { AllowAgent } from '../auth/roles.decorator';
+import { AgentOnly, AllowAgent } from '../auth/roles.decorator';
 import { callerTenantId } from '../auth/tenant-resolver';
 import { CreateTaskDto, UpdateTaskDto } from './task.dto';
 import { TaskStatus, TaskType } from './task.entity';
@@ -60,7 +60,7 @@ export class TasksController {
    * agent 通道，不做租户隔离（一个 agent 进程服务多租户）。
    */
   @Post('dispatch')
-  @AllowAgent()
+  @AgentOnly()  // Codex round-9 #1: 严格 agent-only, 普通用户调用 403
   dispatch(@Body() body: { accountIds: string[]; limit?: number }) {
     return this.service.dispatchToAgent(body.accountIds ?? [], body.limit);
   }
@@ -77,10 +77,11 @@ export class TasksController {
     return this.service.findChildren(id);
   }
 
+  /** Codex round-9 #1: 严格 agent-only — 仅 agent 可 PATCH 状态/进度.
+   *  普通用户用 /pause /resume /retry /cancel 等专用 endpoint, 不应直接 PATCH. */
   @Patch(':id')
-  @AllowAgent()
-  async update(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateTaskDto) {
-    await this.service.findOneScoped(id, callerTenantId(user));
+  @AgentOnly()
+  async update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateTaskDto) {
     return this.service.update(id, dto);
   }
 

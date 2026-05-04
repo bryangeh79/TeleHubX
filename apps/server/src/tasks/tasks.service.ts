@@ -108,7 +108,7 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Watchdog：把 running 超过 15 分钟的叶子任务强制标记为 failed。
+   * Watchdog：把 running 超过 STUCK_TASK_TIMEOUT_MS (默认 4 小时) 的叶子任务强制标记为 failed。
    * 只清理没有子任务的叶子任务（父/编排任务合理地长期处于 running，不处理）。
    * 场景：agent 崩溃/网络断开导致任务永久挂起。
    *
@@ -138,7 +138,7 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     for (const t of leafTasks) {
       await this.repo.update(t.id, {
         status: TaskStatus.FAILED,
-        errorMsg: '任务超时：执行超过 15 分钟未完成（agent 可能已断线）',
+        errorMsg: `任务超时：执行超过 ${Math.round(STUCK_TASK_TIMEOUT_MS / 60000)} 分钟未完成（agent 可能已断线）`,
         finishedAt: new Date(),
         cancelRequested: true,  // 顺便通知 agent 这任务作废
       });
@@ -155,7 +155,8 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
         .where('t."accountId" = :aid', { aid: accountId })
         .andWhere('t.status = :s', { s: TaskStatus.FAILED })
         .andWhere('t."finishedAt" > :since', { since: oneHourAgo })
-        .andWhere('t."errorMsg" LIKE :em', { em: '任务超时：执行超过 15 分钟未完成%' })
+        // LIKE 用通配前缀, 兼容不同 timeout 数值 (15/240 分钟等历史值)
+        .andWhere('t."errorMsg" LIKE :em', { em: '任务超时：执行超过%分钟未完成%' })
         .getCount();
       if (recentTimeouts >= 2) {
         const until = new Date(Date.now() + 30 * 60_000);

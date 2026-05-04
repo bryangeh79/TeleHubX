@@ -7,7 +7,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { AuthUser, isAgent, isSuperAdmin } from './current-user.decorator';
 import { IS_PUBLIC_KEY } from './public.decorator';
-import { ALLOW_AGENT_KEY, ROLES_KEY } from './roles.decorator';
+import { AGENT_ONLY_KEY, ALLOW_AGENT_KEY, ROLES_KEY } from './roles.decorator';
 import { UserRole } from './user.entity';
 
 /**
@@ -38,11 +38,24 @@ export class RolesGuard implements CanActivate {
       ctx.getHandler(),
       ctx.getClass(),
     ]);
+    // Codex round-9 #1: @AgentOnly 严格 agent 专属, 其他全 403 (含 SUPER_ADMIN)
+    const agentOnly = this.reflector.getAllAndOverride<boolean>(AGENT_ONLY_KEY, [
+      ctx.getHandler(),
+      ctx.getClass(),
+    ]);
 
     const user = ctx.switchToHttp().getRequest().user as AuthUser | undefined;
     if (!user) throw new ForbiddenException('No user context');
 
-    // AGENT 通道：默认拒绝，只放行标了 @AllowAgent() 的端点
+    // @AgentOnly: 只有 AGENT 能进, 其他全拒
+    if (agentOnly) {
+      if (!isAgent(user)) {
+        throw new ForbiddenException('endpoint is agent-only (X-Agent-Token required)');
+      }
+      return true;
+    }
+
+    // AGENT 通道：默认拒绝，只放行标了 @AllowAgent() 或 @AgentOnly() 的端点
     if (isAgent(user)) {
       if (!allowAgent) {
         throw new ForbiddenException('agent token cannot access this endpoint');
