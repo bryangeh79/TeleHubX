@@ -178,6 +178,16 @@ export class Task {
   @Column({ type: 'boolean', default: false })
   cancelRequested: boolean;
 
+  /**
+   * Codex round-5 #1: campaign_single 任务的 sentCount 计数防重复.
+   * agent 调 /campaigns/:id/sent 时 server 校验此字段:
+   *   - null → 允许 +1, 然后 set sentCountedAt = now
+   *   - 非 null → 已计数过, 拒绝重复
+   * 防止 agent 重试 / 网络重复 POST 把 sentCount 刷爆.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  sentCountedAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

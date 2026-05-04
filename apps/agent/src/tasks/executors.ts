@@ -842,7 +842,8 @@ export async function campaignSingle(ctx: ExecutorCtx): Promise<void> {
 
       // 回写: campaign sentCount +1
       if (campaignId) {
-        await reportCampaignSent(campaignId, 1);
+        // Codex round-5 #1: 必须传 taskId 让 server 用 sentCountedAt 幂等校验
+        if (ctx.taskId) await reportCampaignSent(campaignId, ctx.taskId, 1);
       }
 
       // 候选人池标记 contacted

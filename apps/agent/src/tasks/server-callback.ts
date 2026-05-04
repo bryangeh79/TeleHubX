@@ -190,8 +190,9 @@ export async function bulkUpsertDiscoveredGroups(
   }
 }
 
-/** 上报 campaign 已发送 +1 (campaignSingle 执行器在每条发送完成后调用) */
-export async function reportCampaignSent(campaignId: string, delta = 1): Promise<void> {
+/** 上报 campaign 已发送 +1 (campaignSingle 执行器在每条发送完成后调用)
+ *  Codex round-5 #1: taskId 必传, 防 sentCount 被刷 + server 端用 sentCountedAt 幂等 */
+export async function reportCampaignSent(campaignId: string, taskId: string, delta = 1): Promise<void> {
   try {
     await fetch(`${API_BASE}/campaigns/${campaignId}/sent`, {
       method: 'POST',
@@ -199,7 +200,7 @@ export async function reportCampaignSent(campaignId: string, delta = 1): Promise
         'Content-Type': 'application/json',
         ...(process.env.AGENT_TOKEN ? { 'X-Agent-Token': process.env.AGENT_TOKEN } : {}),
       },
-      body: JSON.stringify({ delta }),
+      body: JSON.stringify({ delta, taskId }),
     });
   } catch {
     // 静默失败 (后端宕机不应影响 agent 主流程)

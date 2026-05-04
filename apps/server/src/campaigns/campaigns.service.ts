@@ -244,24 +244,39 @@ export class CampaignsService {
     if (!Number.isInteger(delta) || delta < 1 || delta > 10) {
       throw new BadRequestException(`delta 必须是 1-10 之间的整数, got ${delta}`);
     }
-    const c = await this.findOne(id);
-    if (taskId) {
-      const t = await this.taskRepo.findOneBy({ id: taskId });
-      if (!t) throw new NotFoundException(`task ${taskId} not found`);
-      const taskCampaignId = (t.payload as any)?.campaignId;
-      if (taskCampaignId !== id) {
-        throw new ForbiddenException(`task ${taskId.slice(0, 8)} 不属于此 campaign`);
-      }
-      if (t.tenantId && c.tenantId && t.tenantId !== c.tenantId) {
-        throw new ForbiddenException(`task tenant 与 campaign tenant 不匹配`);
-      }
-    } else if (delta !== 1) {
-      throw new BadRequestException('不传 taskId 时 delta 必须为 1');
+    if (!taskId) {
+      // Codex round-5 #1: taskId 必填, 否则刷量风险
+      throw new BadRequestException('taskId required');
     }
-    c.sentCount = (c.sentCount ?? 0) + delta;
-    await this.repo.save(c);
+    const c = await this.findOne(id);
+    const t = await this.taskRepo.findOneBy({ id: taskId });
+    if (!t) throw new NotFoundException(`task ${taskId} not found`);
+    const taskCampaignId = (t.payload as any)?.campaignId;
+    if (taskCampaignId !== id) {
+      throw new ForbiddenException(`task ${taskId.slice(0, 8)} 不属于此 campaign`);
+    }
+    if (t.tenantId && c.tenantId && t.tenantId !== c.tenantId) {
+      throw new ForbiddenException(`task tenant 与 campaign tenant 不匹配`);
+    }
+    // Codex round-5 #1: 防重复 — 同一 task 只能 +1 一次, sentCountedAt 用作幂等 token
+    if (t.sentCountedAt) {
+      this.logger.warn(
+        `incrementSent task ${taskId.slice(0, 8)} 已计数过 (at ${t.sentCountedAt.toISOString()}), 拒绝重复`,
+      );
+      return c; // 静默幂等 (非错误)
+    }
+    // 在事务里同时更新 task.sentCountedAt + campaign.sentCount, 避免中间态
+    await this.taskRepo.manager.transaction(async (mgr) => {
+      await mgr.update(Task, { id: taskId, sentCountedAt: () => 'NULL' as any }, { sentCountedAt: new Date() });
+      // 二次确认 update 命中 (防并发同 task 多次 incrementSent)
+      const refreshed = await mgr.findOneBy(Task, { id: taskId });
+      if (refreshed?.sentCountedAt) {
+        await mgr.increment(Campaign, { id }, 'sentCount', delta);
+      }
+    });
+    const reloaded = await this.findOne(id);
     this.checkCompletion(id).catch(() => {});
-    return c;
+    return reloaded;
   }
 
   /** Codex #5: 同 incrementSent 校验 */
