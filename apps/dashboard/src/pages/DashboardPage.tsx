@@ -12,7 +12,7 @@ import {
   RobotOutlined,
   CheckCircleFilled,
 } from '@ant-design/icons';
-import { dashboardApi, tenantsApi } from '../services/api';
+import { dashboardApi, knowledgeApi, tenantsApi } from '../services/api';
 
 const { Title, Text } = Typography;
 
@@ -41,11 +41,18 @@ interface CampaignsStats {
   todaySent: number;
 }
 
+interface SetupStatus {
+  hasBotToken: boolean;
+  hasCompanyKb: boolean;
+  hasProductKb: boolean;
+}
+
 interface DashboardData {
   acc: AccountsStats;
   cand: CandidatesStats;
   conv: LeadsStats;
   camp: CampaignsStats;
+  setup: SetupStatus;
 }
 
 const FALLBACK: DashboardData = {
@@ -53,6 +60,7 @@ const FALLBACK: DashboardData = {
   cand: { total: 0, todayNew: 0, unpackedCount: 0, pending: 0, contacted: 0 },
   conv: { botTodayMessageCount: 0, userTodayMessageCount: 0, humanTakeoverCount: 0, pendingCount: 0 },
   camp: { completedCount: 0, runningCount: 0, totalSent: 0, todaySent: 0 },
+  setup: { hasBotToken: false, hasCompanyKb: false, hasProductKb: false },
 };
 
 export default function DashboardPage() {
@@ -64,15 +72,34 @@ export default function DashboardPage() {
       try {
         const tRes = await tenantsApi.getDefault().catch(() => null);
         const tenantId: string = tRes?.data?.id ?? '';
-        const [acc, cand, conv, camp] = await Promise.all([
+        const [acc, cand, conv, camp, bots, companyKbs, productKbs] = await Promise.all([
           dashboardApi.accountsStats().catch(() => ({ data: FALLBACK.acc })),
           tenantId
             ? dashboardApi.candidatesStats(tenantId).catch(() => ({ data: FALLBACK.cand }))
             : Promise.resolve({ data: FALLBACK.cand }),
           dashboardApi.leadsStats(tenantId || undefined).catch(() => ({ data: FALLBACK.conv })),
           dashboardApi.campaignsStats(tenantId || undefined).catch(() => ({ data: FALLBACK.camp })),
+          // Setup 引导状态: 真实数据源, 替代旧版"今日有消息才算注册 Bot"的错误判定
+          tenantId
+            ? tenantsApi.listBots(tenantId).catch(() => ({ data: [] }))
+            : Promise.resolve({ data: [] }),
+          knowledgeApi.listKbs({ type: 'company' }).catch(() => ({ data: [] })),
+          knowledgeApi.listKbs({ type: 'product' }).catch(() => ({ data: [] })),
         ]);
-        setData({ acc: acc.data, cand: cand.data, conv: conv.data, camp: camp.data });
+        const botArr = Array.isArray(bots.data) ? bots.data : [];
+        const companyArr = Array.isArray(companyKbs.data) ? companyKbs.data : [];
+        const productArr = Array.isArray(productKbs.data) ? productKbs.data : [];
+        setData({
+          acc: acc.data,
+          cand: cand.data,
+          conv: conv.data,
+          camp: camp.data,
+          setup: {
+            hasBotToken: botArr.length > 0,
+            hasCompanyKb: companyArr.length > 0,
+            hasProductKb: productArr.length > 0,
+          },
+        });
       } catch {
         setData(FALLBACK);
       } finally {
@@ -109,11 +136,13 @@ export default function DashboardPage() {
   const adTodaySent = d.camp.todaySent ?? 0;
 
   // ── 新租户引导：5 步完成度 ──
+  // 判定改用真实数据源 (tenant_bots / kb_company / kb_product), 之前用"今日是否有客户对话"
+  // 等下游活动指标作 heuristic, 配置完成但当天无活动会被误判.
   const nav = useNavigate();
   const steps = [
-    { key: 'bot', title: '注册 Bot Token', done: botToday > 0 || userToday > 0 || humanCount > 0, path: '/cs', icon: <ApiOutlined /> },
-    { key: 'company', title: '填写公司资讯', done: false /* heuristic: candidates > 0 暗示已配置 */, path: '/cs', icon: <BankOutlined /> },
-    { key: 'product', title: '添加产品', done: false, path: '/cs', icon: <AppstoreOutlined /> },
+    { key: 'bot', title: '注册 Bot Token', done: d.setup.hasBotToken, path: '/cs', icon: <ApiOutlined /> },
+    { key: 'company', title: '填写公司资讯', done: d.setup.hasCompanyKb, path: '/cs', icon: <BankOutlined /> },
+    { key: 'product', title: '添加产品', done: d.setup.hasProductKb, path: '/cs', icon: <AppstoreOutlined /> },
     { key: 'account', title: '绑定 TG 账号', done: totalAcc > 0, path: '/accounts', icon: <UserOutlined /> },
     { key: 'discover', title: '发现群源 + 爬人', done: candTotal > 0, path: '/discovered-groups', icon: <RobotOutlined /> },
   ];
