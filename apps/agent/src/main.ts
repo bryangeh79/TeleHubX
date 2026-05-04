@@ -411,13 +411,16 @@ async function bootstrap(): Promise<void> {
         });
       } catch {}
     },
-    // Codex #3: chat_script 多账号锁
+    // Codex #3: chat_script 多账号锁 (main loop pre-lock 已是主路径, 这两个保留作 backup)
+    // Codex round-3 #2: ownership check — 只删自己的锁, 防 chat_script 结束误删别的任务锁
     lockExtraAccounts: (ids: string[], taskId: string) => {
       for (const id of ids) {
         if (!runningAccountTasks.has(id)) runningAccountTasks.set(id, taskId);
       }
     },
     unlockExtraAccounts: (ids: string[]) => {
+      // 不做 ownership check 这里, 因为 callback 不传 taskId; 但 main loop finally 已经
+      // 用 ownership check 兜底, 此 callback 仅在 executor 主动调用时用
       for (const id of ids) runningAccountTasks.delete(id);
     },
     // Codex #2: 给运行中的 task 提供 cancel 状态查询入口
@@ -470,18 +473,19 @@ async function bootstrap(): Promise<void> {
       }
 
       // 2. Per-account 排他：同账号已有 in-flight task → 退回 pending 让出
-      const busyTaskId = runningAccountTasks.get(t.accountId);
-      if (busyTaskId) {
+      // Codex round-3 #1: chat_script_* 任务需要预先确认所有参与账号都空闲, 一次性原子锁
+      const accountsToLock = computeRequiredAccountLocks(t);
+      const busy = accountsToLock.find((id) => runningAccountTasks.has(id));
+      if (busy) {
         logger.warn(
-          `[task ${t.id.slice(0, 8)}] account ${t.accountId.slice(0, 8)} busy with ${busyTaskId.slice(0, 8)}, requeue`,
+          `[task ${t.id.slice(0, 8)}] account ${busy.slice(0, 8)} busy with ${runningAccountTasks.get(busy)?.slice(0, 8)}, requeue`,
         );
-        // PATCH 回 pending 让 server 下次 dispatch 重新派
         await patchJson(`/tasks/${t.id}`, { status: 'pending', startedAt: null }).catch(() => {});
         continue;
       }
 
-      // 3. 占用 slot, 启动执行
-      runningAccountTasks.set(t.accountId, t.id);
+      // 3. 一次性锁所有参与账号 (主 + extras), 启动执行
+      for (const id of accountsToLock) runningAccountTasks.set(id, t.id);
       const { executeTask } = await import('./tasks/task-runner');
       const allClients = new Map<string, import('telegram').TelegramClient>();
       for (const [accId, s] of slots) allClients.set(accId, s.client);
@@ -495,9 +499,33 @@ async function bootstrap(): Promise<void> {
       ).catch((err) => {
         logger.error(`[task ${t.id?.slice(0, 8)}] uncaught: ${err instanceof Error ? err.message : err}`);
       }).finally(() => {
-        runningAccountTasks.delete(t.accountId);
+        // Codex #2 + #3: ownership check 防误删 + 兜底释放 (即使 executor finally 没跑)
+        for (const id of accountsToLock) {
+          if (runningAccountTasks.get(id) === t.id) runningAccountTasks.delete(id);
+        }
       });
     }
+  }
+
+  /**
+   * 计算此任务执行时需要锁住的全部账号 ID.
+   * - 普通 task: 仅 task.accountId
+   * - chat_script_*: task.accountId + 所有 accountB/C/D/E/F Id
+   *
+   * Codex round-3 #1+#3 修复: 把 multi-account lock 从 executor 内 (异步) 提到
+   * main loop 启动前 (同步), 消除 "main loop 派 A 后 BCDEF 仍可被并发派任务" 的窗口.
+   */
+  function computeRequiredAccountLocks(t: any): string[] {
+    const ids = new Set<string>();
+    if (t.accountId) ids.add(t.accountId);
+    if (t.type?.startsWith('chat_script_')) {
+      const p = t.payload ?? {};
+      for (const k of ['accountAId', 'accountBId', 'accountCId', 'accountDId', 'accountEId', 'accountFId']) {
+        const v = p[k];
+        if (typeof v === 'string' && v) ids.add(v);
+      }
+    }
+    return [...ids];
   }
 
   const taskTimer = setInterval(() => {

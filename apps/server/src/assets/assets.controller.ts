@@ -19,7 +19,17 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import * as fs from 'fs';
+import { Request } from 'express';
+import { Req } from '@nestjs/common';
 import { AllowAgent } from '../auth/roles.decorator';
+
+/**
+ * Codex round-3 #4: 当请求用 X-Agent-Token (跨租户) 时, 必须显式传 tenantId 校验,
+ * 否则放行可能导致跨租户素材读取. 用户 JWT 调用时 tenantId 由 service findOneScoped 兜底.
+ */
+function isAgentRequest(req: Request): boolean {
+  return !!(req.headers['x-agent-token']);
+}
 import { AssetCategory, AssetSource } from './asset.entity';
 import { AssetsService } from './assets.service';
 import { TenantsService } from '../tenants/tenants.service';
@@ -111,11 +121,19 @@ export class AssetsController {
   @AllowAgent()
   async findOne(
     @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: Request,
     @Query('tenantId') tenantId?: string,
   ) {
     const a = await this.service.findOne(id);
-    // Codex #11: agent 调用必须传 tenantId 且与 asset.tenantId 一致
-    if (tenantId && a.tenantId && a.tenantId !== tenantId) {
+    // Codex round-3 #4: agent 必须传 tenantId, 否则拒绝 (内置 builtin 资源 tenantId=null 例外)
+    if (isAgentRequest(req)) {
+      if (!tenantId && a.tenantId) {
+        throw new BadRequestException('agent 调用必须传 tenantId');
+      }
+      if (tenantId && a.tenantId && a.tenantId !== tenantId) {
+        throw new NotFoundException('Asset not in your tenant');
+      }
+    } else if (tenantId && a.tenantId && a.tenantId !== tenantId) {
       throw new NotFoundException('Asset not in your tenant');
     }
     return a;
@@ -127,10 +145,18 @@ export class AssetsController {
   async streamFile(
     @Param('id', ParseUUIDPipe) id: string,
     @Res() res: Response,
+    @Req() req: Request,
     @Query('tenantId') tenantId?: string,
   ) {
     const a = await this.service.findOne(id);
-    if (tenantId && a.tenantId && a.tenantId !== tenantId) {
+    if (isAgentRequest(req)) {
+      if (!tenantId && a.tenantId) {
+        throw new BadRequestException('agent 调用必须传 tenantId');
+      }
+      if (tenantId && a.tenantId && a.tenantId !== tenantId) {
+        throw new NotFoundException('Asset not in your tenant');
+      }
+    } else if (tenantId && a.tenantId && a.tenantId !== tenantId) {
       throw new NotFoundException('Asset not in your tenant');
     }
 
@@ -155,8 +181,8 @@ export class AssetsController {
 
   /** 老路径保留兼容 */
   @Get(':id/content')
-  async download(@Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
-    return this.streamFile(id, res);
+  async download(@Param('id', ParseUUIDPipe) id: string, @Res() res: Response, @Req() req: Request) {
+    return this.streamFile(id, res, req);
   }
 
   @Patch(':id')

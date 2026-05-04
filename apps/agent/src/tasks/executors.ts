@@ -389,6 +389,8 @@ export async function postChannel(ctx: ExecutorCtx): Promise<void> {
   let asset = null;
   if (assetId) {
     asset = await fetchAssetById(assetId, ctx.tenantId);
+    // Codex round-3 #7: 用户明确指定 assetId, 元数据拉不到必须 throw (用户期望发素材, 不是降级纯文本)
+    if (!asset) throw new Error(`post_channel: 指定的素材 ${assetId} 不存在或不在租户内`);
   } else if (poolName) {
     asset = await pickRandomAsset({ poolName, tenantId: ctx.tenantId });
   }
@@ -398,7 +400,11 @@ export async function postChannel(ctx: ExecutorCtx): Promise<void> {
     if (buf) {
       const file = new CustomFile(asset.fileName, buf.length, '', buf);
       await ctx.client.sendFile(entity, { file, caption: content, forceDocument: false });
+    } else if (assetId) {
+      // 明确指定 assetId 但文件下载失败 → throw 防 "实际没发素材但 DONE"
+      throw new Error(`post_channel: 指定的素材 ${assetId} 文件下载失败`);
     } else if (content) {
+      // poolName 随机抽未命中 + 有文本 → 降级发纯文本是合理的
       await sendMessageLikeHuman(ctx.client, entity, content);
     }
   } else if (content) {
@@ -1132,16 +1138,12 @@ async function chatScriptImpl(
   const participatingAccountIds = Object.values(roleAcc);
   for (const accId of participatingAccountIds) muteAccount(accId);
 
-  // Codex #3: 把额外参与账号 (B/C/D/E/F) 也注入 runningAccountTasks 锁,
-  // 防止 main loop 在剧本进行中给这些账号派别的任务造成串台
-  const extraIds = participatingAccountIds.filter((id) => id !== ctx.accountId);
-  if (extraIds.length) ctx.lockExtraAccounts?.(extraIds);
-
+  // Codex round-3 #1+#3: multi-account lock 已由 main loop pre-lock 处理 (computeRequiredAccountLocks),
+  // 这里 executor 不再 lockExtraAccounts (避免双重锁 + 时序竞态)
   try {
     return await runChatScriptInner(ctx, expectedType, p, roleAcc, rolesPresent, isGroup);
   } finally {
     for (const accId of participatingAccountIds) unmuteAccount(accId);
-    if (extraIds.length) ctx.unlockExtraAccounts?.(extraIds);
   }
 }
 
@@ -1215,10 +1217,11 @@ async function runChatScriptInner(
     const targetEntity = roleTarget[t.role];
     if (!senderClient || !targetEntity) continue; // role 不在本任务（比如剧本里有 D 但任务只 A+B）
 
-    // 间隔（剧本里写的 send_delay_sec）
+    // 间隔（剧本里写的 send_delay_sec）— Codex round-3 #6: 改 cancellable
     if (i > 0) {
       const [a, b] = (t.send_delay_sec as [number, number]) ?? [30, 90];
-      await sleep(gaussianDelayMs(a * 1000, b * 1000));
+      await cancellableSleep(gaussianDelayMs(a * 1000, b * 1000), ctx.abortSignal);
+      throwIfAborted(ctx.abortSignal);
     }
 
     if (t.type === 'voice' && t.asset_pool) {
@@ -1228,7 +1231,12 @@ async function runChatScriptInner(
         const buf = await fetchAssetFile(asset.id, ctx.tenantId);
         if (buf) {
           const file = new CustomFile(asset.fileName, buf.length, '', buf);
-          await senderClient.sendFile(targetEntity, { file, voiceNote: true });
+          // Codex round-3 #6: sendFile 加 timeout 防上传卡死
+          await withTimeout(
+            senderClient.sendFile(targetEntity, { file, voiceNote: true }),
+            90_000,
+            'chat_script voice sendFile 超时',
+          );
         }
       } else if (t.caption_fallback) {
         await sendMessageLikeHuman(senderClient, targetEntity, t.caption_fallback);
@@ -1244,7 +1252,11 @@ async function runChatScriptInner(
         const buf = await fetchAssetFile(asset.id, ctx.tenantId);
         if (buf) {
           const file = new CustomFile(asset.fileName, buf.length, '', buf);
-          await senderClient.sendFile(targetEntity, { file, caption });
+          await withTimeout(
+            senderClient.sendFile(targetEntity, { file, caption }),
+            120_000,
+            'chat_script media sendFile 超时',
+          );
         }
       } else if (caption) {
         await sendMessageLikeHuman(senderClient, targetEntity, caption);

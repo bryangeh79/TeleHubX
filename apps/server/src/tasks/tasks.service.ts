@@ -1028,30 +1028,20 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     );
     if (!eligibleIds.length) return [];
 
-    // Codex Bug #5 修复: 同账号一次只派 1 条, 避免 server 派多条 → agent 退回多条 → 状态抖动
-    // 用 DISTINCT ON (accountId) 选每个账号最早的 1 条 pending
-    const rawRows = await this.repo
-      .createQueryBuilder('t')
-      .where('t.status = :s', { s: TaskStatus.PENDING })
-      .andWhere('t."scheduledAt" <= :now', { now })
-      .andWhere('t."accountId" IN (:...ids)', { ids: eligibleIds })
-      .andWhere(`t.type::text NOT LIKE 'preset_%' AND t.type::text != 'keyword_lead_hunt'`)
-      .orderBy('t."accountId"', 'ASC')
-      .addOrderBy('t."scheduledAt"', 'ASC')
-      .getRawMany(); // 不能用 distinctOn 直接 getMany, 改 raw
-    // PG-side dedup: 取每 accountId 第一条
-    const seen = new Set<string>();
-    const candidates: Task[] = [];
-    for (const r of rawRows) {
-      const aid = r.t_accountId;
-      if (!aid || seen.has(aid)) continue;
-      seen.add(aid);
-      // 重新水合 entity (rawMany 字段名带 alias 前缀，用 findBy 拿一次更安全)
-      const entity = await this.repo.findOneBy({ id: r.t_id });
-      if (entity) candidates.push(entity);
-      if (candidates.length >= limit) break;
-    }
-
+    // Codex round-3 #5: 改 PG 原生 DISTINCT ON + LIMIT, SQL 层完成去重不再全量扫描
+    // 同账号一次只派 1 条, 避免 server 派多条 → agent 退回多条 → 状态抖动
+    const candidates: Task[] = await this.repo.query(
+      `SELECT DISTINCT ON ("accountId") *
+         FROM tasks
+        WHERE status = $1
+          AND "scheduledAt" <= $2
+          AND "accountId" = ANY($3::varchar[])
+          AND type::text NOT LIKE 'preset_%'
+          AND type::text != 'keyword_lead_hunt'
+        ORDER BY "accountId", "scheduledAt" ASC
+        LIMIT $4`,
+      [TaskStatus.PENDING, now, eligibleIds, limit],
+    );
     if (!candidates.length) return [];
 
     // keyword_lead_hunt 子任务: 派发前检查父任务目标是否已达

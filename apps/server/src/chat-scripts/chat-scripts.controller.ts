@@ -18,7 +18,13 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ChatScriptStatus, ChatScriptType } from './chat-script.entity';
 import { ChatScriptsService } from './chat-scripts.service';
 import { AuthUser, CurrentUser } from '../auth/current-user.decorator';
+import { Req } from '@nestjs/common';
+import type { Request } from 'express';
 import { AllowAgent } from '../auth/roles.decorator';
+
+function isAgentRequest(req: Request): boolean {
+  return !!(req.headers['x-agent-token']);
+}
 import { resolveTenantIdSoft } from '../auth/tenant-resolver';
 import { CreateChatScriptDto } from './dto/create-chat-script.dto';
 import { UpdateChatScriptDto } from './dto/update-chat-script.dto';
@@ -73,18 +79,22 @@ export class ChatScriptsController {
   }
 
   /** Agent 端 chat_script_* 任务调用：随机抽一个 active 剧本（含 rawScript）。
-   *  Codex #11: 必须传 tenantId 防跨租户拉别人的剧本 */
+   *  Codex round-3 #4: agent 必须传 tenantId 否则拒绝 (内置共享 tenantId=null 例外) */
   @Get('random')
   @AllowAgent()
   async pickRandom(
+    @Req() req: Request,
     @Query('packId') packId?: string,
     @Query('category') category?: string,
     @Query('type') type?: ChatScriptType,
     @Query('tenantId') tenantId?: string,
   ) {
+    if (isAgentRequest(req) && !tenantId) {
+      // agent 不传 tenantId 不允许拉随机 (会跨租户)
+      throw new BadRequestException('agent 调用必须传 tenantId');
+    }
     const s = await this.service.pickRandom({ packId, category, type, tenantId } as any);
     if (!s) return null;
-    // 二次防护：万一 service 没按 tenant 过滤
     if (tenantId && (s as any).tenantId && (s as any).tenantId !== tenantId) return null;
     return s;
   }
@@ -93,10 +103,18 @@ export class ChatScriptsController {
   @AllowAgent()
   async findOne(
     @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: Request,
     @Query('tenantId') tenantId?: string,
   ) {
     const s = await this.service.findOne(id);
-    if (tenantId && (s as any).tenantId && (s as any).tenantId !== tenantId) {
+    if (isAgentRequest(req)) {
+      if (!tenantId && (s as any).tenantId) {
+        throw new BadRequestException('agent 调用必须传 tenantId');
+      }
+      if (tenantId && (s as any).tenantId && (s as any).tenantId !== tenantId) {
+        return null;
+      }
+    } else if (tenantId && (s as any).tenantId && (s as any).tenantId !== tenantId) {
       return null;
     }
     return s;
