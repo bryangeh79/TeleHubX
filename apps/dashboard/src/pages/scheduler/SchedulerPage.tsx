@@ -43,6 +43,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { accountsApi, assetsApi, chatScriptsApi, leadCandidatesApi, slotsApi, tasksApi } from '../../services/api';
+import { getErrorClassMeta } from '../../utils/error-class';
 
 const { Title, Text } = Typography;
 
@@ -80,6 +81,12 @@ interface Task {
   finishedAt: string | null;
   progress: number;
   errorMsg: string | null;
+  /** Auto-Recovery 系统: 错误分类码 A/B/D/E/F/G/H */
+  errorClass?: string | null;
+  /** Auto-Recovery 系统: 已自动重试次数 */
+  autoRetryCount?: number;
+  /** Auto-Recovery 系统: 上次自动重试时间 */
+  lastRetryAt?: string | null;
   createdAt: string;
 }
 
@@ -861,8 +868,35 @@ export default function SchedulerPage() {
             {logTask.finishedAt && (
               <Descriptions.Item label="结束时间">{dayjs(logTask.finishedAt).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
             )}
+            {/* Auto-Recovery: 错误类别 + 自动重试状态 */}
+            {logTask.errorClass && getErrorClassMeta(logTask.errorClass) && (
+              <Descriptions.Item label="错误类别">
+                <Tag color={getErrorClassMeta(logTask.errorClass)!.color}>
+                  {getErrorClassMeta(logTask.errorClass)!.label} ({logTask.errorClass})
+                </Tag>
+              </Descriptions.Item>
+            )}
+            {logTask.status === 'failed' && (logTask.autoRetryCount ?? 0) > 0 && (
+              <Descriptions.Item label="自动恢复">
+                <Text style={{ fontSize: 13 }}>
+                  已自动重试 {logTask.autoRetryCount}/2 次
+                  {logTask.lastRetryAt && (
+                    <Text type="secondary" style={{ marginLeft: 8 }}>
+                      (最后一次: {dayjs(logTask.lastRetryAt).format('HH:mm:ss')})
+                    </Text>
+                  )}
+                </Text>
+              </Descriptions.Item>
+            )}
+            {logTask.errorClass && getErrorClassMeta(logTask.errorClass) && logTask.status === 'failed' && (
+              <Descriptions.Item label="系统建议">
+                <Text style={{ fontSize: 13 }}>
+                  💡 {getErrorClassMeta(logTask.errorClass)!.hint}
+                </Text>
+              </Descriptions.Item>
+            )}
             {logTask.errorMsg && (
-              <Descriptions.Item label="错误信息">
+              <Descriptions.Item label="错误详情">
                 <Text type="danger" style={{ fontSize: 13 }}>{humanizeError(logTask.errorMsg)}</Text>
               </Descriptions.Item>
             )}
