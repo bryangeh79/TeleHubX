@@ -420,6 +420,15 @@ async function bootstrap(): Promise<void> {
     unlockExtraAccounts: (ids: string[]) => {
       for (const id of ids) runningAccountTasks.delete(id);
     },
+    // Codex #2: 给运行中的 task 提供 cancel 状态查询入口
+    isTaskCanceled: async (taskId: string): Promise<boolean> => {
+      try {
+        const t = await fetchJson<any>(`/tasks/${taskId}`);
+        return !!t?.cancelRequested;
+      } catch {
+        return false;  // 网络错误时假定未取消, 避免误中断
+      }
+    },
     log: { info: (m: string) => logger.info(m), warn: (m: string) => logger.warn(m), error: (m: string) => logger.error(m) },
   };
 

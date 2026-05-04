@@ -27,6 +27,11 @@ export interface ServerCallbacks {
    */
   lockExtraAccounts(accountIds: string[], taskId: string): void;
   unlockExtraAccounts(accountIds: string[]): void;
+  /**
+   * Codex #2: 查询任务是否被用户取消 (cancelRequested=true)。
+   * Runner 启动后周期性 (30s) 调用此函数, true 时 abort 信号传给 executor.
+   */
+  isTaskCanceled(taskId: string): Promise<boolean>;
   /** 日志 */
   log: { info: (m: string) => void; warn: (m: string) => void; error: (m: string) => void };
 }
@@ -118,6 +123,18 @@ export async function executeTask(
   cb.log.info(`[task ${task.id.slice(0, 8)}] start type=${task.type} account=${task.accountLabel ?? task.accountId?.slice(0, 8)}`);
 
   let timer: ReturnType<typeof setTimeout> | undefined;
+  // Codex #2: 30s 一次轮询 server, 用户取消 → abort signal → executor 在 cancellableSleep / RPC timeout 触发处优雅退出
+  let cancelWatcher: ReturnType<typeof setInterval> | undefined;
+  cancelWatcher = setInterval(async () => {
+    try {
+      const canceled = await cb.isTaskCanceled(task.id);
+      if (canceled && !abortCtl.signal.aborted) {
+        cb.log.warn(`[task ${task.id.slice(0, 8)}] cancelRequested=true detected mid-flight, aborting`);
+        abortCtl.abort();
+      }
+    } catch { /* 网络错误忽略 */ }
+  }, 30_000);
+
   try {
     // 给每个任务加强制超时，防止 GramJS 网络调用无限挂起
     // 同时 abort signal 通知 executor 在下次检查点优雅退出
@@ -131,6 +148,7 @@ export async function executeTask(
       }),
     ]);
     if (timer) clearTimeout(timer);
+    if (cancelWatcher) clearInterval(cancelWatcher);
 
     // Codex Bug #4 修复: SELF_TEST 成功也走过 throw 流程, 走到这分支说明 executor 没 throw
     // 但实际 self_test 总会 throw (含成功 JSON), 所以这里 markDone 几乎用不到; 留作未来其他 executor 用
@@ -138,6 +156,7 @@ export async function executeTask(
     cb.log.info(`[task ${task.id.slice(0, 8)}] done ✓`);
   } catch (err) {
     if (timer) clearTimeout(timer);
+    if (cancelWatcher) clearInterval(cancelWatcher);
     abortCtl.abort();  // 让仍在跑的 executor 在下个检查点退出
     const e = err as Error;
 
