@@ -41,17 +41,30 @@ import { MaintenanceModule } from './maintenance/maintenance.module';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'postgres',
-        host: config.get('DB_HOST', 'localhost'),
-        port: config.get<number>('DB_PORT', 5436),
-        username: config.get('DB_USER', 'telehubx'),
-        password: config.get('DB_PASSWORD', 'telehubx'),
-        database: config.get('DB_NAME', 'telehubx'),
-        entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        synchronize: true,
-        logging: config.get('NODE_ENV') === 'development',
-      }),
+      useFactory: (config: ConfigService) => {
+        // 默认 false，防止生产环境误 DROP/ALTER。
+        // 仅当 TYPEORM_SYNC=true 显式开启时才走 synchronize 自动同步 schema。
+        // 生产环境必须保持 false，schema 演进走 typeorm migration:run (data-source.ts)。
+        const sync = config.get<string>('TYPEORM_SYNC') === 'true';
+        const isProd = (config.get<string>('NODE_ENV') ?? '').toLowerCase() === 'production';
+        if (sync && isProd) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            '[TypeORM] WARNING: TYPEORM_SYNC=true in production — schema 会被自动同步，可能 DROP 数据。强烈不推荐。',
+          );
+        }
+        return {
+          type: 'postgres',
+          host: config.get('DB_HOST', 'localhost'),
+          port: config.get<number>('DB_PORT', 5436),
+          username: config.get('DB_USER', 'telehubx'),
+          password: config.get('DB_PASSWORD', 'telehubx'),
+          database: config.get('DB_NAME', 'telehubx'),
+          entities: [__dirname + '/**/*.entity{.ts,.js}'],
+          synchronize: sync,
+          logging: config.get('NODE_ENV') === 'development',
+        };
+      },
     }),
     LoggerModule,
     RedisModule,
