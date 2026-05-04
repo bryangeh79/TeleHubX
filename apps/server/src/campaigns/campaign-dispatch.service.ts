@@ -16,6 +16,7 @@ import { CustomerGroup } from '../customer-groups/customer-group.entity';
 import { AdTemplate } from '../ad-templates/ad-template.entity';
 import { Asset } from '../assets/asset.entity';
 import { GreetingTemplate } from '../greeting-templates/greeting-template.entity';
+import { LeadCandidate } from '../leads-candidates/lead-candidate.entity';
 import { Task, TaskStatus, TaskType } from '../tasks/task.entity';
 
 /**
@@ -70,6 +71,8 @@ interface SendUnit {
   adContent: string;
   /** Codex #11: 用户在 ad-template 配了媒体素材 → 透到任务 payload, agent 用 sendFile */
   mediaAssetId?: string | null;
+  /** Codex round-7 #5: 候选池来源 → 透到 task payload, agent 发完后回写 lead_candidate.contacted */
+  candidateId?: string | null;
 }
 
 /** Codex #11: ad variant 含 mediaAssetId, 让 distribute 阶段挑文案时同时知道带不带图 */
@@ -90,6 +93,7 @@ export class CampaignDispatchService {
     @InjectRepository(GreetingTemplate) private readonly greetingRepo: Repository<GreetingTemplate>,
     @InjectRepository(Task)             private readonly taskRepo: Repository<Task>,
     @InjectRepository(Asset)            private readonly assetRepo: Repository<Asset>,
+    @InjectRepository(LeadCandidate)    private readonly candidateRepo: Repository<LeadCandidate>,
   ) {}
 
   /**
@@ -193,7 +197,10 @@ export class CampaignDispatchService {
           scheduledAt: u.scheduledAt,
           payload: {
             campaignId: campaign.id,
-            targets: [u.target],
+            // Codex round-7 #5: 候选池来源 → 用对象形式带 candidateId, agent 发完会 markCandidateContacted
+            targets: u.candidateId
+              ? [{ value: u.target, candidateId: u.candidateId }]
+              : [u.target],
             variants: [{ text: u.adContent, mediaAssetId: u.mediaAssetId ?? null }],
             greeting: u.greeting,
             intervalSec: [60, 90],
@@ -258,7 +265,23 @@ export class CampaignDispatchService {
   }): SendUnit[] {
     const { targets, accounts, adVariants, greetings, greetingMode } = opts;
     const result: SendUnit[] = [];
-    const baseTime = Date.now();
+
+    // Codex round-7 #3: fast-path 加夜间保护 (规则: 9-21 之外不发送)
+    // 启动时若已过 21:00 → baseTime 推到次日 9:00; 若早于 9:00 → 推到当天 9:00
+    let baseTime = Date.now();
+    const baseDate = new Date(baseTime);
+    if (baseDate.getHours() >= SEND_NIGHT_GUARD_END_H) {
+      // 已过晚间保护线 → 推到明天早上 9:00
+      const tomorrow = new Date(baseDate);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(SEND_NIGHT_GUARD_START_H, 0, 0, 0);
+      baseTime = tomorrow.getTime();
+    } else if (baseDate.getHours() < SEND_NIGHT_GUARD_START_H) {
+      // 早晨太早 → 推到 9:00
+      const today = new Date(baseDate);
+      today.setHours(SEND_NIGHT_GUARD_START_H, 0, 0, 0);
+      baseTime = today.getTime();
+    }
 
     for (let i = 0; i < targets.length; i++) {
       const acc = accounts[i % accounts.length];
@@ -266,7 +289,15 @@ export class CampaignDispatchService {
       const accStagger = (i % accounts.length) * 30 + Math.random() * 20;
       const sameAccGap = sameAccIndex * 90 + (Math.random() - 0.5) * 30;
       const offsetMs = (60 + accStagger + sameAccGap) * 1000;
-      const scheduledAt = new Date(baseTime + offsetMs);
+      let scheduledAt = new Date(baseTime + offsetMs);
+
+      // 二次保护: 累加偏移后若跨过 21:00 → 推到次日 9:00 + 残余偏移
+      if (scheduledAt.getHours() >= SEND_NIGHT_GUARD_END_H) {
+        const next = new Date(scheduledAt);
+        next.setDate(next.getDate() + 1);
+        next.setHours(SEND_NIGHT_GUARD_START_H, scheduledAt.getMinutes(), 0, 0);
+        scheduledAt = next;
+      }
 
       const ad = adVariants[Math.floor(Math.random() * adVariants.length)];
       let greeting: string | null = null;
@@ -283,7 +314,8 @@ export class CampaignDispatchService {
         target: targets[i].value,
         greeting,
         adContent: ad.text,
-        mediaAssetId: ad.mediaAssetId ?? null,    // Codex #11
+        mediaAssetId: ad.mediaAssetId ?? null,
+        candidateId: targets[i].candidateId ?? null,    // Codex round-7 #5
       });
     }
     return result;
@@ -402,7 +434,26 @@ export class CampaignDispatchService {
     }
 
     // 标准路径：按日期分组，每天内按时段分组
-    const windows = PACE_WINDOWS[pace];
+    // Codex round-7 #4: preview 与 distribute 同步窗口逻辑 — 用户传 scheduleTime
+    // 时显示自定义窗口, 不再固定 PACE_WINDOWS
+    let windows = PACE_WINDOWS[pace];
+    if (dto.scheduleTime && /^\d{1,2}:\d{2}$/.test(dto.scheduleTime)) {
+      const [h, m] = dto.scheduleTime.split(':').map(Number);
+      const startH = Math.max(0, Math.min(23, h ?? 9));
+      const startM = Math.max(0, Math.min(59, m ?? 0));
+      let endH = startH + 2;
+      let endM = startM;
+      if (endH > 23) { endH = 23; endM = 59; }
+      windows = [{ startH, startM, endH, endM }];
+    } else if (dto.scheduleMode === 'once' && dto.scheduledAt) {
+      const sa = new Date(dto.scheduledAt);
+      const startH = sa.getHours();
+      const startM = sa.getMinutes();
+      let endH = startH + 2;
+      let endM = startM;
+      if (endH > 23) { endH = 23; endM = 59; }
+      windows = [{ startH, startM, endH, endM }];
+    }
     const todayMs = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
 
     // dayOffset → winIdx → times[]
@@ -503,6 +554,59 @@ export class CampaignDispatchService {
     for (const t of campaign.targets ?? []) {
       const v = (t || '').trim();
       if (v && !seen.has(v)) { seen.add(v); result.push({ value: v }); }
+    }
+
+    // Codex round-7 #5: 候选池来源的目标批量回填 candidateId,
+    // 让 dispatch payload 带上 candidateId, agent 发送后能 markCandidateContacted
+    const candidateTargets = result.filter((r) => r.fromCandidate);
+    if (candidateTargets.length && campaign.tenantId) {
+      // 用 username (去掉 @) 或 phone 或 tgUserId 三种方式去匹配 lead_candidate
+      const usernames: string[] = [];
+      const phones: string[] = [];
+      const tgUserIds: string[] = [];
+      for (const t of candidateTargets) {
+        const v = t.value;
+        if (v.startsWith('@') || /^[A-Za-z][A-Za-z0-9_]{4,}$/.test(v)) {
+          usernames.push(v.replace(/^@/, ''));
+        } else if (/^\+?\d{6,}$/.test(v)) {
+          phones.push(v);
+        } else {
+          tgUserIds.push(v);
+        }
+      }
+      const qb = this.candidateRepo
+        .createQueryBuilder('c')
+        .where('c."tenantId" = :tid', { tid: campaign.tenantId });
+      const conditions: string[] = [];
+      const params: any = { tid: campaign.tenantId };
+      if (usernames.length) {
+        conditions.push('c."tgUsername" IN (:...usernames)');
+        params.usernames = usernames;
+      }
+      if (phones.length) {
+        conditions.push('c.phone IN (:...phones)');
+        params.phones = phones;
+      }
+      if (tgUserIds.length) {
+        conditions.push('c."tgUserId" IN (:...tgUserIds)');
+        params.tgUserIds = tgUserIds;
+      }
+      if (conditions.length) {
+        qb.andWhere(`(${conditions.join(' OR ')})`, params);
+        const candidates = await qb.getMany();
+        // 建索引: username/phone/tgUserId → candidateId
+        const idx = new Map<string, string>();
+        for (const c of candidates) {
+          if (c.tgUsername) idx.set(c.tgUsername, c.id);
+          if (c.phone) idx.set(c.phone, c.id);
+          if (c.tgUserId) idx.set(c.tgUserId, c.id);
+        }
+        for (const t of candidateTargets) {
+          const k = t.value.replace(/^@/, '');
+          const cid = idx.get(k) ?? idx.get(t.value);
+          if (cid) t.candidateId = cid;
+        }
+      }
     }
 
     return result;
@@ -799,7 +903,8 @@ export class CampaignDispatchService {
             target: t.value,
             greeting,
             adContent: ad.text,
-            mediaAssetId: ad.mediaAssetId ?? null,    // Codex #11
+            mediaAssetId: ad.mediaAssetId ?? null,
+            candidateId: t.candidateId ?? null,    // Codex round-7 #5
           });
         }
       }

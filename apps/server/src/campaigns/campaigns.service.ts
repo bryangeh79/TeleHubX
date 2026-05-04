@@ -266,30 +266,32 @@ export class CampaignsService {
       return c;
     }
 
-    // Codex round-6 #2: 真正原子的幂等 - UPDATE...WHERE sentCountedAt IS NULL RETURNING id
-    // 仅当 affected=1 (本次 UPDATE 命中) 时才 increment campaign.sentCount
-    // 解决竞态: 之前 update + findOneBy 两步无法判断本次是否真改了行
-    const updateResult = await this.taskRepo
-      .createQueryBuilder()
-      .update(Task)
-      .set({ sentCountedAt: new Date() })
-      .where('id = :id', { id: taskId })
-      .andWhere('"sentCountedAt" IS NULL')
-      .returning('id')
-      .execute();
+    // Codex round-7 #2: sentCountedAt + sentCount++ 必须在同一事务里
+    // 之前两步可能出现 "task 标 counted 但 campaign 没 +1" 的永久少算
+    let counted = false;
+    await this.taskRepo.manager.transaction(async (mgr) => {
+      const updateResult = await mgr
+        .createQueryBuilder()
+        .update(Task)
+        .set({ sentCountedAt: new Date() })
+        .where('id = :id', { id: taskId })
+        .andWhere('"sentCountedAt" IS NULL')
+        .returning('id')
+        .execute();
+      const affected = updateResult.affected ?? 0;
+      if (affected !== 1) {
+        // 并发: 另一个事务已经计数, 本次跳过
+        return;
+      }
+      // 同事务里 increment - 任何一步失败 → 整体回滚, sentCountedAt 也撤销, 下次重试可重新计数
+      await mgr.increment(Campaign, { id }, 'sentCount', delta);
+      counted = true;
+    });
 
-    const affected = updateResult.affected ?? 0;
-    if (affected !== 1) {
-      // 并发场景: 另一个请求已经把 sentCountedAt 改了, 本次不计数
-      this.logger.warn(
-        `incrementSent task ${taskId.slice(0, 8)} race lost (affected=${affected}), 跳过`,
-      );
+    if (!counted) {
+      this.logger.warn(`incrementSent task ${taskId.slice(0, 8)} race lost, 跳过`);
       return c;
     }
-
-    // 只有 UPDATE 命中才 +1, 这一对操作不需要事务包裹也是安全的
-    // (sentCountedAt 是幂等门禁, increment 是计数; 即便 increment 失败也不会重复入库)
-    await this.repo.increment({ id }, 'sentCount', delta);
     const reloaded = await this.findOne(id);
     this.checkCompletion(id).catch(() => {});
     return reloaded;

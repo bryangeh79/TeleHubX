@@ -191,18 +191,39 @@ export async function bulkUpsertDiscoveredGroups(
 }
 
 /** 上报 campaign 已发送 +1 (campaignSingle 执行器在每条发送完成后调用)
- *  Codex round-5 #1: taskId 必传, 防 sentCount 被刷 + server 端用 sentCountedAt 幂等 */
+ *  Codex round-5 #1: taskId 必传, 防 sentCount 被刷 + server 端用 sentCountedAt 幂等
+ *  Codex round-7 #1: 不再静默吞错, 3 次重试 + 失败抛出
+ *    若真失败, runner 会 markFailed 此 task → 重试时新一轮 sendMessage + reportCampaignSent
+ *    server 端 sentCountedAt IS NULL 守卫确保不重复 +1
+ *    极端情况下消息重发但计数正确, 比 "消息发了但 sentCount 永远少算" 更可恢复
+ */
 export async function reportCampaignSent(campaignId: string, taskId: string, delta = 1): Promise<void> {
-  try {
-    await fetch(`${API_BASE}/campaigns/${campaignId}/sent`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(process.env.AGENT_TOKEN ? { 'X-Agent-Token': process.env.AGENT_TOKEN } : {}),
-      },
-      body: JSON.stringify({ delta, taskId }),
-    });
-  } catch {
-    // 静默失败 (后端宕机不应影响 agent 主流程)
+  let lastErr: any = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch(`${API_BASE}/campaigns/${campaignId}/sent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(process.env.AGENT_TOKEN ? { 'X-Agent-Token': process.env.AGENT_TOKEN } : {}),
+        },
+        body: JSON.stringify({ delta, taskId }),
+      });
+      if (!res.ok) {
+        // 4xx 不重试 (业务拒绝, 重试也无意义)
+        if (res.status >= 400 && res.status < 500) {
+          throw new Error(`reportCampaignSent HTTP ${res.status}`);
+        }
+        throw new Error(`reportCampaignSent HTTP ${res.status} (attempt ${attempt}/3)`);
+      }
+      return;  // 成功
+    } catch (err: any) {
+      lastErr = err;
+      // 4xx 类型错误不重试
+      if (/HTTP 4\d\d/.test(err?.message ?? '')) throw err;
+      // 重试前等待 1s/2s/3s
+      if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 1000));
+    }
   }
+  throw new Error(`reportCampaignSent 失败 (3 次重试均失败): ${lastErr?.message ?? lastErr}`);
 }
