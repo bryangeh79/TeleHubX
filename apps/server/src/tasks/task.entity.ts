@@ -198,6 +198,27 @@ export class Task {
   @Column({ type: 'timestamptz', nullable: true })
   messageSentAt: Date | null;
 
+  /**
+   * Auto-Recovery 系统: 错误分类码 (A/B/D/E/F/G/H), 由 agent 端 classifyError() 写入.
+   * 用于 dashboard 任务详情显示 "错误类别 + 自动恢复建议".
+   * null = 未分类 (老任务 / 任务未失败).
+   */
+  @Column({ type: 'varchar', length: 4, nullable: true })
+  errorClass: string | null;
+
+  /**
+   * Auto-Recovery 系统: 已自动重试次数 (0-2). 上限由 task-runner 控制 (默认 ≤2).
+   * 仅 A/B 类错误会增加此计数 (网络瞬时 / 连接已断). FloodWait 走 quarantine 路径不计入.
+   */
+  @Column({ type: 'int', default: 0 })
+  autoRetryCount: number;
+
+  /**
+   * Auto-Recovery 系统: 上次自动重试的时间戳, 用于审计/排查.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  lastRetryAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 
