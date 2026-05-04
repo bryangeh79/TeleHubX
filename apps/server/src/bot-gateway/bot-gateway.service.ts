@@ -1,11 +1,13 @@
 import { forwardRef, Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
+import Redis from 'ioredis';
 import { AiAgentService } from '../ai-agent/ai-agent.service';
 import { AutoReplyDecider } from '../ai-agent/decider.service';
 import { KnowledgeService } from '../knowledge/knowledge.service';
 import { LeadsService } from '../leads/leads.service';
 import { LeadTakeover } from '../leads/lead.entity';
 import { PlatformConfigService } from '../platform-config/platform-config.service';
+import { REDIS_CLIENT } from '../redis/redis.provider';
 import { TenantsService } from '../tenants/tenants.service';
 import { TenantBot } from '../tenants/tenant-bot.entity';
 import { BotReplyService } from './bot-reply.service';
@@ -35,6 +37,7 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
     private readonly adapter: BotUpdateAdapter,
     private readonly moduleRef: ModuleRef,
     private readonly platformConfig: PlatformConfigService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
   /**
@@ -201,7 +204,21 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
         const updates = await this.botReply.getUpdates(bot.rawToken, bot.pollingOffset);
         if (updates.length > 0) {
           for (const update of updates) {
-            await this.processUpdate(update, bot);
+            // Codex round-11 #4: 幂等检查 — 防 sendText 成功但 offset 更新前崩溃
+            // 重启后 Telegram 重投同 update → 此处跳过, 不重发自动回复
+            const dedupeKey = `bot:update:${botId}:${update.update_id}`;
+            const seen = await this.redis.set(dedupeKey, '1', 'EX', 7 * 86400, 'NX');
+            if (seen !== 'OK') {
+              this.logger.warn(`BotGateway: skip duplicate update ${update.update_id} for bot=${botId}`);
+              continue;
+            }
+            try {
+              await this.processUpdate(update, bot);
+            } catch (procErr) {
+              // 处理失败 → 删 dedupe key 让下次能重试 (避免一次失败永远跳过)
+              await this.redis.del(dedupeKey).catch(() => {});
+              throw procErr;
+            }
           }
           const newOffset = Math.max(...updates.map((u) => u.update_id)) + 1;
           await this.tenants.updateBotOffset(botId, newOffset);
@@ -427,10 +444,18 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (replyText) {
-      await this.botReply.sendText(bot.rawToken, msg.chatId, replyText, replyMarkup);
-      await this.leads.addReply(lead.id, { sender: 'system', text: replyText });
-      await this.decider.recordReply(msg.chatId, bot.tenantId);
-      this.getTakeover()?.emitMessage(lead.id, { sender: 'system', text: replyText });
+      // Codex round-11 #5: 检查 sendText 结果, 失败时不写"已回复"也不计入 daily limit
+      const sendResult = await this.botReply.sendText(bot.rawToken, msg.chatId, replyText, replyMarkup);
+      if (sendResult?.ok) {
+        await this.leads.addReply(lead.id, { sender: 'system', text: replyText });
+        await this.decider.recordReply(msg.chatId, bot.tenantId);
+        this.getTakeover()?.emitMessage(lead.id, { sender: 'system', text: replyText });
+      } else {
+        this.logger.error(
+          `BotGateway: sendText FAILED chatId=${msg.chatId} reason="${sendResult?.description ?? 'unknown'}", ` +
+          `not recording reply (lead 不会显示已回复, daily limit 不计数)`,
+        );
+      }
     }
   }
 
@@ -545,10 +570,17 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (replyText) {
-      await this.botReply.sendText(bot.rawToken, msg.chatId, replyText);
-      await this.leads.addReply(lead.id, { sender: 'system', text: replyText });
-      await this.decider.recordReply(msg.chatId, bot.tenantId);
-      this.getTakeover()?.emitMessage(lead.id, { sender: 'system', text: replyText });
+      // Codex round-11 #5: 同上 sendText 失败保护
+      const sendResult = await this.botReply.sendText(bot.rawToken, msg.chatId, replyText);
+      if (sendResult?.ok) {
+        await this.leads.addReply(lead.id, { sender: 'system', text: replyText });
+        await this.decider.recordReply(msg.chatId, bot.tenantId);
+        this.getTakeover()?.emitMessage(lead.id, { sender: 'system', text: replyText });
+      } else {
+        this.logger.error(
+          `BotGateway: callback sendText FAILED chatId=${msg.chatId} reason="${sendResult?.description ?? 'unknown'}"`,
+        );
+      }
     }
 
     if (msg.callbackQueryId) {
