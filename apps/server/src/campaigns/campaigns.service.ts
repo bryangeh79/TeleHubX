@@ -258,22 +258,38 @@ export class CampaignsService {
     if (t.tenantId && c.tenantId && t.tenantId !== c.tenantId) {
       throw new ForbiddenException(`task tenant 与 campaign tenant 不匹配`);
     }
-    // Codex round-5 #1: 防重复 — 同一 task 只能 +1 一次, sentCountedAt 用作幂等 token
+    // 早期退出: 如已计数过, 直接返回 (静默幂等)
     if (t.sentCountedAt) {
       this.logger.warn(
         `incrementSent task ${taskId.slice(0, 8)} 已计数过 (at ${t.sentCountedAt.toISOString()}), 拒绝重复`,
       );
-      return c; // 静默幂等 (非错误)
+      return c;
     }
-    // 在事务里同时更新 task.sentCountedAt + campaign.sentCount, 避免中间态
-    await this.taskRepo.manager.transaction(async (mgr) => {
-      await mgr.update(Task, { id: taskId, sentCountedAt: () => 'NULL' as any }, { sentCountedAt: new Date() });
-      // 二次确认 update 命中 (防并发同 task 多次 incrementSent)
-      const refreshed = await mgr.findOneBy(Task, { id: taskId });
-      if (refreshed?.sentCountedAt) {
-        await mgr.increment(Campaign, { id }, 'sentCount', delta);
-      }
-    });
+
+    // Codex round-6 #2: 真正原子的幂等 - UPDATE...WHERE sentCountedAt IS NULL RETURNING id
+    // 仅当 affected=1 (本次 UPDATE 命中) 时才 increment campaign.sentCount
+    // 解决竞态: 之前 update + findOneBy 两步无法判断本次是否真改了行
+    const updateResult = await this.taskRepo
+      .createQueryBuilder()
+      .update(Task)
+      .set({ sentCountedAt: new Date() })
+      .where('id = :id', { id: taskId })
+      .andWhere('"sentCountedAt" IS NULL')
+      .returning('id')
+      .execute();
+
+    const affected = updateResult.affected ?? 0;
+    if (affected !== 1) {
+      // 并发场景: 另一个请求已经把 sentCountedAt 改了, 本次不计数
+      this.logger.warn(
+        `incrementSent task ${taskId.slice(0, 8)} race lost (affected=${affected}), 跳过`,
+      );
+      return c;
+    }
+
+    // 只有 UPDATE 命中才 +1, 这一对操作不需要事务包裹也是安全的
+    // (sentCountedAt 是幂等门禁, increment 是计数; 即便 increment 失败也不会重复入库)
+    await this.repo.increment({ id }, 'sentCount', delta);
     const reloaded = await this.findOne(id);
     this.checkCompletion(id).catch(() => {});
     return reloaded;

@@ -1,8 +1,7 @@
 import {
   BadRequestException, Body, Controller, Delete, ForbiddenException, Get, HttpCode, HttpStatus,
-  Param, ParseUUIDPipe, Patch, Post, Query, Req,
+  Param, ParseUUIDPipe, Patch, Post, Query,
 } from '@nestjs/common';
-import type { Request } from 'express';
 import { CampaignStatus, PacePreset } from './campaign.entity';
 import { CampaignsService } from './campaigns.service';
 import { CampaignDispatchService } from './campaign-dispatch.service';
@@ -11,10 +10,6 @@ import { AllowAgent } from '../auth/roles.decorator';
 import { callerTenantId, resolveTenantIdSoft } from '../auth/tenant-resolver';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
 import { UpdateCampaignDto } from './dto/update-campaign.dto';
-
-function isAgentRequest(req: Request): boolean {
-  return !!(req.headers['x-agent-token']);
-}
 
 @Controller('campaigns')
 export class CampaignsController {
@@ -141,21 +136,21 @@ export class CampaignsController {
   }
 
   /** Agent 回写：单条发送完成 +1.
-   *  Codex round-5 #1 加固:
-   *  - 必须 X-Agent-Token (拒绝普通登录用户访问)
-   *  - taskId 必传 (DTO 强制 + service 二次校验)
-   *  - service 用 sentCountedAt 防重复回写
+   *  Codex round-6 #1 加固: 不再看 header (普通用户可伪造) 而看 user.role
+   *  - JwtAuthGuard 只在真正校验通过 X-Agent-Token 时才 set user.role='AGENT'
+   *  - 普通 JWT 用户带任意 x-agent-token header 也无法获得 role=AGENT
+   *  - taskId 必传 + service sentCountedAt 原子幂等
    */
   @Post(':id/sent')
   @AllowAgent()
   @HttpCode(HttpStatus.OK)
   incrementSent(
+    @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
-    @Req() req: Request,
     @Body() body?: { delta?: number; taskId?: string },
   ) {
-    if (!isAgentRequest(req)) {
-      throw new ForbiddenException('此端点仅供 agent 回写');
+    if (user?.role !== 'AGENT') {
+      throw new ForbiddenException('此端点仅供 agent token 回写');
     }
     if (!body?.taskId) {
       throw new BadRequestException('taskId 必填 (防 sentCount 被重复刷)');
