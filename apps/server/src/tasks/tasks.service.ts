@@ -39,8 +39,13 @@ function randomDayTime(base: Date, dayOffset: number, startHour: number, endHour
   return picked;
 }
 
-/** 任务卡在 running 超过此毫秒数 → watchdog 强制 fail */
-const STUCK_TASK_TIMEOUT_MS = 15 * 60 * 1000; // 15 分钟
+/**
+ * 任务卡在 running 超过此毫秒数 → watchdog 强制 fail。
+ * Codex Bug #2 修复: 之前 15min 太紧, 把 group_bubble (90min) / campaign_single (3h) 等
+ * 长任务误杀。提到 4h, agent 内每个 task type 已有自己的精细 timeout (task-runner.ts),
+ * 这里只兜底 "agent 真的死了" 场景。
+ */
+const STUCK_TASK_TIMEOUT_MS = 4 * 60 * 60 * 1000; // 4 小时
 
 @Injectable()
 export class TasksService implements OnModuleInit, OnModuleDestroy {

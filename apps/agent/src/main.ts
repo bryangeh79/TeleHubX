@@ -398,6 +398,8 @@ async function bootstrap(): Promise<void> {
       patchJson(`/tasks/${id}`, { progress: pct }).catch(() => {}),
     markDone: (id: string) =>
       patchJson(`/tasks/${id}`, { status: 'done', progress: 100 }).catch(() => {}),
+    markDoneWithMsg: (id: string, errorMsg: string) =>
+      patchJson(`/tasks/${id}`, { status: 'done', progress: 100, errorMsg }).catch(() => {}),
     markFailed: (id: string, errorMsg: string) =>
       patchJson(`/tasks/${id}`, { status: 'failed', errorMsg }).catch(() => {}),
     quarantineAccount: async (accountId: string, untilEpochMs: number, reason: string) => {

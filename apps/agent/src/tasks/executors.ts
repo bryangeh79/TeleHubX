@@ -35,6 +35,38 @@ export interface ExecutorCtx {
   tenantId?: string;
   /** 本 agent 内所有连接的 client，按 accountId 索引。chat_script_* 多账号编排用 */
   clients?: Map<string, TelegramClient>;
+  /**
+   * 取消信号 (Codex Bug #1 修复). Runner 在 task-level timeout 触发或用户 cancel 时 abort,
+   * 长循环 executor 应在每次迭代/sleep 间检查 signal.aborted, 见 cancellableSleep().
+   */
+  abortSignal?: AbortSignal;
+}
+
+/**
+ * 可取消的 sleep —— 等待 ms 毫秒, 但 abortSignal 触发时立即 throw AbortError.
+ * 替代裸 sleep() 用在长间隔的 executor 循环里, 让用户 cancel 能及时生效.
+ */
+export async function cancellableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) throw new Error('aborted');
+  if (!signal) {
+    return new Promise((res) => setTimeout(res, ms));
+  }
+  return new Promise<void>((res, rej) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      res();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      rej(new Error('aborted'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/** 检查信号被中止 → throw, 让 executor 主循环及时退出 */
+export function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new Error('task aborted by runner');
 }
 
 /**
@@ -195,8 +227,10 @@ export async function groupBubble(ctx: ExecutorCtx): Promise<void> {
     await sendMessageLikeHuman(ctx.client, entity, text);
     await ctx.reportProgress?.(Math.round(((i + 1) / count) * 100));
     if (i < count - 1) {
-      // 冒泡间隔 5-30 分钟（不要连刷）
-      await sleep(gaussianDelayMs(5 * 60_000, 30 * 60_000));
+      // 冒泡间隔 5-30 分钟（不要连刷）。Codex Bug #2: 旧 5min timeout 必失败,
+      // 现 group_bubble timeout 已调到匹配; 这里改 cancellableSleep 让取消能立即生效
+      await cancellableSleep(gaussianDelayMs(5 * 60_000, 30 * 60_000), ctx.abortSignal);
+      throwIfAborted(ctx.abortSignal);
     }
   }
 }
@@ -575,8 +609,9 @@ export async function groupScrape(ctx: ExecutorCtx): Promise<void> {
 
     await ctx.reportProgress?.(Math.round(((i + 1) / chatIds.length) * 100));
     if (i < chatIds.length - 1) {
-      // 群之间间隔 10-30 分钟（防 ban）
-      await sleep(gaussianDelayMs(10 * 60_000, 30 * 60_000));
+      // 群之间间隔 10-30 分钟（防 ban）。Codex #2: 改 cancellable
+      await cancellableSleep(gaussianDelayMs(10 * 60_000, 30 * 60_000), ctx.abortSignal);
+      throwIfAborted(ctx.abortSignal);
     }
   }
 
@@ -670,7 +705,9 @@ export async function contactAdd(ctx: ExecutorCtx): Promise<void> {
 
     await ctx.reportProgress?.(Math.round(((i + 1) / limited.length) * 100));
     if (i < limited.length - 1) {
-      await sleep(gaussianDelayMs(3 * 60_000, 10 * 60_000));
+      // contact 间隔 3-10 分钟。Codex #2: 改 cancellable + signal check
+      await cancellableSleep(gaussianDelayMs(3 * 60_000, 10 * 60_000), ctx.abortSignal);
+      throwIfAborted(ctx.abortSignal);
     }
   }
 }
@@ -941,8 +978,9 @@ export async function joinGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
     }
     await ctx.reportProgress?.(Math.round(((i + 1) / toJoin.length) * 100));
     if (i < toJoin.length - 1) {
-      // 加群之间间隔 5-15 分钟 (TG 风控线)
-      await sleep(gaussianDelayMs(5 * 60_000, 15 * 60_000));
+      // 加群之间间隔 5-15 分钟 (TG 风控线)。Codex #2: 改 cancellable
+      await cancellableSleep(gaussianDelayMs(5 * 60_000, 15 * 60_000), ctx.abortSignal);
+      throwIfAborted(ctx.abortSignal);
     }
   }
 
