@@ -178,7 +178,7 @@ export class AccountsService implements OnModuleInit {
     return { ok: true, lastActiveAt: now };
   }
 
-  async importFromCsv(input: Buffer | any[]): Promise<ImportResult> {
+  async importFromCsv(input: Buffer | any[], callerTenantId?: string | null): Promise<ImportResult> {
     let rows: CsvAccountRow[];
     if (Array.isArray(input)) {
       rows = input.map((a: any, i: number) => ({
@@ -227,7 +227,12 @@ export class AccountsService implements OnModuleInit {
               }
             : undefined;
 
-        const account = this.repo.create({ phoneNumber: row.phoneNumber, role, proxyConfig });
+        const account = this.repo.create({
+          phoneNumber: row.phoneNumber,
+          role,
+          proxyConfig,
+          ...(callerTenantId ? { tenantId: callerTenantId } : {}),
+        });
         const saved = await this.repo.save(account);
         await this.slots.assignToAccount(saved.id);
         result.created++;

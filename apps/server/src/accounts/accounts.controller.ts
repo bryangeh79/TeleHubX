@@ -102,8 +102,8 @@ export class AccountsController {
   }
 
   @Post('import')
-  importAccounts(@Body() body: { accounts: any[] }) {
-    return this.service.importFromCsv(body.accounts);
+  importAccounts(@CurrentUser() user: AuthUser, @Body() body: { accounts: any[] }) {
+    return this.service.importFromCsv(body.accounts, callerTenantId(user));
   }
 
   @Post(':id/warmup/start')

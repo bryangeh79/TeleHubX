@@ -165,6 +165,7 @@ export default function LeadsInbox() {
     const sock = io({
       path: '/socket.io',
       transports: ['websocket'],
+      auth: { token: localStorage.getItem('telehubx:token') ?? '' },
     });
     socketRef.current = sock;
     sock.on('connect', () => setSocketConnected(true));

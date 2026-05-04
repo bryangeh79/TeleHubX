@@ -9,6 +9,9 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
+import { AuthService } from '../auth/auth.service';
+import { AuthUser, isAgent, isSuperAdmin } from '../auth/current-user.decorator';
+import { UserRole } from '../auth/user.entity';
 import { LeadsService } from '../leads/leads.service';
 import { LeadTakeover } from '../leads/lead.entity';
 import { TenantsService } from '../tenants/tenants.service';
@@ -43,13 +46,54 @@ export class TakeoverGateway implements OnGatewayConnection, OnGatewayDisconnect
     private readonly tenants: TenantsService,
     private readonly botReply: BotReplyService,
     private readonly config: ConfigService,
+    private readonly auth: AuthService,
   ) {
     const raw = this.config.get<string>('SESSION_ENCRYPTION_KEY');
     this.encKey = raw ? deriveKey(raw) : null;
   }
 
+  /**
+   * 在 socket 连接 handshake 时校验 JWT。
+   * 客户端连接：io({ auth: { token: localStorage.getItem('telehubx:token') } })
+   * 失败则 disconnect。
+   */
   handleConnection(client: Socket): void {
-    this.logger.log(`socket connected: ${client.id}`);
+    try {
+      const token = client.handshake?.auth?.token
+        ?? client.handshake?.query?.token
+        ?? '';
+      if (!token || typeof token !== 'string') {
+        this.logger.warn(`socket ${client.id} missing token, disconnecting`);
+        client.emit('auth-error', { message: 'No token' });
+        client.disconnect(true);
+        return;
+      }
+      const payload = this.auth.verifyToken(token);
+      const user: AuthUser = {
+        sub: payload.sub,
+        username: payload.username,
+        role: payload.role,
+        tenantId: payload.tenantId,
+        iat: payload.iat,
+        exp: payload.exp,
+      };
+      client.data.user = user;
+      this.logger.log(`socket connected: ${client.id} user=${user.username} tenant=${user.tenantId?.slice(0, 8) ?? 'none'}`);
+    } catch (err) {
+      this.logger.warn(`socket ${client.id} auth failed: ${(err as Error).message}`);
+      client.emit('auth-error', { message: 'Invalid token' });
+      client.disconnect(true);
+    }
+  }
+
+  /** 校验 lead 是否属于当前 socket 的租户。 */
+  private assertLeadAccess(client: Socket, lead: { tenantId?: string | null }): { ok: boolean; error?: string } {
+    const user = client.data.user as AuthUser | undefined;
+    if (!user) return { ok: false, error: 'no auth context' };
+    if (isSuperAdmin(user) || isAgent(user)) return { ok: true };
+    if (!lead.tenantId) return { ok: true }; // 没 tenantId 的旧数据放行
+    if (lead.tenantId !== user.tenantId) return { ok: false, error: 'lead 不属于你的租户' };
+    return { ok: true };
   }
 
   handleDisconnect(client: Socket): void {
@@ -64,8 +108,9 @@ export class TakeoverGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (!body?.leadId) return { ok: false, error: 'leadId required' };
     try {
       const lead = await this.leads.findOne(body.leadId);
+      const access = this.assertLeadAccess(client, lead);
+      if (!access.ok) return { ok: false, error: access.error };
       const room = `lead:${lead.id}`;
-      // 离开之前订阅的 lead 房间（每个 socket 同时只看一个 lead）
       for (const r of client.rooms) {
         if (r.startsWith('lead:') && r !== room) client.leave(r);
       }
@@ -104,6 +149,8 @@ export class TakeoverGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
     try {
       const lead = await this.leads.findOne(body.leadId);
+      const access = this.assertLeadAccess(client, lead);
+      if (!access.ok) return { ok: false, error: access.error };
       if (lead.takeoverState !== LeadTakeover.HUMAN) {
         return { ok: false, error: '该对话未处于人工接管状态，请先点「接管」' };
       }
