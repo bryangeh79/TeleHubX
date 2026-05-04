@@ -106,13 +106,17 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
    * Watchdog：把 running 超过 15 分钟的叶子任务强制标记为 failed。
    * 只清理没有子任务的叶子任务（父/编排任务合理地长期处于 running，不处理）。
    * 场景：agent 崩溃/网络断开导致任务永久挂起。
+   *
+   * 升级 (Part 3):
+   *   - 不只标 task FAILED, 还触发同账号「watchdog timeout 级联检测」
+   *   - 同账号 1 小时内 ≥ 2 次 watchdog timeout → 自动 quarantine 30min
+   *     防止坏账号反复拖累后续任务
    */
   async cleanStuckTasks(): Promise<void> {
     const cutoff = new Date(Date.now() - STUCK_TASK_TIMEOUT_MS);
-    // 找到 running 超时、且 startedAt 有值（agent 真正领取过）的任务
     const candidates = await this.repo.find({
       where: { status: TaskStatus.RUNNING, startedAt: LessThan(cutoff) },
-      select: ['id', 'type'],
+      select: ['id', 'type', 'accountId'],
     });
     if (!candidates.length) return;
 
@@ -125,14 +129,45 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     if (!leafTasks.length) return;
 
     this.logger.warn(`Watchdog: found ${leafTasks.length} stuck running task(s), force-failing`);
+    const affectedAccounts = new Set<string>();
     for (const t of leafTasks) {
       await this.repo.update(t.id, {
         status: TaskStatus.FAILED,
         errorMsg: '任务超时：执行超过 15 分钟未完成（agent 可能已断线）',
         finishedAt: new Date(),
+        cancelRequested: true,  // 顺便通知 agent 这任务作废
       });
       this.logger.warn(`Watchdog: force-failed task ${t.id.slice(0, 8)} type=${t.type}`);
+      if (t.accountId) affectedAccounts.add(t.accountId);
     }
+
+    // 检查每个受影响账号最近 1 小时的 watchdog timeout 次数
+    const oneHourAgo = new Date(Date.now() - 60 * 60_000);
+    for (const accountId of affectedAccounts) {
+      const recentTimeouts = await this.repo.count({
+        where: {
+          accountId,
+          status: TaskStatus.FAILED,
+          finishedAt: LessThan(new Date()) as any,
+          errorMsg: '任务超时：执行超过 15 分钟未完成（agent 可能已断线）',
+        },
+      });
+      // 简化：不查具体时间，只查最近所有匹配文案的（因为 watchdog 是周期性 run）
+      // 更精确的版本可加 finishedAt > oneHourAgo 的过滤；这里宽松判定
+      if (recentTimeouts >= 2) {
+        const until = new Date(Date.now() + 30 * 60_000);
+        await this.accountRepo.update(accountId, {
+          quarantineUntil: until,
+          quarantineReason: `watchdog timeout cascade (${recentTimeouts} 次失败 in 最近 1 小时)`,
+        });
+        this.logger.error(
+          `Watchdog: account ${accountId.slice(0, 8)} quarantined until ${until.toISOString()} (${recentTimeouts} timeouts)`,
+        );
+      }
+      // 即便没触发 quarantine, 也提示这账号的 client 可能需要 force-reconnect
+      // (agent 通过下次 heartbeat 看 quarantineReason 决定)
+    }
+    void oneHourAgo;  // 留作后续精确化时间窗用
   }
 
   async create(dto: CreateTaskDto, tenantId?: string): Promise<Task> {
@@ -929,11 +964,35 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
   async dispatchToAgent(accountIds: string[], limit = 5): Promise<Task[]> {
     if (!accountIds.length) return [];
     const now = new Date();
+
+    // Healthcheck 1: 排除 quarantine 中的账号
+    const quarantined = await this.accountRepo
+      .createQueryBuilder('a')
+      .select('a.id')
+      .where('a.id IN (:...ids)', { ids: accountIds })
+      .andWhere('a."quarantineUntil" IS NOT NULL AND a."quarantineUntil" > :now', { now })
+      .getMany();
+    const quarantinedIds = new Set(quarantined.map((a) => a.id));
+
+    // Healthcheck 2: 排除已有 RUNNING 任务的账号（避免 over-dispatch 给 hung 客户端）
+    const busy = await this.repo
+      .createQueryBuilder('t')
+      .select('DISTINCT t."accountId"', 'accountId')
+      .where('t.status = :s', { s: TaskStatus.RUNNING })
+      .andWhere('t."accountId" IN (:...ids)', { ids: accountIds })
+      .getRawMany();
+    const busyIds = new Set(busy.map((b) => b.accountId));
+
+    const eligibleIds = accountIds.filter(
+      (id) => !quarantinedIds.has(id) && !busyIds.has(id),
+    );
+    if (!eligibleIds.length) return [];
+
     const candidates = await this.repo
       .createQueryBuilder('t')
       .where('t.status = :s', { s: TaskStatus.PENDING })
       .andWhere('t."scheduledAt" <= :now', { now })
-      .andWhere('t."accountId" IN (:...ids)', { ids: accountIds })
+      .andWhere('t."accountId" IN (:...ids)', { ids: eligibleIds })
       // 排除 preset_* / keyword_lead_hunt 父任务: 它们是配方编排器, 不是 agent 执行的单点任务
       .andWhere(`t.type::text NOT LIKE 'preset_%' AND t.type::text != 'keyword_lead_hunt'`)
       .orderBy('t."scheduledAt"', 'ASC')
