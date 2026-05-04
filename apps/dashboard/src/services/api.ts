@@ -205,6 +205,8 @@ export const maintenanceApi = {
   diagnoseBots:     () => api.get('/maintenance/bots/diagnose'),
   diagnoseProxies:  () => api.get('/maintenance/proxies/diagnose'),
   failureSummary:   (days = 7) => api.get('/maintenance/tasks/failure-summary', { params: { days } }),
+  retryBucket:      (bucketId: string, days = 7) => api.post('/maintenance/tasks/retry-bucket', { bucketId, days }),
+  dismissBucket:    (bucketId: string, days = 7) => api.post('/maintenance/tasks/dismiss-bucket', { bucketId, days }),
 };
 
 export const adminApi = {

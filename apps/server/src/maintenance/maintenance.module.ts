@@ -6,6 +6,7 @@ import { BotGatewayModule } from '../bot-gateway/bot-gateway.module';
 import { Proxy } from '../proxies/proxy.entity';
 import { ProxiesModule } from '../proxies/proxies.module';
 import { Task } from '../tasks/task.entity';
+import { TasksModule } from '../tasks/tasks.module';
 import { TenantBot } from '../tenants/tenant-bot.entity';
 import { TenantsModule } from '../tenants/tenants.module';
 import { MaintenanceController } from './maintenance.controller';
@@ -17,6 +18,7 @@ import { MaintenanceController } from './maintenance.controller';
     ProxiesModule,
     TenantsModule,
     BotGatewayModule,
+    TasksModule,
   ],
   controllers: [MaintenanceController],
 })

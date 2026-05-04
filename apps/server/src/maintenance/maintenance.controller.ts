@@ -1,4 +1,6 @@
-import { Controller, Get, Logger, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Logger, Post, Query } from '@nestjs/common';
+import { In } from 'typeorm';
+import { TasksService } from '../tasks/tasks.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuthUser, CurrentUser, isSuperAdmin } from '../auth/current-user.decorator';
@@ -32,6 +34,7 @@ export class MaintenanceController {
     private readonly proxies: ProxiesService,
     private readonly tenants: TenantsService,
     private readonly botReply: BotReplyService,
+    private readonly tasks: TasksService,
   ) {}
 
   /** 当前调用者可见的 tenantId（super_admin 返回 null = 看所有） */
@@ -170,8 +173,11 @@ export class MaintenanceController {
   }
 
   /**
-   * M5: 失败任务诊断
-   * 最近 N 天 failed 任务按 errorMsg 前缀聚合（去 ID/数字噪音）
+   * M5: 失败任务诊断 — 按根因分类
+   *
+   * 不只是 errorMsg 文本聚类，还按错误类别归一（network_timeout / flood_wait /
+   * entity_not_found / agent_offline / business_zero / config / unknown），
+   * 让租户能针对性修复而不是看到一堆 "任务超时" 摸不着头脑。
    */
   @Get('tasks/failure-summary')
   async failureSummary(
@@ -187,44 +193,305 @@ export class MaintenanceController {
       .andWhere('t.finishedAt >= :since', { since })
       .orderBy('t.finishedAt', 'DESC');
     if (tid) qb.andWhere('t."tenantId" = :tid', { tid });
-    const all = await qb.limit(500).getMany();
+    const all = await qb.limit(1000).getMany();
 
-    // errorMsg 归一化：取前 80 字 + 去掉 UUID/纯数字/时间戳碎片以便聚类
-    const buckets = new Map<string, { count: number; sample: string; types: Set<string>; latest: string }>();
+    interface Bucket {
+      bucketId: string;
+      category: ErrorCategory;
+      categoryLabel: string;
+      taskIds: string[];           // 让前端能一键重试本聚类全部
+      count: number;
+      sample: string;
+      taskTypes: Set<string>;
+      latest: string;
+      hint: string;                // 修复建议（前端展示）
+      retryable: boolean;          // 重试是否大概率有用
+    }
+    const buckets = new Map<string, Bucket>();
+
     for (const t of all) {
-      const raw = (t.errorMsg ?? '(无错误信息)').slice(0, 200);
-      const key = raw
+      const raw = (t.errorMsg ?? '(无错误信息)').slice(0, 300);
+      const cat = classifyError(raw, t.type);
+      // 同 category + (errorMsg 前 50 字归一) 视为一个 bucket
+      const norm = raw
         .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<uuid>')
         .replace(/\b\d{6,}\b/g, '<num>')
         .replace(/\d+ms/g, '<ms>')
-        .slice(0, 80);
-      const b = buckets.get(key);
+        .replace(/@\w+/g, '<user>')
+        .slice(0, 60);
+      const bucketId = `${cat.category}::${norm}`;
+      const b = buckets.get(bucketId);
       if (b) {
         b.count++;
-        b.types.add(t.type);
+        b.taskIds.push(t.id);
+        b.taskTypes.add(t.type);
         if (t.finishedAt && new Date(t.finishedAt).toISOString() > b.latest) {
           b.latest = new Date(t.finishedAt).toISOString();
         }
       } else {
-        buckets.set(key, {
+        buckets.set(bucketId, {
+          bucketId,
+          category: cat.category,
+          categoryLabel: cat.label,
+          taskIds: [t.id],
           count: 1,
           sample: raw,
-          types: new Set([t.type]),
+          taskTypes: new Set([t.type]),
           latest: t.finishedAt ? new Date(t.finishedAt).toISOString() : new Date().toISOString(),
+          hint: cat.hint,
+          retryable: cat.retryable,
         });
       }
     }
-    const summary = Array.from(buckets.entries())
-      .map(([key, v]) => ({
-        errorPattern: key,
+    const summary = Array.from(buckets.values())
+      .map((v) => ({
+        bucketId: v.bucketId,
+        category: v.category,
+        categoryLabel: v.categoryLabel,
         count: v.count,
         sample: v.sample,
-        taskTypes: Array.from(v.types),
+        taskTypes: Array.from(v.taskTypes),
         latest: v.latest,
+        hint: v.hint,
+        retryable: v.retryable,
+        // 限制返回的 taskIds 数量避免 payload 过大；retry-bucket 端点重新查
+        sampleTaskIds: v.taskIds.slice(0, 5),
       }))
       .sort((a, b) => b.count - a.count)
-      .slice(0, 20);
+      .slice(0, 30);
 
-    return { days, totalFailed: all.length, summary };
+    // 按 category 二次聚合（顶部 KPI 显示）
+    const byCategory: Record<string, number> = {};
+    for (const s of summary) byCategory[s.category] = (byCategory[s.category] ?? 0) + s.count;
+
+    return { days, totalFailed: all.length, summary, byCategory };
   }
+
+  /**
+   * 一键重试某个 bucket 下的全部失败任务。
+   * 客户端传 bucketId（与 summary 里的相同），后端重新查 days 范围内匹配该
+   * bucket 的所有 failed task → 逐个走 tasks.retry。
+   *
+   * retryable=false 的 bucket（业务零结果 / 配置错）应该被前端禁用，
+   * 但后端仍允许调用（用户可能强制重试）。
+   */
+  @Post('tasks/retry-bucket')
+  @HttpCode(HttpStatus.OK)
+  async retryBucket(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { bucketId: string; days?: number },
+  ) {
+    if (!body?.bucketId) return { retried: 0, error: 'bucketId required' };
+    const tid = this.callerTenantId(user);
+    const days = Math.min(30, Math.max(1, body.days ?? 7));
+    const since = new Date(Date.now() - days * 86400_000);
+    const qb = this.taskRepo
+      .createQueryBuilder('t')
+      .where('t.status = :s', { s: TaskStatus.FAILED })
+      .andWhere('t.finishedAt >= :since', { since });
+    if (tid) qb.andWhere('t."tenantId" = :tid', { tid });
+    const all = await qb.limit(1000).getMany();
+
+    // 重新计算 bucketId 匹配
+    const matched: string[] = [];
+    for (const t of all) {
+      const raw = (t.errorMsg ?? '(无错误信息)').slice(0, 300);
+      const cat = classifyError(raw, t.type);
+      const norm = raw
+        .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<uuid>')
+        .replace(/\b\d{6,}\b/g, '<num>')
+        .replace(/\d+ms/g, '<ms>')
+        .replace(/@\w+/g, '<user>')
+        .slice(0, 60);
+      if (`${cat.category}::${norm}` === body.bucketId) matched.push(t.id);
+    }
+
+    let retried = 0;
+    const errors: string[] = [];
+    for (const id of matched) {
+      try {
+        await this.tasks.retry(id);
+        retried++;
+      } catch (err: any) {
+        errors.push(`${id.slice(0, 8)}: ${err?.message ?? String(err)}`);
+      }
+    }
+    this.logger.log(`retry-bucket ${body.bucketId.slice(0, 40)}... → ${retried}/${matched.length} 重试`);
+    return { retried, totalMatched: matched.length, errors: errors.slice(0, 5) };
+  }
+
+  /**
+   * 删除某个 bucket 下的全部 failed 任务记录（清理噪音）。
+   * 用于 entity_not_found / business_zero 这类没法自动修但反复出现的，
+   * 让租户能"清理"诊断面板。删除是软删（仅从 tasks 表移除，不影响 leads 等下游）。
+   */
+  @Post('tasks/dismiss-bucket')
+  @HttpCode(HttpStatus.OK)
+  async dismissBucket(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { bucketId: string; days?: number },
+  ) {
+    if (!body?.bucketId) return { dismissed: 0 };
+    const tid = this.callerTenantId(user);
+    const days = Math.min(30, Math.max(1, body.days ?? 7));
+    const since = new Date(Date.now() - days * 86400_000);
+    const qb = this.taskRepo
+      .createQueryBuilder('t')
+      .where('t.status = :s', { s: TaskStatus.FAILED })
+      .andWhere('t.finishedAt >= :since', { since });
+    if (tid) qb.andWhere('t."tenantId" = :tid', { tid });
+    const all = await qb.limit(1000).getMany();
+
+    const matched: string[] = [];
+    for (const t of all) {
+      const raw = (t.errorMsg ?? '(无错误信息)').slice(0, 300);
+      const cat = classifyError(raw, t.type);
+      const norm = raw
+        .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<uuid>')
+        .replace(/\b\d{6,}\b/g, '<num>')
+        .replace(/\d+ms/g, '<ms>')
+        .replace(/@\w+/g, '<user>')
+        .slice(0, 60);
+      if (`${cat.category}::${norm}` === body.bucketId) matched.push(t.id);
+    }
+    if (!matched.length) return { dismissed: 0 };
+    // PAUSED 是最接近"忽略"的现有状态：不再被 scheduler 拉起，也不在 failed 列表里
+    await this.taskRepo.update(
+      { id: In(matched) },
+      { status: TaskStatus.PAUSED, errorMsg: () => `'(已忽略) ' || COALESCE("errorMsg", '')` },
+    );
+    return { dismissed: matched.length };
+  }
+}
+
+// ─── 错误分类规则 ──────────────────────────────────────────────────────
+
+type ErrorCategory =
+  | 'network_timeout'
+  | 'flood_wait'
+  | 'entity_not_found'
+  | 'agent_offline'
+  | 'auth_session'
+  | 'permission_denied'
+  | 'business_zero'
+  | 'config'
+  | 'unknown';
+
+interface ClassifyResult {
+  category: ErrorCategory;
+  label: string;          // 中文展示
+  hint: string;           // 修复建议
+  retryable: boolean;     // 重试是否大概率能恢复
+}
+
+function classifyError(errorMsg: string, taskType: string): ClassifyResult {
+  const msg = errorMsg.toLowerCase();
+
+  // agent 离线 / watchdog 超时
+  if (msg.includes('agent 可能已断线') || msg.includes('未完成') && msg.includes('15 分钟')) {
+    return {
+      category: 'agent_offline',
+      label: 'Agent 离线 / 卡死',
+      hint: '检查 telehubx-agent 进程：pm2 status；如已 stopped 重启 pm2 restart telehubx-agent',
+      retryable: true,
+    };
+  }
+
+  // RPC / 网络超时
+  if (msg.includes('timeout') || msg.includes('超时') || msg.includes('rpc timeout')) {
+    return {
+      category: 'network_timeout',
+      label: '网络/RPC 超时',
+      hint: '一般是代理或 TG 端临时抖动，重试通常可恢复；持续出现则去「代理健康」看代理状态',
+      retryable: true,
+    };
+  }
+
+  // FloodWait / 频率限制
+  if (msg.includes('flood') || msg.includes('floodwait') || msg.includes('rate limit') || msg.includes('频率')) {
+    return {
+      category: 'flood_wait',
+      label: 'TG 限流 (FloodWait)',
+      hint: '账号触发了 TG 频率限制，强制重试会加重风控。等账号 quarantine 解除后再试，或降低发送频率',
+      retryable: false,
+    };
+  }
+
+  // 实体不存在
+  if (
+    msg.includes('could not find') ||
+    msg.includes('input entity') ||
+    msg.includes('username_invalid') ||
+    msg.includes('peer_id_invalid') ||
+    msg.includes('解析目标') ||
+    msg.includes('not found')
+  ) {
+    return {
+      category: 'entity_not_found',
+      label: '目标不存在 / 已删除',
+      hint: '@username 已被删除、改名或群已解散。重试无效，需修改任务 payload 改成有效目标',
+      retryable: false,
+    };
+  }
+
+  // session / auth
+  if (msg.includes('auth_key') || msg.includes('session') || msg.includes('unauthorized') || msg.includes('未登录')) {
+    return {
+      category: 'auth_session',
+      label: 'Session 失效 / 未登录',
+      hint: '账号 session 失效，需要重新绑定。账号页 → 该账号 → 重新登录',
+      retryable: false,
+    };
+  }
+
+  // 权限
+  if (
+    msg.includes('chat_admin_required') ||
+    msg.includes('chat_write_forbidden') ||
+    msg.includes('user_privacy_restricted') ||
+    msg.includes('forbidden')
+  ) {
+    return {
+      category: 'permission_denied',
+      label: '权限不足 / 被拒',
+      hint: '账号没权限发消息（被踢/被禁言/对方关闭私聊）。重试无效',
+      retryable: false,
+    };
+  }
+
+  // 业务零结果（不该 fail 的"成功但无数据"）
+  if (
+    msg.includes('0 候选人') ||
+    msg.includes('no candidates') ||
+    msg.includes('共匹') && msg.includes('0 候选') ||
+    msg.includes('无目标')
+  ) {
+    return {
+      category: 'business_zero',
+      label: '零结果（非真错误）',
+      hint: '任务执行了但没匹配到任何目标。这其实是业务"无结果"，不是技术故障。可调宽筛选条件或忽略',
+      retryable: false,
+    };
+  }
+
+  // 配置类
+  if (
+    msg.includes('payload') && (msg.includes('为空') || msg.includes('必填')) ||
+    msg.includes('required') ||
+    msg.includes('invalid') && msg.includes('config')
+  ) {
+    return {
+      category: 'config',
+      label: '配置缺失/错误',
+      hint: '任务配置不完整。重试无效，需到任务详情页修改 payload',
+      retryable: false,
+    };
+  }
+
+  return {
+    category: 'unknown',
+    label: '未知错误',
+    hint: '展开样本看完整错误信息，必要时联系平台',
+    retryable: true,
+  };
 }
