@@ -170,31 +170,53 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
   /** 构造产品选择 inline keyboard。每行一个按钮（产品名长，竖排好看）。 */
   /**
    * 构造产品选择 inline keyboard.
-   * 每行一个按钮 (vertical 整齐), 标签格式: "📦 ProductName — 简短说明"
-   * 简短说明从 overview 取前 N 字 (Telegram 按钮 64 byte 上限, 中文 1 字 = 3 bytes)
-   * 没 overview 则只显示产品名.
+   * 标签格式 "📦 ProductName · 简短关键词" — 简短部分必须能完整显示不被截
+   * Telegram mobile 按钮一行约 ~24 字符可完整显示, 超过会 ... 截掉变垃圾信息.
    */
   private buildProductKeyboard(roster: Array<{ id: string; name: string; overview?: string }>) {
     return {
       inline_keyboard: roster.map(p => {
-        let label = `📦 ${p.name}`;
-        const desc = (p.overview ?? '').trim();
-        if (desc) {
-          // 取第一句 (按 。/. /, /，/\n 切), 最长 18 字, 超长截断 + …
-          const firstSentence = desc.split(/[。.,，\n]/)[0]?.trim() ?? '';
-          const short = firstSentence.length > 18
-            ? firstSentence.slice(0, 17) + '…'
-            : firstSentence;
-          if (short) label = `📦 ${p.name} — ${short}`;
-        }
-        // Telegram 按钮 text 64 bytes 上限, 防超限
-        if (Buffer.byteLength(label, 'utf-8') > 60) {
-          // 中文场景: 截到大约 16 中文字 + emoji + 短横线
-          label = `📦 ${p.name}`.slice(0, 30);
-        }
+        const namePart = `📦 ${p.name}`;
+        const tag = this.extractProductTag(p.name, p.overview);
+        // 简短 tag 才加, 否则只显示产品名 (避免 "..." 截断)
+        const label = tag ? `${namePart} · ${tag}` : namePart;
         return [{ text: label, callback_data: `prod:${p.id}` }];
       }),
     };
+  }
+
+  /**
+   * 从 overview 提取一个 ≤6 中文字 / ≤12 英文字的关键词标签.
+   * 算法:
+   *   1. 去掉开头与产品名重复的部分 ("FAhubX 自动养号系统" → "自动养号系统")
+   *   2. 去掉 "是一套" / "是" / "为" 等连接词
+   *   3. 取首个名词短语 (停在 第一个 "是"/"，"/"。"/"," 等)
+   *   4. 限制长度: 中文 6 字 / 英文 12 字, 超长返回空串 (不显示)
+   */
+  private extractProductTag(productName: string, overview?: string): string {
+    if (!overview) return '';
+    let s = overview.trim();
+    // 去 BOM / 多余空格
+    s = s.replace(/^﻿/, '').replace(/\s+/g, ' ');
+    // 去开头的产品名
+    const lowerName = productName.toLowerCase();
+    if (s.toLowerCase().startsWith(lowerName)) {
+      s = s.slice(productName.length).trim();
+    }
+    // 去开头的连接词
+    s = s.replace(/^[是为：:、 ]+(一套|一个|一种|一款|套)?[是为：: ]*/, '').trim();
+    // 取首个短句 (碰到标点就停)
+    const firstChunk = s.split(/[，。,.;；！!？?\n（(]/)[0]?.trim() ?? '';
+    if (!firstChunk) return '';
+    // 长度限制 — 简单按字符数, 中文/英文都按 6-10 字符判
+    // (中文 1 字符渲染宽度 ≈ 英文 2 字符, 此处统一按 8 字符上限)
+    const MAX_CHARS = 8;
+    if (firstChunk.length > MAX_CHARS) {
+      // 超长 → 用更短的 fallback: 取前 MAX_CHARS 字的"末位词"
+      // 简化: 直接截取前 MAX_CHARS 不加 …
+      return firstChunk.slice(0, MAX_CHARS);
+    }
+    return firstChunk;
   }
 
   /** TakeoverGateway 解耦查找 — avoids hard import to break circular dep with TakeoverModule. */
