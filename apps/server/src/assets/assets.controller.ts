@@ -109,15 +109,30 @@ export class AssetsController {
 
   @Get(':id')
   @AllowAgent()
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.findOne(id);
+  async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    const a = await this.service.findOne(id);
+    // Codex #11: agent 调用必须传 tenantId 且与 asset.tenantId 一致
+    if (tenantId && a.tenantId && a.tenantId !== tenantId) {
+      throw new NotFoundException('Asset not in your tenant');
+    }
+    return a;
   }
 
   /** 下载原始字节（DB bytea 或 builtin 磁盘文件，统一透出）。 */
   @Get(':id/file')
   @AllowAgent()
-  async streamFile(@Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
+  async streamFile(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res() res: Response,
+    @Query('tenantId') tenantId?: string,
+  ) {
     const a = await this.service.findOne(id);
+    if (tenantId && a.tenantId && a.tenantId !== tenantId) {
+      throw new NotFoundException('Asset not in your tenant');
+    }
 
     // builtin / 文件型：直接 stream 磁盘
     if (a.relativePath) {

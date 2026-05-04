@@ -411,6 +411,15 @@ async function bootstrap(): Promise<void> {
         });
       } catch {}
     },
+    // Codex #3: chat_script 多账号锁
+    lockExtraAccounts: (ids: string[], taskId: string) => {
+      for (const id of ids) {
+        if (!runningAccountTasks.has(id)) runningAccountTasks.set(id, taskId);
+      }
+    },
+    unlockExtraAccounts: (ids: string[]) => {
+      for (const id of ids) runningAccountTasks.delete(id);
+    },
     log: { info: (m: string) => logger.info(m), warn: (m: string) => logger.warn(m), error: (m: string) => logger.error(m) },
   };
 

@@ -1109,13 +1109,13 @@ export default function SchedulerPage() {
 
                   <Card size="small" style={{ marginBottom: 12 }} title={
                     <Space>
-                      <Text strong>📜 选择剧本 (共 {filteredScripts.length} 个 {isAB ? 'A+B' : '4P'})</Text>
+                      <Text strong>📜 选择剧本 (共 {filteredScripts.length} 个 {isAB ? 'A+B' : is4P ? '4P' : '6P'})</Text>
                     </Space>
                   }>
                     <Form.Item name="packId" label="按剧本包随机抽" extra="留空 = 从所有同类型剧本随机抽">
                       <Select allowClear placeholder="不限剧本包"
                         options={scriptPacks
-                          .filter((p) => p.types.includes(isAB ? 'A+B' : 'A+B+C+D'))
+                          .filter((p) => p.types.includes(isAB ? 'A+B' : is4P ? 'A+B+C+D' : 'A+B+C+D+E+F'))
                           .map((p) => ({ value: p.packId, label: `${p.packId} (${p.count} 个)` }))}
                       />
                     </Form.Item>

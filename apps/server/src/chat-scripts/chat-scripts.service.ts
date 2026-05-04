@@ -95,12 +95,19 @@ export class ChatScriptsService {
     packId?: string;
     category?: string;
     type?: ChatScriptType;
+    tenantId?: string;     // Codex #11: 强制按 tenant 过滤
   } = {}): Promise<ChatScript | null> {
-    const where: Record<string, unknown> = { status: ChatScriptStatus.ACTIVE };
-    if (opts.packId) where.packId = opts.packId;
-    if (opts.category) where.category = opts.category;
-    if (opts.type) where.type = opts.type;
-    const list = await this.repo.find({ where });
+    // 用 query builder 支持 OR (tenantId IS NULL = 平台内置可共享) 的语义
+    const qb = this.repo.createQueryBuilder('s')
+      .where('s.status = :st', { st: ChatScriptStatus.ACTIVE });
+    if (opts.packId) qb.andWhere('s.packId = :pid', { pid: opts.packId });
+    if (opts.category) qb.andWhere('s.category = :c', { c: opts.category });
+    if (opts.type) qb.andWhere('s.type = :t', { t: opts.type });
+    if (opts.tenantId) {
+      // 自有 + 平台共享 (tenantId IS NULL) 都可见
+      qb.andWhere('(s.tenantId = :tid OR s.tenantId IS NULL)', { tid: opts.tenantId });
+    }
+    const list = await qb.getMany();
     if (!list.length) return null;
     return list[Math.floor(Math.random() * list.length)];
   }

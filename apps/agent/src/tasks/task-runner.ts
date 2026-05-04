@@ -21,6 +21,12 @@ export interface ServerCallbacks {
   markFailed(taskId: string, errorMsg: string): Promise<void>;
   /** 触发 FloodWait → 把账号隔离一段时间 */
   quarantineAccount(accountId: string, untilEpochMs: number, reason: string): Promise<void>;
+  /**
+   * Codex #3: 多账号 executor (chat_script_*) 需要锁额外参与账号。
+   * 主 task.accountId 由 main loop 自动锁；这里给 B/C/D/E/F 用。
+   */
+  lockExtraAccounts(accountIds: string[], taskId: string): void;
+  unlockExtraAccounts(accountIds: string[]): void;
   /** 日志 */
   log: { info: (m: string) => void; warn: (m: string) => void; error: (m: string) => void };
 }
@@ -103,6 +109,8 @@ export async function executeTask(
     tenantId: task.tenantId ?? undefined,
     clients,
     abortSignal: abortCtl.signal,
+    lockExtraAccounts: (ids: string[]) => cb.lockExtraAccounts(ids, task.id),
+    unlockExtraAccounts: (ids: string[]) => cb.unlockExtraAccounts(ids),
   };
 
   const timeoutMs = TASK_TIMEOUT_MS[task.type] ?? DEFAULT_TIMEOUT_MS;

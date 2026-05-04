@@ -71,16 +71,22 @@ export async function pickRandomAsset(opts: {
   return (await res.json()) as RandomAsset;
 }
 
-/** 按 id 取单条 asset 元数据 (用户在前端"指定具体素材"时走这条) */
-export async function fetchAssetById(assetId: string): Promise<RandomAsset | null> {
-  const res = await fetch(`${API_BASE}/assets/${assetId}`, { headers: authHeaders() });
+/** 按 id 取单条 asset 元数据 (用户在前端"指定具体素材"时走这条)
+ *  Codex #11: 必须传 tenantId 让 server 校验素材属于此租户, 防跨租户拉素材。 */
+export async function fetchAssetById(assetId: string, tenantId?: string): Promise<RandomAsset | null> {
+  const url = tenantId
+    ? `${API_BASE}/assets/${assetId}?tenantId=${encodeURIComponent(tenantId)}`
+    : `${API_BASE}/assets/${assetId}`;
+  const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) return null;
   return (await res.json()) as RandomAsset;
 }
 
-/** Stream asset bytes from server. agent 不缓存到磁盘，直接拿到 Buffer 给 GramJS。 */
-export async function fetchAssetFile(assetId: string): Promise<Buffer | null> {
-  const res = await fetch(`${API_BASE}/assets/${assetId}/file`, { headers: authHeaders() });
+export async function fetchAssetFile(assetId: string, tenantId?: string): Promise<Buffer | null> {
+  const url = tenantId
+    ? `${API_BASE}/assets/${assetId}/file?tenantId=${encodeURIComponent(tenantId)}`
+    : `${API_BASE}/assets/${assetId}/file`;
+  const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) return null;
   const ab = await res.arrayBuffer();
   return Buffer.from(ab);
@@ -89,7 +95,7 @@ export async function fetchAssetFile(assetId: string): Promise<Buffer | null> {
 export interface RandomChatScript {
   id: string;
   name: string;
-  type: 'A+B' | 'A+B+C+D';
+  type: 'A+B' | 'A+B+C+D' | 'A+B+C+D+E+F';   // Codex #5: 加 6P 类型
   packId: string | null;
   category: string | null;
   rawScript: any;
@@ -100,17 +106,32 @@ export async function pickRandomChatScript(opts: {
   packId?: string;
   category?: string;
   type?: string;
+  tenantId?: string;     // Codex #11: 必须传 tenantId 防跨租户
 }): Promise<RandomChatScript | null> {
   const params = new URLSearchParams();
   if (opts.packId) params.set('packId', opts.packId);
   if (opts.category) params.set('category', opts.category);
   if (opts.type) params.set('type', opts.type);
+  if (opts.tenantId) params.set('tenantId', opts.tenantId);
   const res = await fetch(`${API_BASE}/chat-scripts/random?${params.toString()}`, {
     headers: authHeaders(),
   });
   if (!res.ok) return null;
   const data = (await res.json()) as RandomChatScript | null;
   return data ?? null;
+}
+
+/** 按 id 取剧本 — Codex #4: scriptId 选择走此路径 */
+export async function fetchChatScriptById(
+  scriptId: string,
+  tenantId?: string,
+): Promise<RandomChatScript | null> {
+  const url = tenantId
+    ? `${API_BASE}/chat-scripts/${scriptId}?tenantId=${encodeURIComponent(tenantId)}`
+    : `${API_BASE}/chat-scripts/${scriptId}`;
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) return null;
+  return (await res.json()) as RandomChatScript;
 }
 
 export async function markCandidateContacted(

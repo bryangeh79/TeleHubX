@@ -830,7 +830,7 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     t.progress = 0;
     t.startedAt = null;
     t.finishedAt = null;
-    // 立即可被 agent 拉取（避免 scheduledAt 还停留在旧值导致延迟）
+    t.cancelRequested = false;  // Codex #1: 清取消标志, 否则 agent 拉到立即被强制 failed 死循环
     t.scheduledAt = new Date();
     return this.repo.save(t);
   }
@@ -848,6 +848,7 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     t.status = TaskStatus.RUNNING;
     t.errorMsg = null;
     t.finishedAt = null;
+    t.cancelRequested = false;  // Codex #1: 同步清取消标志
     const saved = await this.repo.save(t);
 
     // 父任务被恢复 → 它跑过 cancelChildren 把子任务标 failed 的，全部恢复回 pending
@@ -860,6 +861,7 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
         progress: 0,
         startedAt: null,
         finishedAt: null,
+        cancelRequested: false,    // 子任务也清
       })
       .where('parentTaskId = :pid', { pid: id })
       .andWhere('status = :s', { s: TaskStatus.FAILED })
@@ -884,6 +886,7 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
         progress: 0,
         startedAt: null,
         finishedAt: null,
+        cancelRequested: false,    // Codex #1: 同步清
         scheduledAt: () => 'NOW()',
       })
       .where('status = :s', { s: TaskStatus.FAILED })

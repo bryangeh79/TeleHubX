@@ -11,6 +11,7 @@ import {
   markCandidateContacted,
   pickRandomAsset,
   pickRandomChatScript,
+  fetchChatScriptById,
   reportCampaignSent,
 } from './server-callback';
 
@@ -40,6 +41,10 @@ export interface ExecutorCtx {
    * 长循环 executor 应在每次迭代/sleep 间检查 signal.aborted, 见 cancellableSleep().
    */
   abortSignal?: AbortSignal;
+
+  /** Codex #3: chat_script_* 用,锁住所有参与账号防其他任务并发 */
+  lockExtraAccounts?: (accountIds: string[]) => void;
+  unlockExtraAccounts?: (accountIds: string[]) => void;
 }
 
 /**
@@ -122,8 +127,9 @@ export async function joinChannels(ctx: ExecutorCtx): Promise<void> {
     }
     await ctx.reportProgress?.(Math.round(((i + 1) / channels.length) * 100));
     if (i < channels.length - 1) {
-      // 加群间隔 60-180s Gaussian
-      await sleep(gaussianDelayMs(60_000, 180_000));
+      // Codex #6: 改 cancellableSleep, 让取消能立即生效
+      await cancellableSleep(gaussianDelayMs(60_000, 180_000), ctx.abortSignal);
+      throwIfAborted(ctx.abortSignal);
     }
   }
 }
@@ -267,7 +273,9 @@ export async function joinGroups(ctx: ExecutorCtx): Promise<void> {
     }
     await ctx.reportProgress?.(Math.round(((i + 1) / all.length) * 100));
     if (i < all.length - 1) {
-      await sleep(gaussianDelayMs(minSec * 1000, maxSec * 1000));
+      // Codex #6: cancellable
+      await cancellableSleep(gaussianDelayMs(minSec * 1000, maxSec * 1000), ctx.abortSignal);
+      throwIfAborted(ctx.abortSignal);
     }
   }
 }
@@ -380,13 +388,13 @@ export async function postChannel(ctx: ExecutorCtx): Promise<void> {
   // 如果指定了 assetId 或 poolName, 拉素材附带发出
   let asset = null;
   if (assetId) {
-    asset = await fetchAssetById(assetId);
+    asset = await fetchAssetById(assetId, ctx.tenantId);
   } else if (poolName) {
     asset = await pickRandomAsset({ poolName, tenantId: ctx.tenantId });
   }
 
   if (asset) {
-    const buf = await fetchAssetFile(asset.id);
+    const buf = await fetchAssetFile(asset.id, ctx.tenantId);
     if (buf) {
       const file = new CustomFile(asset.fileName, buf.length, '', buf);
       await ctx.client.sendFile(entity, { file, caption: content, forceDocument: false });
@@ -643,6 +651,10 @@ export async function contactAdd(ctx: ExecutorCtx): Promise<void> {
   if (!targets.length) throw new Error('payload.targets 为空');
 
   const limited = targets.slice(0, maxPerDay);
+  // Codex #9: 计数防止"全跳过/全失败仍 DONE"误导
+  let added = 0;
+  let skipped = 0;
+  const skipReasons: string[] = [];
   for (let i = 0; i < limited.length; i++) {
     const t = limited[i];
     try {
@@ -661,11 +673,11 @@ export async function contactAdd(ctx: ExecutorCtx): Promise<void> {
             ],
           }),
         );
-        if (!res.users?.length) continue;
+        if (!res.users?.length) { skipped++; skipReasons.push(`#${i+1} 手机号无效`); continue; }
         entity = res.users[0];
       } else {
         const handle = (t.username ?? '').replace(/^@/, '');
-        if (!handle) continue;
+        if (!handle) { skipped++; skipReasons.push(`#${i+1} 无 username`); continue; }
         entity = await ctx.client.getEntity(handle);
         await ctx.client.invoke(
           new Api.contacts.AddContact({
@@ -684,6 +696,9 @@ export async function contactAdd(ctx: ExecutorCtx): Promise<void> {
         await sendMessageLikeHuman(ctx.client, entity, greeting);
       }
 
+      // 加成功
+      added++;
+
       // 候选池回写
       if (t.candidateId && ctx.accountId) {
         await markCandidateContacted(t.candidateId, ctx.accountId, ctx.taskId);
@@ -697,7 +712,8 @@ export async function contactAdd(ctx: ExecutorCtx): Promise<void> {
         msg.includes('USERNAME_NOT_OCCUPIED') ||
         msg.includes('PEER_ID_INVALID')
       ) {
-        // 静默跳过
+        skipped++;
+        skipReasons.push(`#${i+1} ${msg.slice(0, 60)}`);
       } else {
         throw err; // FloodWait / PEER_FLOOD 由上层接管
       }
@@ -709,6 +725,10 @@ export async function contactAdd(ctx: ExecutorCtx): Promise<void> {
       await cancellableSleep(gaussianDelayMs(3 * 60_000, 10 * 60_000), ctx.abortSignal);
       throwIfAborted(ctx.abortSignal);
     }
+  }
+  // Codex #9: 全跳过 → 标 failed (避免运营误以为已触达)
+  if (added === 0 && limited.length > 0) {
+    throw new Error(`contact_add 全部 ${limited.length} 个目标无效或被跳过: ${skipReasons.slice(0, 3).join(' | ')}`);
   }
 }
 
@@ -743,6 +763,10 @@ export async function campaignSingle(ctx: ExecutorCtx): Promise<void> {
     .filter(Boolean);
   if (!variants.length) throw new Error('variants 全部为空');
 
+  // Codex #9: 计数防止"全跳过/全失败仍 DONE"
+  let sent = 0;
+  let skipped = 0;
+  const skipReasons: string[] = [];
   for (let i = 0; i < rawTargets.length; i++) {
     const raw = rawTargets[i];
     // 解析目标值：string 直接用；对象支持 username/value/phone
@@ -754,7 +778,7 @@ export async function campaignSingle(ctx: ExecutorCtx): Promise<void> {
       value = (raw.value ?? raw.username ?? raw.phone ?? '').trim();
       candidateId = raw.candidateId;
     }
-    if (!value) continue;
+    if (!value) { skipped++; skipReasons.push(`#${i+1} 空 value`); continue; }
 
     try {
       // 手机号: 先 ImportContact (TG 协议要求)
@@ -781,6 +805,9 @@ export async function campaignSingle(ctx: ExecutorCtx): Promise<void> {
         `发送消息到 ${value} 超时`,
       );
 
+      // 发送成功
+      sent++;
+
       // 回写: campaign sentCount +1
       if (campaignId) {
         await reportCampaignSent(campaignId, 1);
@@ -799,7 +826,8 @@ export async function campaignSingle(ctx: ExecutorCtx): Promise<void> {
         msg.includes('USER_BLOCKED_BY_ADMIN') ||
         msg.includes('Could not find the input entity')
       ) {
-        // 这些是目标侧问题, 跳过该条不抛 (任务整体仍可视为完成)
+        skipped++;
+        skipReasons.push(`#${i+1} ${msg.slice(0, 60)}`);
       } else {
         throw err;
       }
@@ -807,8 +835,14 @@ export async function campaignSingle(ctx: ExecutorCtx): Promise<void> {
 
     await ctx.reportProgress?.(Math.round(((i + 1) / rawTargets.length) * 100));
     if (i < rawTargets.length - 1) {
-      await sleep(gaussianDelayMs(minSec * 1000, maxSec * 1000));
+      // Codex #6: cancellable
+      await cancellableSleep(gaussianDelayMs(minSec * 1000, maxSec * 1000), ctx.abortSignal);
+      throwIfAborted(ctx.abortSignal);
     }
+  }
+  // Codex #9: 全跳过/0 sent → failed (campaign 没真发任何东西)
+  if (sent === 0 && rawTargets.length > 0) {
+    throw new Error(`campaign_single 全部 ${rawTargets.length} 个目标无效或被跳过: ${skipReasons.slice(0, 3).join(' | ')}`);
   }
 }
 
@@ -1022,12 +1056,12 @@ async function mediaSendImpl(
 
   // 优先 assetId (用户在前端指定了具体素材); 否则按 poolName/category 随机抽
   const asset = assetId
-    ? await fetchAssetById(assetId)
+    ? await fetchAssetById(assetId, ctx.tenantId)
     : await pickRandomAsset({ poolName, category, tenantId: ctx.tenantId });
   if (!asset) throw new Error(`没有匹配的素材 (assetId=${assetId ?? '-'}, poolName=${poolName ?? '?'}, category=${category})`);
   await ctx.reportProgress?.(20);
 
-  const buffer = await fetchAssetFile(asset.id);
+  const buffer = await fetchAssetFile(asset.id, ctx.tenantId);
   if (!buffer) throw new Error(`无法拉取 asset.id=${asset.id} 的文件`);
   await ctx.reportProgress?.(60);
 
@@ -1098,10 +1132,16 @@ async function chatScriptImpl(
   const participatingAccountIds = Object.values(roleAcc);
   for (const accId of participatingAccountIds) muteAccount(accId);
 
+  // Codex #3: 把额外参与账号 (B/C/D/E/F) 也注入 runningAccountTasks 锁,
+  // 防止 main loop 在剧本进行中给这些账号派别的任务造成串台
+  const extraIds = participatingAccountIds.filter((id) => id !== ctx.accountId);
+  if (extraIds.length) ctx.lockExtraAccounts?.(extraIds);
+
   try {
     return await runChatScriptInner(ctx, expectedType, p, roleAcc, rolesPresent, isGroup);
   } finally {
     for (const accId of participatingAccountIds) unmuteAccount(accId);
+    if (extraIds.length) ctx.unlockExtraAccounts?.(extraIds);
   }
 }
 
@@ -1123,9 +1163,17 @@ async function runChatScriptInner(
     roleClient[r] = c;
   }
 
-  // 抽剧本
-  if (p.scriptId) throw new Error('scriptId 暂未实现, 请用 packId 随机抽');
-  const script = await pickRandomChatScript({ packId: p.packId, type: expectedType });
+  // 抽剧本 — Codex #4: scriptId 指定走 fetch, 否则按 type+packId 随机
+  let script: any;
+  if (p.scriptId) {
+    script = await fetchChatScriptById(p.scriptId, ctx.tenantId);
+    if (!script) throw new Error(`scriptId=${p.scriptId} 不存在或不在当前租户`);
+    if (script.type && expectedType && script.type !== expectedType) {
+      throw new Error(`剧本类型不匹配: 任务=${expectedType} 剧本=${script.type}`);
+    }
+  } else {
+    script = await pickRandomChatScript({ packId: p.packId, type: expectedType, tenantId: ctx.tenantId });
+  }
   if (!script) throw new Error(`没有匹配的剧本 (packId=${p.packId ?? '*'}, type=${expectedType})`);
   const raw = script.rawScript;
   if (!raw?.sessions?.length) throw new Error(`剧本 ${script.id} 没有 sessions`);
@@ -1175,9 +1223,9 @@ async function runChatScriptInner(
 
     if (t.type === 'voice' && t.asset_pool) {
       const fullPool = t.asset_pool.startsWith('_builtin_') ? t.asset_pool : `_builtin_${t.asset_pool}`;
-      const asset = await pickRandomAsset({ poolName: fullPool });
+      const asset = await pickRandomAsset({ poolName: fullPool, tenantId: ctx.tenantId });
       if (asset) {
-        const buf = await fetchAssetFile(asset.id);
+        const buf = await fetchAssetFile(asset.id, ctx.tenantId);
         if (buf) {
           const file = new CustomFile(asset.fileName, buf.length, '', buf);
           await senderClient.sendFile(targetEntity, { file, voiceNote: true });
@@ -1187,13 +1235,13 @@ async function runChatScriptInner(
       }
     } else if ((t.type === 'image' || t.type === 'video') && t.asset_pool) {
       const fullPool = t.asset_pool.startsWith('_builtin_') ? t.asset_pool : `_builtin_${t.asset_pool}`;
-      const asset = await pickRandomAsset({ poolName: fullPool });
+      const asset = await pickRandomAsset({ poolName: fullPool, tenantId: ctx.tenantId });
       const captionPool: string[] = t.caption_pool ?? [];
       const caption = captionPool.length
         ? captionPool[Math.floor(Math.random() * captionPool.length)]
         : undefined;
       if (asset) {
-        const buf = await fetchAssetFile(asset.id);
+        const buf = await fetchAssetFile(asset.id, ctx.tenantId);
         if (buf) {
           const file = new CustomFile(asset.fileName, buf.length, '', buf);
           await senderClient.sendFile(targetEntity, { file, caption });

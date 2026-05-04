@@ -72,25 +72,34 @@ export class ChatScriptsController {
     return this.service.importPackBlob(blob);
   }
 
-  /** Agent 端 chat_script_* 任务调用：随机抽一个 active 剧本（含 rawScript）。 */
+  /** Agent 端 chat_script_* 任务调用：随机抽一个 active 剧本（含 rawScript）。
+   *  Codex #11: 必须传 tenantId 防跨租户拉别人的剧本 */
   @Get('random')
   @AllowAgent()
   async pickRandom(
     @Query('packId') packId?: string,
     @Query('category') category?: string,
     @Query('type') type?: ChatScriptType,
+    @Query('tenantId') tenantId?: string,
   ) {
-    const s = await this.service.pickRandom({ packId, category, type });
-    if (!s) {
-      // 不抛 404 — 让 agent 优雅处理 null
-      return null;
-    }
+    const s = await this.service.pickRandom({ packId, category, type, tenantId } as any);
+    if (!s) return null;
+    // 二次防护：万一 service 没按 tenant 过滤
+    if (tenantId && (s as any).tenantId && (s as any).tenantId !== tenantId) return null;
     return s;
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.findOne(id);
+  @AllowAgent()
+  async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    const s = await this.service.findOne(id);
+    if (tenantId && (s as any).tenantId && (s as any).tenantId !== tenantId) {
+      return null;
+    }
+    return s;
   }
 
   @Patch(':id')
