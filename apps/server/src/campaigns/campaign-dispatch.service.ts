@@ -170,47 +170,67 @@ export class CampaignDispatchService {
             dayOfWeek: (campaign as any).scheduleDayOfWeek,
           });
 
-      // 6. 落库为 CAMPAIGN_SINGLE 任务
-      const tasks = sendUnits.map(u => this.taskRepo.create({
-        tenantId: campaign.tenantId,
-        type: TaskType.CAMPAIGN_SINGLE,
-        status: TaskStatus.PENDING,
-        name: `广告投放 · ${campaign.name} → ${u.target}`,
-        accountId: u.accountId,
-        accountLabel: u.accountLabel,
-        scheduledAt: u.scheduledAt,
-        payload: {
-          campaignId: campaign.id,
-          targets: [u.target],
-          variants: [{ text: u.adContent, mediaAssetId: u.mediaAssetId ?? null }],
-          greeting: u.greeting,
-          intervalSec: [60, 90],
-        } as any,
-      }));
-      await this.taskRepo.save(tasks);
+      // Codex round-6 #4: sendUnits 空 → 拒绝创建 RUNNING + 0 tasks 的死状态
+      // (过期 ONCE 时间 / 当天窗口全结束 / 账号都不可用 等场景)
+      if (!sendUnits.length) {
+        throw new Error(
+          '没有可调度时段 — 所有窗口已过期或调度时间无效, 请重新设置 scheduledAt/scheduleTime',
+        );
+      }
 
+      // Codex round-6 #3: tasks save + campaign update 用同一事务,
+      // 避免 "tasks 已落库 + campaign 保存失败 → DRAFT campaign 但 pending tasks 残留" 的脏数据
       const actualDays = this.countDays(sendUnits.map(u => u.scheduledAt));
+      let tasksCreated = 0;
+      await this.campaignRepo.manager.transaction(async (mgr) => {
+        const tasks = sendUnits.map(u => mgr.create(Task, {
+          tenantId: campaign.tenantId,
+          type: TaskType.CAMPAIGN_SINGLE,
+          status: TaskStatus.PENDING,
+          name: `广告投放 · ${campaign.name} → ${u.target}`,
+          accountId: u.accountId,
+          accountLabel: u.accountLabel,
+          scheduledAt: u.scheduledAt,
+          payload: {
+            campaignId: campaign.id,
+            targets: [u.target],
+            variants: [{ text: u.adContent, mediaAssetId: u.mediaAssetId ?? null }],
+            greeting: u.greeting,
+            intervalSec: [60, 90],
+          } as any,
+        }));
+        await mgr.save(Task, tasks);
+        tasksCreated = tasks.length;
+
+        // 同事务更新 campaign.totalTargetCount (status 已在外层事务里设为 RUNNING)
+        await mgr.update(Campaign, { id: campaign.id }, { totalTargetCount: targets.length });
+      });
 
       this.logger.log(
-        `Campaign ${campaign.id} dispatched: ${tasks.length} tasks, ${actualDays} day(s), ${accounts.length} accounts, ${targets.length} targets, fastPath=${useFastPath}`,
+        `Campaign ${campaign.id} dispatched: ${tasksCreated} tasks, ${actualDays} day(s), ${accounts.length} accounts, ${targets.length} targets, fastPath=${useFastPath}`,
       );
 
-      // 7. 记录 totalTargetCount (status 已在事务里设为 RUNNING)
-      campaign.totalTargetCount = targets.length;
-      await this.campaignRepo.save(campaign);
-
       return {
-        tasksCreated: tasks.length,
+        tasksCreated,
         days: actualDays,
         accountsUsed: accounts.length,
         targetCount: targets.length,
       };
     } catch (err) {
-      // Codex #5 兜底: 任何错误回滚 campaign.status, 防止 "状态 RUNNING 但实际没派发" 的死锁
+      // Codex #5 兜底: 任何错误回滚 campaign.status + 清掉本次创建的 task (#3 兜底)
+      // 防止 "状态 RUNNING 但实际没派发" 或 "DRAFT 但有 pending tasks 残留"
       this.logger.warn(
         `Campaign ${campaign.id} dispatch failed mid-way, rolling back status: ${err instanceof Error ? err.message : err}`,
       );
       try {
+        // 兜底清掉本次可能已落库的 pending tasks (Codex #3: 即便事务保护, 也防 task save 后 catch 之外失败)
+        await this.taskRepo
+          .createQueryBuilder()
+          .delete()
+          .from(Task)
+          .where(`payload->>'campaignId' = :cid`, { cid: campaign.id })
+          .andWhere(`status = :s`, { s: TaskStatus.PENDING })
+          .execute();
         await this.campaignRepo.update({ id: campaign.id }, { status: CampaignStatus.DRAFT });
       } catch { /* swallow */ }
       throw err;
@@ -636,7 +656,30 @@ export class CampaignDispatchService {
     scheduleMode?: ScheduleMode;
   }): SendUnit[] {
     const { targets, accounts, days, dailyLimit, pace, adVariants, greetings, greetingMode } = opts;
-    const windows = PACE_WINDOWS[pace];
+
+    // Codex round-6 #5: 用户提供 scheduleTime 时, 把第一个时段锚定到该时间,
+    // 持续 2 小时. 不再固定用 PACE_WINDOWS 的 9:30 / 14:00 / 18:00 三档.
+    // ONCE/DAILY/WEEKLY 模式 + scheduleTime 都生效.
+    let windows = PACE_WINDOWS[pace];
+    if (opts.scheduleTime && /^\d{1,2}:\d{2}$/.test(opts.scheduleTime)) {
+      const [h, m] = opts.scheduleTime.split(':').map(Number);
+      // 用户指定 16:00 → 单一时段 16:00-18:00
+      const startH = Math.max(0, Math.min(23, h ?? 9));
+      const startM = Math.max(0, Math.min(59, m ?? 0));
+      let endH = startH + 2;
+      let endM = startM;
+      if (endH > 23) { endH = 23; endM = 59; }
+      windows = [{ startH, startM, endH, endM }];
+    } else if (opts.scheduleMode === ScheduleMode.ONCE && opts.scheduledAt) {
+      // ONCE 模式没传 scheduleTime 但有 scheduledAt → 用 scheduledAt 的小时分钟
+      const sa = new Date(opts.scheduledAt);
+      const startH = sa.getHours();
+      const startM = sa.getMinutes();
+      let endH = startH + 2;
+      let endM = startM;
+      if (endH > 23) { endH = 23; endM = 59; }
+      windows = [{ startH, startM, endH, endM }];
+    }
 
     // Round-robin 分目标到 (account, day)
     const buckets: Map<string, ResolvedTarget[]> = new Map();
