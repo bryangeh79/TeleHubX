@@ -30,3 +30,19 @@ export function resolveTenantIdSoft(user: AuthUser, fallback?: string | null): s
   if (isSuperAdmin(user)) return fallback ?? user.tenantId ?? null;
   return user.tenantId ?? null;
 }
+
+/**
+ * 用于 findOne/update/delete 类端点：返回 caller 应该被限制到的 tenantId。
+ * 配合 ensureTenant() 使用。
+ *
+ * - SUPER_ADMIN → null（跳过权属检查，可访问任何资源）
+ * - AGENT → null（agent 通道已通过 @AllowAgent 白名单守卫，业务层不再二次校验）
+ * - 普通用户 → user.tenantId（强制限制）
+ *
+ * 这与 resolveTenantIdSoft 的区别：本函数语义是"权属上限"，前者是"读取范围"。
+ */
+export function callerTenantId(user: AuthUser): string | null {
+  if (isAgent(user)) return null;
+  if (isSuperAdmin(user)) return null;
+  return user.tenantId ?? null;
+}

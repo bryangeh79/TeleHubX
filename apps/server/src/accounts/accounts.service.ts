@@ -11,6 +11,7 @@ import { deriveKey, encryptSession, decryptSession } from '../crypto/session-cry
 import { generateDeviceFingerprint } from './device-fingerprint.util';
 import { SlotsService } from '../slots/slots.service';
 import { TenantsService } from '../tenants/tenants.service';
+import { ensureTenant } from '../auth/tenant-guard.util';
 
 export interface HealthStats {
   total: number;
@@ -99,24 +100,40 @@ export class AccountsService implements OnModuleInit {
     return { updated: r.affected ?? 0 };
   }
 
+  /**
+   * 内部方法（不做租户权属校验）。仅给 agent / super-admin / cross-tenant 内部调用。
+   * 普通端点应使用 findOneScoped。
+   */
   async findOne(id: string): Promise<Account> {
     const account = await this.repo.findOneBy({ id });
     if (!account) throw new NotFoundException(`Account ${id} not found`);
     return account;
   }
 
-  async update(id: string, dto: UpdateAccountDto): Promise<Account> {
-    const account = await this.findOne(id);
+  /** 租户权属保护版：callerTenantId=null 表示 super_admin/agent 直通 */
+  async findOneScoped(id: string, callerTenantId: string | null): Promise<Account> {
+    const account = await this.repo.findOneBy({ id });
+    return ensureTenant(account, callerTenantId, 'Account');
+  }
+
+  async update(id: string, dto: UpdateAccountDto, callerTenantId: string | null = null): Promise<Account> {
+    const account = await this.findOneScoped(id, callerTenantId);
     Object.assign(account, dto);
     await this.repo.save(account);
     return this.findOne(id);
   }
 
-  async remove(id: string): Promise<void> {
-    const account = await this.findOne(id);
-    // Mark this account's slot as RELEASED (waiting for explicit reset before reuse)
+  async remove(id: string, callerTenantId: string | null = null): Promise<void> {
+    const account = await this.findOneScoped(id, callerTenantId);
     await this.slots.releaseFromAccount(id);
     await this.repo.remove(account);
+  }
+
+  /** 解密 session — 仅 agent 调用。普通用户/admin 不应能拿。 */
+  async getDecryptedSessionScoped(id: string, callerTenantId: string | null): Promise<string> {
+    const account = await this.repo.findOne({ where: { id }, select: ['id', 'tenantId', 'sessionString', 'sessionEncrypted'] });
+    ensureTenant(account, callerTenantId, 'Account');
+    return this.getDecryptedSession(id);
   }
 
   async updateSession(id: string, sessionString: string): Promise<{ ok: boolean }> {

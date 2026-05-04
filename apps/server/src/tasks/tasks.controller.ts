@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { AuthUser, CurrentUser, isAgent, isSuperAdmin } from '../auth/current-user.decorator';
 import { AllowAgent } from '../auth/roles.decorator';
+import { callerTenantId } from '../auth/tenant-resolver';
 import { CreateTaskDto, UpdateTaskDto } from './task.dto';
 import { TaskStatus, TaskType } from './task.entity';
 import { TasksService } from './tasks.service';
@@ -65,46 +66,53 @@ export class TasksController {
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.findOne(id);
+  async findOne(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.findOneScoped(id, callerTenantId(user));
   }
 
   /** preset_* 父任务下的所有子任务 (按时间正序) */
   @Get(':id/children')
-  findChildren(@Param('id', ParseUUIDPipe) id: string) {
+  async findChildren(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.service.findOneScoped(id, callerTenantId(user));
     return this.service.findChildren(id);
   }
 
   @Patch(':id')
   @AllowAgent()
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateTaskDto) {
+  async update(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateTaskDto) {
+    await this.service.findOneScoped(id, callerTenantId(user));
     return this.service.update(id, dto);
   }
 
   @Post(':id/pause')
-  pause(@Param('id', ParseUUIDPipe) id: string) {
+  async pause(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.service.findOneScoped(id, callerTenantId(user));
     return this.service.pause(id);
   }
 
   @Post(':id/resume')
-  resume(@Param('id', ParseUUIDPipe) id: string) {
+  async resume(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.service.findOneScoped(id, callerTenantId(user));
     return this.service.resume(id);
   }
 
   @Post(':id/retry')
-  retry(@Param('id', ParseUUIDPipe) id: string) {
+  async retry(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.service.findOneScoped(id, callerTenantId(user));
     return this.service.retry(id);
   }
 
   /** 重新激活父级编排任务：failed → running，让子任务按原计划继续 */
   @Post(':id/reactivate')
-  reactivate(@Param('id', ParseUUIDPipe) id: string) {
+  async reactivate(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.service.findOneScoped(id, callerTenantId(user));
     return this.service.reactivate(id);
   }
 
   /** 强制停止：无论当前状态都标 failed + errorMsg='Cancelled by user'. */
   @Post(':id/cancel')
-  cancel(@Param('id', ParseUUIDPipe) id: string) {
+  async cancel(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.service.findOneScoped(id, callerTenantId(user));
     return this.service.cancel(id);
   }
 
@@ -116,13 +124,15 @@ export class TasksController {
 
   /** 复用任务：clone 一份立即排队执行，原任务不动。 */
   @Post(':id/run-now')
-  runNow(@Param('id', ParseUUIDPipe) id: string) {
+  async runNow(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.service.findOneScoped(id, callerTenantId(user));
     return this.service.cloneAndRunNow(id);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
+  async remove(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.service.findOneScoped(id, callerTenantId(user));
     return this.service.remove(id);
   }
 }

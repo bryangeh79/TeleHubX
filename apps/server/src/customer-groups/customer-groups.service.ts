@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, MoreThanOrEqual, Repository } from 'typeorm';
 import { CustomerGroup, MemberDetail, MemberSource } from './customer-group.entity';
 import { LeadCandidate } from '../leads-candidates/lead-candidate.entity';
+import { ensureTenant } from '../auth/tenant-guard.util';
 import { CreateCustomerGroupDto } from './dto/create-customer-group.dto';
 import { UpdateCustomerGroupDto } from './dto/update-customer-group.dto';
 
@@ -65,6 +66,11 @@ export class CustomerGroupsService {
     const g = await this.repo.findOneBy({ id });
     if (!g) throw new NotFoundException(`CustomerGroup ${id} not found`);
     return g;
+  }
+
+  async findOneScoped(id: string, callerTenantId: string | null): Promise<CustomerGroup> {
+    const g = await this.repo.findOneBy({ id });
+    return ensureTenant(g, callerTenantId, 'CustomerGroup');
   }
 
   async update(id: string, dto: UpdateCustomerGroupDto): Promise<CustomerGroup> {

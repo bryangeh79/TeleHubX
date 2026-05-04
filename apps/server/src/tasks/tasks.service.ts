@@ -6,6 +6,7 @@ import { Campaign, CampaignStatus } from '../campaigns/campaign.entity';
 import { CustomerGroupsService } from '../customer-groups/customer-groups.service';
 import { DiscoveredGroup, DiscoveredGroupStatus } from '../discovered-groups/discovered-group.entity';
 import { LeadCandidatesService } from '../leads-candidates/leads-candidates.service';
+import { ensureTenant } from '../auth/tenant-guard.util';
 import { CreateTaskDto, UpdateTaskDto } from './task.dto';
 import { Task, TaskStatus, TaskType } from './task.entity';
 
@@ -583,6 +584,12 @@ export class TasksService implements OnModuleInit {
     const t = await this.repo.findOneBy({ id });
     if (!t) throw new NotFoundException(`Task ${id} not found`);
     return t;
+  }
+
+  /** 租户权属保护版 findOne */
+  async findOneScoped(id: string, callerTenantId: string | null): Promise<Task> {
+    const t = await this.repo.findOneBy({ id });
+    return ensureTenant(t, callerTenantId, 'Task');
   }
 
   async update(id: string, dto: UpdateTaskDto): Promise<Task> {

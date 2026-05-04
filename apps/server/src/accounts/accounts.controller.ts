@@ -15,7 +15,7 @@ import { AccountRole, AccountStatus } from './account.entity';
 import { AccountsService } from './accounts.service';
 import { AuthUser, CurrentUser } from '../auth/current-user.decorator';
 import { AllowAgent } from '../auth/roles.decorator';
-import { resolveTenantIdSoft } from '../auth/tenant-resolver';
+import { callerTenantId, resolveTenantIdSoft } from '../auth/tenant-resolver';
 import { BindOrchestratorService } from './bind/bind.service';
 import { BindInitDto } from './bind/dto/bind-init.dto';
 import { BindVerifyDto } from './bind/dto/bind-verify.dto';
@@ -58,23 +58,24 @@ export class AccountsController {
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.findOne(id);
+  findOne(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.findOneScoped(id, callerTenantId(user));
   }
 
   @Patch(':id')
   @AllowAgent()
   update(
+    @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateAccountDto,
   ) {
-    return this.service.update(id, dto);
+    return this.service.update(id, dto, callerTenantId(user));
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.remove(id);
+  remove(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.remove(id, callerTenantId(user));
   }
 
   @Post(':id/session')
@@ -142,8 +143,11 @@ export class AccountsController {
   /** 仅 agent 用于 boot 时拉账号 session 上线 — 普通用户不能拉解密 session */
   @Get(':id/session/raw')
   @AllowAgent()
-  getDecryptedSession(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.getDecryptedSession(id).then((session) => ({ session }));
+  getDecryptedSession(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.getDecryptedSessionScoped(id, callerTenantId(user)).then((session) => ({ session }));
   }
 
   // === BindWizard endpoints ===

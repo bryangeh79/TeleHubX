@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, Repository } from 'typeorm';
+import { ensureTenant } from '../auth/tenant-guard.util';
 import { Lead, LeadIntent, LeadReply, LeadStatus, LeadTakeover } from './lead.entity';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { AssignLeadDto } from './dto/assign-lead.dto';
@@ -17,41 +18,49 @@ export class LeadsService {
     return this.repo.save(lead);
   }
 
-  findAll(filters: { status?: LeadStatus; intent?: LeadIntent; needsHuman?: boolean }): Promise<Lead[]> {
+  findAll(filters: { status?: LeadStatus; intent?: LeadIntent; needsHuman?: boolean; tenantId?: string | null }): Promise<Lead[]> {
     const where: FindOptionsWhere<Lead> = {};
     if (filters.status) where.status = filters.status;
     if (filters.intent) where.intent = filters.intent;
     if (filters.needsHuman !== undefined) where.needsHuman = filters.needsHuman;
+    if (filters.tenantId) where.tenantId = filters.tenantId;
     return this.repo.find({ where, order: { createdAt: 'DESC' } });
   }
 
+  /** 内部：跳过租户校验。仅 BotGateway / agent / SUPER_ADMIN 用 */
   async findOne(id: string): Promise<Lead> {
     const lead = await this.repo.findOneBy({ id });
     if (!lead) throw new NotFoundException(`Lead ${id} not found`);
     return lead;
   }
 
-  async assign(id: string, dto: AssignLeadDto): Promise<Lead> {
-    const lead = await this.findOne(id);
+  /** 租户权属保护版 */
+  async findOneScoped(id: string, callerTenantId: string | null): Promise<Lead> {
+    const lead = await this.repo.findOneBy({ id });
+    return ensureTenant(lead, callerTenantId, 'Lead');
+  }
+
+  async assign(id: string, dto: AssignLeadDto, callerTenantId: string | null = null): Promise<Lead> {
+    const lead = await this.findOneScoped(id, callerTenantId);
     lead.assignedCsAccountId = dto.csAccountId;
     lead.status = LeadStatus.ASSIGNED;
     return this.repo.save(lead);
   }
 
-  async updateIntent(id: string, intent: LeadIntent): Promise<Lead> {
-    const lead = await this.findOne(id);
+  async updateIntent(id: string, intent: LeadIntent, callerTenantId: string | null = null): Promise<Lead> {
+    const lead = await this.findOneScoped(id, callerTenantId);
     lead.intent = intent;
     return this.repo.save(lead);
   }
 
-  async addNote(id: string, note: string): Promise<Lead> {
-    const lead = await this.findOne(id);
+  async addNote(id: string, note: string, callerTenantId: string | null = null): Promise<Lead> {
+    const lead = await this.findOneScoped(id, callerTenantId);
     lead.notes = [...(lead.notes || []), note];
     return this.repo.save(lead);
   }
 
-  async reply(id: string, text: string): Promise<Lead> {
-    const lead = await this.findOne(id);
+  async reply(id: string, text: string, callerTenantId: string | null = null): Promise<Lead> {
+    const lead = await this.findOneScoped(id, callerTenantId);
     const entry: LeadReply = {
       text,
       sentBy: 'human',
@@ -64,8 +73,8 @@ export class LeadsService {
     return this.repo.save(lead);
   }
 
-  async takeOver(id: string, operator?: string): Promise<Lead> {
-    const lead = await this.findOne(id);
+  async takeOver(id: string, operator?: string, callerTenantId: string | null = null): Promise<Lead> {
+    const lead = await this.findOneScoped(id, callerTenantId);
     lead.takeoverState = LeadTakeover.HUMAN;
     lead.takenOverBy = operator ?? 'operator';
     lead.takenOverAt = new Date();
@@ -73,16 +82,16 @@ export class LeadsService {
     return this.repo.save(lead);
   }
 
-  async release(id: string): Promise<Lead> {
-    const lead = await this.findOne(id);
+  async release(id: string, callerTenantId: string | null = null): Promise<Lead> {
+    const lead = await this.findOneScoped(id, callerTenantId);
     lead.takeoverState = LeadTakeover.AI;
     lead.takenOverBy = '';
     lead.takenOverAt = null;
     return this.repo.save(lead);
   }
 
-  async setTakeoverState(id: string, state: LeadTakeover): Promise<Lead> {
-    const lead = await this.findOne(id);
+  async setTakeoverState(id: string, state: LeadTakeover, callerTenantId: string | null = null): Promise<Lead> {
+    const lead = await this.findOneScoped(id, callerTenantId);
     lead.takeoverState = state;
     if (state === LeadTakeover.AI) {
       lead.takenOverBy = '';
@@ -91,8 +100,8 @@ export class LeadsService {
     return this.repo.save(lead);
   }
 
-  async remove(id: string): Promise<void> {
-    const lead = await this.findOne(id);
+  async remove(id: string, callerTenantId: string | null = null): Promise<void> {
+    const lead = await this.findOneScoped(id, callerTenantId);
     await this.repo.remove(lead);
   }
 

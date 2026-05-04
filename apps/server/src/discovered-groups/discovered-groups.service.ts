@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
+import { ensureTenant } from '../auth/tenant-guard.util';
 import { TasksService } from '../tasks/tasks.service';
 import { TaskType } from '../tasks/task.entity';
 import {
@@ -78,6 +79,11 @@ export class DiscoveredGroupsService {
     const g = await this.repo.findOneBy({ id });
     if (!g) throw new NotFoundException(`DiscoveredGroup ${id} not found`);
     return g;
+  }
+
+  async getByIdScoped(id: string, callerTenantId: string | null): Promise<DiscoveredGroup> {
+    const g = await this.repo.findOneBy({ id });
+    return ensureTenant(g, callerTenantId, 'DiscoveredGroup');
   }
 
   /**

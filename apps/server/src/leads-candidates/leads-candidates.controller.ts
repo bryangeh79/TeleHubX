@@ -84,8 +84,8 @@ export class LeadCandidatesController {
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.findOne(id);
+  findOne(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.findOneScoped(id, isSuperAdmin(user) || isAgent(user) ? null : (user.tenantId ?? null));
   }
 
   /** 标记已联系（agent 触达完成后回写）。 */
@@ -100,7 +100,8 @@ export class LeadCandidatesController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
+  async remove(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.service.findOneScoped(id, isSuperAdmin(user) ? null : (user.tenantId ?? null));
     return this.service.remove(id);
   }
 }

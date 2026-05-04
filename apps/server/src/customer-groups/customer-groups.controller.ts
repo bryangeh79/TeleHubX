@@ -3,6 +3,8 @@ import {
   Param, ParseUUIDPipe, Patch, Post, Query,
 } from '@nestjs/common';
 import { CustomerGroupsService } from './customer-groups.service';
+import { AuthUser, CurrentUser } from '../auth/current-user.decorator';
+import { callerTenantId } from '../auth/tenant-resolver';
 import { CreateCustomerGroupDto } from './dto/create-customer-group.dto';
 import { UpdateCustomerGroupDto } from './dto/update-customer-group.dto';
 import { MemberSource } from './customer-group.entity';
@@ -72,35 +74,40 @@ export class CustomerGroupsController {
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.findOne(id);
+  findOne(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.findOneScoped(id, callerTenantId(user));
   }
 
   @Patch(':id')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateCustomerGroupDto) {
+  async update(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateCustomerGroupDto) {
+    await this.service.findOneScoped(id, callerTenantId(user));
     return this.service.update(id, dto);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
+  async remove(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.service.findOneScoped(id, callerTenantId(user));
     return this.service.remove(id);
   }
 
   /** 追加成员到已有群（去重） */
   @Post(':id/append-members')
   @HttpCode(HttpStatus.OK)
-  appendMembers(
+  async appendMembers(
+    @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: { items: Array<{ value: string; source?: MemberSource; huntTaskId?: string; tgUserId?: string; tgUsername?: string; isPremium?: boolean }> },
   ) {
+    await this.service.findOneScoped(id, callerTenantId(user));
     return this.service.appendMembers(id, body.items ?? []);
   }
 
   /** 从群里移除某个成员 */
   @Delete(':id/members/:value')
   @HttpCode(HttpStatus.OK)
-  removeMember(@Param('id', ParseUUIDPipe) id: string, @Param('value') value: string) {
+  async removeMember(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Param('value') value: string) {
+    await this.service.findOneScoped(id, callerTenantId(user));
     return this.service.removeMember(id, decodeURIComponent(value));
   }
 }

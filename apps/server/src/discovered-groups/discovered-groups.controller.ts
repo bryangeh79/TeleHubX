@@ -10,7 +10,9 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { AuthUser, CurrentUser } from '../auth/current-user.decorator';
 import { AllowAgent } from '../auth/roles.decorator';
+import { callerTenantId, resolveTenantIdSoft } from '../auth/tenant-resolver';
 import { DiscoveredGroupStatus } from './discovered-group.entity';
 import {
   DiscoveredGroupUpsertItem,
@@ -23,6 +25,7 @@ export class DiscoveredGroupsController {
 
   @Get()
   list(
+    @CurrentUser() user: AuthUser,
     @Query('tenantId') tenantId?: string,
     @Query('status') status?: DiscoveredGroupStatus,
     @Query('minQuality') minQuality?: string,
@@ -30,7 +33,7 @@ export class DiscoveredGroupsController {
     @Query('limit') limit?: string,
   ) {
     return this.svc.list({
-      tenantId,
+      tenantId: resolveTenantIdSoft(user, tenantId) ?? undefined,
       status,
       minQuality: minQuality !== undefined ? parseInt(minQuality, 10) : undefined,
       keyword,
@@ -39,13 +42,13 @@ export class DiscoveredGroupsController {
   }
 
   @Get('stats')
-  stats(@Query('tenantId') tenantId?: string) {
-    return this.svc.stats(tenantId);
+  stats(@CurrentUser() user: AuthUser, @Query('tenantId') tenantId?: string) {
+    return this.svc.stats(resolveTenantIdSoft(user, tenantId) ?? undefined);
   }
 
   @Get(':id')
-  getOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.svc.getById(id);
+  getOne(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.svc.getByIdScoped(id, callerTenantId(user));
   }
 
   /** Agent discover_groups_by_keyword executor 调用 */
@@ -62,22 +65,26 @@ export class DiscoveredGroupsController {
   /** 租户人工触发：派发 join + scrape 任务 */
   @Post(':id/queue-scrape')
   @HttpCode(HttpStatus.OK)
-  queueScrape(
+  async queueScrape(
+    @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: { accountId: string },
   ) {
+    await this.svc.getByIdScoped(id, callerTenantId(user));
     return this.svc.queueScrape(id, body.accountId);
   }
 
   @Post(':id/ignore')
   @HttpCode(HttpStatus.OK)
-  ignore(@Param('id', ParseUUIDPipe) id: string) {
+  async ignore(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.svc.getByIdScoped(id, callerTenantId(user));
     return this.svc.setStatus(id, DiscoveredGroupStatus.IGNORED);
   }
 
   @Post(':id/restore')
   @HttpCode(HttpStatus.OK)
-  restore(@Param('id', ParseUUIDPipe) id: string) {
+  async restore(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.svc.getByIdScoped(id, callerTenantId(user));
     return this.svc.setStatus(id, DiscoveredGroupStatus.NEW);
   }
 
@@ -89,7 +96,8 @@ export class DiscoveredGroupsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
+  async remove(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.svc.getByIdScoped(id, callerTenantId(user));
     return this.svc.remove(id);
   }
 }

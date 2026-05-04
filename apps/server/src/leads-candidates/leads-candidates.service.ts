@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
+import { ensureTenant } from '../auth/tenant-guard.util';
 import { CandidateStatus, LeadCandidate } from './lead-candidate.entity';
 
 export interface BulkUpsertItem {
@@ -156,6 +157,11 @@ export class LeadCandidatesService {
     const c = await this.repo.findOneBy({ id });
     if (!c) throw new NotFoundException(`Candidate ${id} not found`);
     return c;
+  }
+
+  async findOneScoped(id: string, callerTenantId: string | null): Promise<LeadCandidate> {
+    const c = await this.repo.findOneBy({ id });
+    return ensureTenant(c, callerTenantId, 'Candidate');
   }
 
   /** 标记已联系（CONTACT_ADD / CAMPAIGN_SINGLE 任务执行成功后回写）。 */
