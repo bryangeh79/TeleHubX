@@ -37,6 +37,25 @@ export interface ExecutorCtx {
   clients?: Map<string, TelegramClient>;
 }
 
+/**
+ * Per-RPC 超时 wrapper —— GramJS 在 proxy/网络抖动时会无限 hang，没有自带 per-call timeout。
+ * 包一层 Promise.race 让单个 RPC 调用最多等 ms 毫秒，超时直接 reject，
+ * 避免整个 task 卡到 watchdog 10min 才被杀。
+ */
+async function withRpcTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<T>((_, rej) => {
+        timer = setTimeout(() => rej(new Error(`RPC timeout (${ms}ms): ${label}`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 // ─── 1. IDLE_KEEPALIVE ───────────────────────────────────────────────
 /** 让账号在 TG 显示在线，无副作用，最简单的执行器 — 用来验证整条链路。 */
 export async function idleKeepalive(ctx: ExecutorCtx): Promise<void> {
@@ -84,19 +103,29 @@ export async function joinChannels(ctx: ExecutorCtx): Promise<void> {
  * payload: { channels: string[], readDurationSec?: [min,max] }
  */
 export async function browseChannel(ctx: ExecutorCtx): Promise<void> {
-  const channels: string[] = ctx.payload.channels ?? [];
+  // 默认 fallback 公开频道池 —— payload.channels 为空时用这些保底，永不抛 "channels 为空"
+  const FALLBACK_CHANNELS = ['telegram', 'durov', 'trendingbot'];
+  let channels: string[] = ctx.payload.channels ?? [];
+  if (!channels.length) channels = FALLBACK_CHANNELS;
   const [minSec, maxSec] = (ctx.payload.readDurationSec as [number, number]) ?? [20, 90];
-  if (!channels.length) throw new Error('payload.channels 为空');
 
+  let visited = 0;
+  const errors: string[] = [];
   for (let i = 0; i < channels.length; i++) {
     const target = channels[i].trim().replace(/^@/, '').replace(/^https:\/\/t\.me\//, '');
-    const entity = await ctx.client.getEntity(target);
-    // getHistory 拉前 20 条 — TG 后台看到这就是"打开聊天"
-    await ctx.client.getMessages(entity, { limit: 20 });
-    // 停留模拟阅读
-    await simulateReading(minSec, maxSec);
+    try {
+      const entity = await withRpcTimeout(ctx.client.getEntity(target), 60_000, `getEntity(${target})`);
+      await withRpcTimeout(ctx.client.getMessages(entity, { limit: 20 }), 60_000, `getMessages(${target})`);
+      await simulateReading(minSec, maxSec);
+      visited++;
+    } catch (err: any) {
+      // 单个频道挂掉 → 记录但继续下一个，不让一个坏频道拖垮整 task
+      errors.push(`${target}: ${err?.message ?? String(err)}`);
+    }
     await ctx.reportProgress?.(Math.round(((i + 1) / channels.length) * 100));
   }
+  // 至少访问一个就算成功；全 0 才 throw
+  if (visited === 0) throw new Error(`browse_channel 全部目标失败: ${errors.join(' | ')}`);
 }
 
 // ─── 4. REACTION_BOOST ───────────────────────────────────────────────
@@ -112,8 +141,8 @@ export async function reactionBoost(ctx: ExecutorCtx): Promise<void> {
   const emojiPool: string[] = ctx.payload.emojiPool ?? ['👍', '❤️', '🔥', '🎉', '🤔'];
   const targetCount = Math.floor(Math.random() * (maxCount - minCount + 1)) + minCount;
 
-  const entity = await ctx.client.getEntity(tgChatId);
-  const recent = await ctx.client.getMessages(entity, { limit: 50 });
+  const entity = await withRpcTimeout(ctx.client.getEntity(tgChatId), 60_000, `getEntity(${tgChatId})`);
+  const recent = await withRpcTimeout(ctx.client.getMessages(entity, { limit: 50 }), 60_000, `getMessages(${tgChatId})`);
   if (!recent.length) return;
 
   // 随机挑 N 条加 reaction
