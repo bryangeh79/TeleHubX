@@ -304,6 +304,14 @@ export const knowledgeApi = {
     api.post('/knowledge/ai-generate-product-profile', data, { timeout: 120000 }),
   extractUrl: (url: string) => api.post('/knowledge/extract-url', { url }, { timeout: 15000 }),
 
+  // i18n V1 (Issue #1 Task C): 翻译草稿
+  translateFaqDraft: (faqId: string, targetLanguage: 'zh' | 'en' | 'ms' | 'vi', sourceLanguage?: string) =>
+    api.post(`/knowledge/faqs/${faqId}/translate-draft`, { targetLanguage, sourceLanguage }, { timeout: 60000 }),
+  translateKbDraft: (kbId: string, targetLanguage: 'zh' | 'en' | 'ms' | 'vi', sourceLanguage?: string) =>
+    api.post(`/knowledge/kbs/${kbId}/translate-draft`, { targetLanguage, sourceLanguage }, { timeout: 60000 }),
+  publishFaq: (faqId: string) => api.post(`/knowledge/faqs/${faqId}/publish`),
+  publishKb: (kbId: string) => api.post(`/knowledge/kbs/${kbId}/publish`),
+
   listProtected: (kbId: string) => api.get(`/knowledge/kbs/${kbId}/protected`),
   addProtected: (kbId: string, entityType: string, value: string) =>
     api.post(`/knowledge/kbs/${kbId}/protected`, { entityType, value }),

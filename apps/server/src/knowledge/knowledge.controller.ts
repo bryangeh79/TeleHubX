@@ -18,8 +18,9 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ProtectedEntityType } from './kb-protected.entity';
 import { KbType } from './kb.entity';
 import { KnowledgeService } from './knowledge.service';
+import { TranslationService } from './translation.service';
 import { AuthUser, CurrentUser } from '../auth/current-user.decorator';
-import { resolveTenantIdSoft } from '../auth/tenant-resolver';
+import { callerTenantId, resolveTenantIdSoft } from '../auth/tenant-resolver';
 import { CreateKbDto, UpdateKbDto } from './dto/create-kb.dto';
 import { CreateFaqDto, SearchFaqDto, UpdateFaqDto } from './dto/create-faq.dto';
 
@@ -27,7 +28,55 @@ const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 @Controller('knowledge')
 export class KnowledgeController {
-  constructor(private readonly service: KnowledgeService) {}
+  constructor(
+    private readonly service: KnowledgeService,
+    private readonly translation: TranslationService,
+  ) {}
+
+  // === i18n V1: Translation Drafts (Issue #1 Task C) ===
+
+  /**
+   * 把 FAQ 翻译成目标语言, 落库为 draft. 已存在 draft → 直接返回不重复消耗 token.
+   * 必须 tenant scoped — TranslationService 内部校验 callerTenantId.
+   */
+  @Post('faqs/:id/translate-draft')
+  async translateFaqDraft(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { targetLanguage: 'zh' | 'en' | 'ms' | 'vi'; sourceLanguage?: string },
+  ) {
+    if (!body?.targetLanguage) throw new BadRequestException('targetLanguage 必填');
+    return this.translation.translateFaqToDraft(id, body, callerTenantId(user));
+  }
+
+  /** 翻译 KB metadata (name/description/goalPrompt) 为 draft. */
+  @Post('kbs/:id/translate-draft')
+  async translateKbDraft(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { targetLanguage: 'zh' | 'en' | 'ms' | 'vi'; sourceLanguage?: string },
+  ) {
+    if (!body?.targetLanguage) throw new BadRequestException('targetLanguage 必填');
+    return this.translation.translateKbToDraft(id, body, callerTenantId(user));
+  }
+
+  /** 发布草稿 FAQ (draft → published). */
+  @Post('faqs/:id/publish')
+  async publishFaq(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.translation.publishFaq(id, callerTenantId(user));
+  }
+
+  /** 发布草稿 KB. */
+  @Post('kbs/:id/publish')
+  async publishKb(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.translation.publishKb(id, callerTenantId(user));
+  }
 
   // === KBs ===
 

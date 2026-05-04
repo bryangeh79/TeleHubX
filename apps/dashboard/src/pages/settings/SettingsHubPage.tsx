@@ -18,10 +18,11 @@ import KnowledgePage from '../knowledge/KnowledgePage';
 import WarmupPage from '../warmup/WarmupPage';
 import AssetsPage from '../assets/AssetsPage';
 import GroupsPage from '../groups/GroupsPage';
+import LanguageSettingsPage from './LanguageSettingsPage';
 
 const { Title, Text, Paragraph } = Typography;
 
-type SettingKey = 'ai' | 'proxies' | 'knowledge' | 'warmup' | 'assets' | 'groups';
+type SettingKey = 'ai' | 'proxies' | 'knowledge' | 'warmup' | 'assets' | 'groups' | 'language';
 
 interface SettingItem {
   key: string;
@@ -84,6 +85,14 @@ const SETTING_ITEMS: SettingItem[] = [
     drawerKey: 'groups',
     drawerWidth: 900,
   },
+  {
+    key: 'language',
+    icon: <GlobalOutlined style={{ fontSize: 28, color: '#13c2c2' }} />,
+    title: '语言设置',
+    desc: '系统界面语言 / 业务内容默认语言 / 客户回复语言 (zh / en / ms / vi)',
+    drawerKey: 'language',
+    drawerWidth: 720,
+  },
   // License + 用户管理 已搬到 /admin（SUPER_ADMIN 专属）
   {
     key: 'maintenance',
@@ -101,6 +110,7 @@ const DRAWER_CONTENT: Record<SettingKey, React.ReactNode> = {
   warmup:    <WarmupPage />,
   assets:    <AssetsPage />,
   groups:    <GroupsPage />,
+  language:  <LanguageSettingsPage />,
 };
 
 const DRAWER_TITLE: Record<SettingKey, string> = {
@@ -110,6 +120,7 @@ const DRAWER_TITLE: Record<SettingKey, string> = {
   warmup:    '账号养号',
   assets:    '素材库',
   groups:    '群组管理',
+  language:  '语言设置',
 };
 
 export default function SettingsHubPage() {

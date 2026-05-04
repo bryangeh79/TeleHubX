@@ -9,6 +9,7 @@ import { KbSource } from './kb-source.entity';
 import { KnowledgeBase } from './kb.entity';
 import { KnowledgeController } from './knowledge.controller';
 import { KnowledgeService } from './knowledge.service';
+import { TranslationService } from './translation.service';
 import { PlatformAiConfig } from '../platform-config/platform-ai-config.entity';
 
 @Module({
@@ -21,7 +22,8 @@ import { PlatformAiConfig } from '../platform-config/platform-ai-config.entity';
     FileParserService,
     EntityExtractorService,
     AiFaqGeneratorService,
+    TranslationService,
   ],
-  exports: [KnowledgeService],
+  exports: [KnowledgeService, TranslationService],
 })
 export class KnowledgeModule {}

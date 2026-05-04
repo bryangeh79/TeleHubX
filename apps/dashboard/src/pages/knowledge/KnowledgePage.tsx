@@ -4,6 +4,7 @@ import {
   Badge,
   Button,
   Card,
+  Dropdown,
   Empty,
   Form,
   Input,
@@ -68,6 +69,10 @@ interface Faq {
   tags: string[] | null;
   hitCount: number;
   enabled: boolean;
+  // i18n V1
+  language?: string;       // zh / en / ms / vi (default zh)
+  status?: string;         // 'draft' | 'published' (default published)
+  translatedFromId?: string | null;
 }
 
 interface KbSource {
@@ -380,10 +385,37 @@ export default function KnowledgePage() {
     },
     { title: '命中', dataIndex: 'hitCount', key: 'hitCount', width: 70 },
     {
-      title: '操作', key: 'ops', width: 130,
+      title: '语言', dataIndex: 'language', key: 'language', width: 100,
+      render: (lng?: string, row?: Faq) => {
+        const l = lng ?? 'zh';
+        const s = row?.status ?? 'published';
+        return (
+          <Space size={4}>
+            <Tag color={l === 'zh' ? 'red' : l === 'en' ? 'blue' : l === 'ms' ? 'green' : 'gold'}>{l.toUpperCase()}</Tag>
+            {s === 'draft' && <Tag color="orange">草稿</Tag>}
+          </Space>
+        );
+      },
+    },
+    {
+      title: '操作', key: 'ops', width: 220,
       render: (_, row) => (
-        <Space>
+        <Space size={4}>
           <Button size="small" icon={<EditOutlined />} onClick={() => openFaqModal(row)} />
+          {(row.status ?? 'published') === 'draft' && (
+            <Popconfirm title="确认发布此草稿?" onConfirm={async () => {
+              try {
+                await knowledgeApi.publishFaq(row.id);
+                antdMessage.success('已发布');
+                if (selectedKbId) loadTabData(selectedKbId);
+              } catch (e: any) { antdMessage.error(e?.response?.data?.message ?? '发布失败'); }
+            }}>
+              <Button size="small" type="primary" ghost>发布</Button>
+            </Popconfirm>
+          )}
+          {(row.status ?? 'published') === 'published' && (
+            <TranslateFaqDropdown faq={row} onDone={() => selectedKbId && loadTabData(selectedKbId)} />
+          )}
           <Popconfirm title="确认删除？" onConfirm={() => removeFaq(row.id)}>
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
@@ -652,5 +684,52 @@ export default function KnowledgePage() {
         </Form>
       </Modal>
     </Layout>
+  );
+}
+
+
+// ── i18n V1: FAQ 翻译草稿下拉按钮 (Issue #1 Task C) ─────────────────────
+function TranslateFaqDropdown({ faq, onDone }: { faq: Faq; onDone: () => void }) {
+  const [loading, setLoading] = useState(false);
+
+  const handleTranslate = async (target: 'zh' | 'en' | 'ms' | 'vi') => {
+    if ((faq.language ?? 'zh') === target) {
+      antdMessage.warning(`此 FAQ 已是 ${target.toUpperCase()} 语言`);
+      return;
+    }
+    setLoading(true);
+    antdMessage.loading({ content: `AI 翻译中 (${target.toUpperCase()})...`, key: 'translate', duration: 0 });
+    try {
+      await knowledgeApi.translateFaqDraft(faq.id, target, faq.language ?? 'zh');
+      antdMessage.success({ content: `已生成 ${target.toUpperCase()} 草稿`, key: 'translate' });
+      onDone();
+    } catch (e: any) {
+      antdMessage.error({
+        content: e?.response?.data?.message ?? `翻译 ${target.toUpperCase()} 失败`,
+        key: 'translate',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const items = [
+    { key: 'zh', label: '生成 中文 草稿', disabled: (faq.language ?? 'zh') === 'zh' },
+    { key: 'en', label: '生成 English 草稿', disabled: (faq.language ?? 'zh') === 'en' },
+    { key: 'ms', label: '生成 Bahasa Melayu 草稿', disabled: (faq.language ?? 'zh') === 'ms' },
+    { key: 'vi', label: '生成 Tiếng Việt 草稿', disabled: (faq.language ?? 'zh') === 'vi' },
+  ];
+
+  return (
+    <Dropdown
+      menu={{
+        items,
+        onClick: ({ key }) => handleTranslate(key as any),
+      }}
+      trigger={['click']}
+      disabled={loading}
+    >
+      <Button size="small" loading={loading}>翻译 ▾</Button>
+    </Dropdown>
   );
 }
