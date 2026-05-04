@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, In, LessThan, Repository } from 'typeorm';
 import { Account } from '../accounts/account.entity';
@@ -34,7 +34,7 @@ function randomDayTime(base: Date, dayOffset: number, startHour: number, endHour
 const STUCK_TASK_TIMEOUT_MS = 15 * 60 * 1000; // 15 分钟
 
 @Injectable()
-export class TasksService implements OnModuleInit {
+export class TasksService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TasksService.name);
   private watchdogTimer?: ReturnType<typeof setInterval>;
 
@@ -84,6 +84,13 @@ export class TasksService implements OnModuleInit {
     this.watchdogTimer = setInterval(() => { void this.cleanStuckTasks(); }, 5 * 60 * 1000);
     // 启动时也跑一次（可能上次宕机留下了 running）
     void this.cleanStuckTasks();
+  }
+
+  onModuleDestroy() {
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = undefined;
+    }
   }
 
   /**

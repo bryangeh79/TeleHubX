@@ -39,10 +39,17 @@ export class AuthService implements OnModuleInit {
     private readonly config: ConfigService,
     private readonly tenants: TenantsService,
   ) {
-    this.jwtSecret =
+    const explicitSecret =
       this.config.get<string>('JWT_SECRET') ??
-      this.config.get<string>('SESSION_ENCRYPTION_KEY') ??
-      'telehubx-dev-jwt-secret-CHANGE-ME';
+      this.config.get<string>('SESSION_ENCRYPTION_KEY');
+    const isProd = (this.config.get<string>('NODE_ENV') ?? '').toLowerCase() === 'production';
+    if (isProd && !explicitSecret) {
+      // 生产环境必须显式配置密钥，否则用默认值等于把所有用户 token 暴露给已知字符串
+      throw new Error(
+        'FATAL: JWT_SECRET (or SESSION_ENCRYPTION_KEY) must be set in production. Refusing to start.',
+      );
+    }
+    this.jwtSecret = explicitSecret ?? 'telehubx-dev-jwt-secret-CHANGE-ME';
     this.tokenTtlSeconds = parseInt(
       this.config.get<string>('JWT_EXPIRES_SEC', '604800'), // 7 days
       10,
@@ -56,6 +63,11 @@ export class AuthService implements OnModuleInit {
    * the deployment has not been hardened yet.
    */
   async onModuleInit(): Promise<void> {
+    const isProd = (this.config.get<string>('NODE_ENV') ?? '').toLowerCase() === 'production';
+    if (isProd) {
+      // 生产环境绝不自动创建 admin/admin — 必须由运维显式 seed
+      return;
+    }
     const existing = await this.users.findOneBy({ username: 'admin' });
     if (!existing) {
       const tenant = await this.tenants.getDefault().catch(() => null);

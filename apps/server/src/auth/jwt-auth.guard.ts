@@ -60,20 +60,26 @@ export class JwtAuthGuard implements CanActivate {
     if (authHeader && authHeader.startsWith('Bearer ')) {
       rawToken = authHeader.slice(7);
     } else if (typeof req.query?.t === 'string') {
-      // ?t=<jwt> 兼容浏览器 <img src> / <audio src> 这类不能附 Header 的请求
-      rawToken = req.query.t;
+      // ?t=<jwt> 仅在白名单路径可用 (媒体下载等不能附 Header 的请求)
+      // 防止 query token 被记入 server log / referrer header 泄漏
+      const url: string = req.originalUrl || req.url || '';
+      const queryTokenAllowed =
+        /\/assets\/[^/]+\/file(\?|$)/.test(url) ||
+        /\/assets\/[^/]+\/raw(\?|$)/.test(url);
+      if (queryTokenAllowed) {
+        rawToken = req.query.t;
+      }
     }
     if (!rawToken) {
-      throw new UnauthorizedException('Missing Bearer token');
+      throw new UnauthorizedException('Authentication required');
     }
     try {
       const payload = this.auth.verifyToken(rawToken);
       req.user = payload;
       return true;
-    } catch (e) {
-      throw new UnauthorizedException(
-        e instanceof Error ? e.message : 'Invalid token',
-      );
+    } catch {
+      // 不回 e.message 避免泄漏 (e.g. "jwt expired" / "invalid signature" 区别可被探测)
+      throw new UnauthorizedException('Invalid or expired token');
     }
   }
 }
