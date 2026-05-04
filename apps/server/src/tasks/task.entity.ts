@@ -160,6 +160,16 @@ export class Task {
   @Column({ type: 'text', nullable: true })
   errorMsg: string | null;
 
+  /**
+   * 用户在 dashboard 主动取消/删除任务时设为 true。
+   * Agent 会在拉任务时检查此标志：true → 跳过执行，标 status=failed
+   *   errorMsg='canceled by user'。
+   * 删除任务的 controller 不再立即删行，而是先 set 此 flag，
+   * 1 分钟后 watchdog 才真删 — 给 agent 看到信号的时间。
+   */
+  @Column({ type: 'boolean', default: false })
+  cancelRequested: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 

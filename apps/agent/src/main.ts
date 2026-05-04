@@ -385,6 +385,14 @@ async function bootstrap(): Promise<void> {
 
   // ── Task dispatcher ────────────────────────────────────────────────────
   const TASK_POLL_INTERVAL_MS = parseInt(process.env.TASK_POLL_INTERVAL_MS ?? '15000', 10);
+
+  /**
+   * Per-account 任务排他锁 — 同一账号同时只能跑一个 task，
+   * 防止 setInterval 多个 dispatch 周期重叠时把多个 task 同时丢给同一个共享 GramJS client，
+   * 导致 #88 hang 时 #93 也被拖垮的雪崩。
+   */
+  const runningAccountTasks = new Map<string, string>();  // accountId → taskId
+
   const taskCallbacks = {
     updateProgress: (id: string, pct: number) =>
       patchJson(`/tasks/${id}`, { progress: pct }).catch(() => {}),
@@ -405,7 +413,8 @@ async function bootstrap(): Promise<void> {
   };
 
   async function dispatchTasks(): Promise<void> {
-    const accountIds = [...slots.keys()];
+    // 只请求空闲账号的任务，避免 server 派任务给已 busy 的账号造成无效派工
+    const accountIds = [...slots.keys()].filter((id) => !runningAccountTasks.has(id));
     if (!accountIds.length) return;
     let dispatched: any[] = [];
     try {
@@ -432,19 +441,41 @@ async function bootstrap(): Promise<void> {
         await taskCallbacks.markFailed(t.id, `Account ${t.accountId?.slice(0, 8)} not connected to this agent`);
         continue;
       }
-      // 串行执行（同一时刻一个 agent 不并行跑多个 task 给同一个号）
+
+      // 1. 取消信号检查：用户在 dashboard 已点删除/取消 → 跳过
+      if (t.cancelRequested) {
+        logger.warn(`[task ${t.id.slice(0, 8)}] canceled by user before start, skip`);
+        await taskCallbacks.markFailed(t.id, 'canceled by user');
+        continue;
+      }
+
+      // 2. Per-account 排他：同账号已有 in-flight task → 退回 pending 让出
+      const busyTaskId = runningAccountTasks.get(t.accountId);
+      if (busyTaskId) {
+        logger.warn(
+          `[task ${t.id.slice(0, 8)}] account ${t.accountId.slice(0, 8)} busy with ${busyTaskId.slice(0, 8)}, requeue`,
+        );
+        // PATCH 回 pending 让 server 下次 dispatch 重新派
+        await patchJson(`/tasks/${t.id}`, { status: 'pending', startedAt: null }).catch(() => {});
+        continue;
+      }
+
+      // 3. 占用 slot, 启动执行
+      runningAccountTasks.set(t.accountId, t.id);
       const { executeTask } = await import('./tasks/task-runner');
-      // 把所有 connected client 给 executor (chat_script 多账号编排用)
       const allClients = new Map<string, import('telegram').TelegramClient>();
       for (const [accId, s] of slots) allClients.set(accId, s.client);
 
-      await executeTask(
+      // 不 await — 让此 task 在后台跑，循环继续派下一个 (不同账号的)
+      void executeTask(
         { id: t.id, type: t.type, accountId: t.accountId, accountLabel: t.accountLabel, payload: t.payload, tenantId: t.tenantId ?? null },
         slot.client,
         taskCallbacks,
         allClients,
       ).catch((err) => {
         logger.error(`[task ${t.id?.slice(0, 8)}] uncaught: ${err instanceof Error ? err.message : err}`);
+      }).finally(() => {
+        runningAccountTasks.delete(t.accountId);
       });
     }
   }

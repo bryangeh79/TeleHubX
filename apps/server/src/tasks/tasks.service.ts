@@ -720,9 +720,11 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
   async cancel(id: string): Promise<Task> {
     const t = await this.findOne(id);
     if (t.status === TaskStatus.DONE || t.status === TaskStatus.FAILED) return t;
+    // 关键: 同时 set cancelRequested=true, 让 agent 在拉到此任务前 / RPC 之间能看到信号
     t.status = TaskStatus.FAILED;
     t.errorMsg = 'Cancelled by user';
     t.finishedAt = new Date();
+    t.cancelRequested = true;
     return this.repo.save(t);
   }
 
@@ -734,7 +736,12 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     const qb = this.repo
       .createQueryBuilder()
       .update(Task)
-      .set({ status: TaskStatus.FAILED, errorMsg: 'Cancelled (bulk stop)', finishedAt: new Date() })
+      .set({
+        status: TaskStatus.FAILED,
+        errorMsg: 'Cancelled (bulk stop)',
+        finishedAt: new Date(),
+        cancelRequested: true,    // 通知 agent 立即停掉所有 in-flight 执行
+      })
       .where('status IN (:...statuses)', {
         statuses: [TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.PAUSED],
       });
@@ -836,7 +843,29 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
   async remove(id: string): Promise<void> {
     const t = await this.repo.findOneBy({ id });
     if (!t) return;  // 幂等: 任务不存在视为已删除, 不抛 404
-    // 级联: 删父任务 → 同时删所有子任务 (preset_* 展开的)
+
+    // 关键：如果 task 还在 running，先 set cancelRequested=true 让 agent 看到信号，
+    // 60s 后由 watchdog 真删 (避免 hung agent 还在跑、删了行又被新任务污染)
+    if (t.status === TaskStatus.RUNNING) {
+      t.cancelRequested = true;
+      t.errorMsg = 'Deleted by user (pending agent ack)';
+      await this.repo.save(t);
+      // 子任务跟随
+      await this.repo.update({ parentTaskId: id }, { cancelRequested: true });
+      this.logger.warn(
+        `task ${id.slice(0, 8)} marked cancelRequested (was running); will be hard-deleted in 60s`,
+      );
+      // 注册延迟硬删 — 60s 后再清理
+      setTimeout(() => {
+        void this.repo
+          .delete({ parentTaskId: id })
+          .then(() => this.repo.delete({ id }))
+          .catch(() => {});
+      }, 60_000).unref?.();
+      return;
+    }
+
+    // 非 running 状态可以直接删
     await this.repo.delete({ parentTaskId: id });
     await this.repo.remove(t);
   }

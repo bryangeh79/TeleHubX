@@ -23,19 +23,40 @@ export interface ServerCallbacks {
   log: { info: (m: string) => void; warn: (m: string) => void; error: (m: string) => void };
 }
 
-/** 各任务类型最长允许执行时间（ms）。超时视为失败。 */
+/**
+ * 各任务类型最长允许执行时间（ms）。超时视为失败。
+ * 调小到 task type 可承受的实际上限：网络抖动 60s 内单 RPC 应该已 fail，
+ * 整个 task 不该需要超过这些预算。
+ */
 const TASK_TIMEOUT_MS: Record<string, number> = {
-  campaign_single:        10 * 60 * 1000,  // 10 分钟
-  contact_add:            10 * 60 * 1000,
-  group_scrape:           15 * 60 * 1000,  // 爬群稍长
-  join_groups_by_keyword: 10 * 60 * 1000,
-  chat_script_ab:         15 * 60 * 1000,
-  chat_script_4p:         15 * 60 * 1000,
+  // 极简 task — 没理由超过 2 分钟
+  idle_keepalive:          2 * 60 * 1000,
+  profile_update:          2 * 60 * 1000,
+  // 单点交互 task — 5 分钟
+  browse_channel:          5 * 60 * 1000,
+  reaction_boost:          5 * 60 * 1000,
+  join_channels:           5 * 60 * 1000,
+  join_groups:             5 * 60 * 1000,
+  group_bubble:            5 * 60 * 1000,
+  accept_invites:          5 * 60 * 1000,
+  post_channel:            5 * 60 * 1000,
+  // 中等任务 — 8 分钟
+  group_scrape:            8 * 60 * 1000,
+  join_groups_by_keyword:  8 * 60 * 1000,
+  discover_groups_by_keyword: 8 * 60 * 1000,
+  contact_add:             8 * 60 * 1000,
+  group_create:            5 * 60 * 1000,
+  group_invite_members:    8 * 60 * 1000,
+  // 重型任务 — 10 分钟
+  campaign_single:        10 * 60 * 1000,
+  chat_script_ab:         10 * 60 * 1000,
+  chat_script_4p:         10 * 60 * 1000,
+  chat_script_6p:         10 * 60 * 1000,
   media_photo:            10 * 60 * 1000,
   media_video:            10 * 60 * 1000,
   media_voice:            10 * 60 * 1000,
 };
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 其他类型默认 10 分钟
+const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 默认 5 分钟（比原来的 10 紧）
 
 /**
  * 解析 GramJS 错误，识别 FloodWait（应该隔离账号一段时间）。
