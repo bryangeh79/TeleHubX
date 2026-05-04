@@ -5,9 +5,9 @@ import {
 import { CampaignStatus, PacePreset } from './campaign.entity';
 import { CampaignsService } from './campaigns.service';
 import { CampaignDispatchService } from './campaign-dispatch.service';
-import { AuthUser, CurrentUser } from '../auth/current-user.decorator';
+import { AuthUser, CurrentUser, isSuperAdmin } from '../auth/current-user.decorator';
 import { AllowAgent } from '../auth/roles.decorator';
-import { resolveTenantIdSoft } from '../auth/tenant-resolver';
+import { callerTenantId, resolveTenantIdSoft } from '../auth/tenant-resolver';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
 import { UpdateCampaignDto } from './dto/update-campaign.dto';
 
@@ -18,9 +18,15 @@ export class CampaignsController {
     private readonly dispatch: CampaignDispatchService,
   ) {}
 
+  /**
+   * 创建 campaign。
+   * Codex #2: 普通用户 dto.tenantId 强制覆盖为自己的 tenantId,
+   *          SUPER_ADMIN 才允许 dto 自带 (跨租户管理)
+   */
   @Post()
-  create(@Body() dto: CreateCampaignDto) {
-    return this.service.create(dto);
+  create(@CurrentUser() user: AuthUser, @Body() dto: CreateCampaignDto) {
+    const tid = isSuperAdmin(user) ? null : (user.tenantId ?? null);
+    return this.service.create(dto, tid);
   }
 
   @Get()
@@ -46,58 +52,67 @@ export class CampaignsController {
   }
 
   @Get('dashboard-stats')
-  dashboardStats(@Query('tenantId') tenantId?: string) {
-    return this.service.dashboardStats(tenantId);
+  dashboardStats(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.service.dashboardStats(resolveTenantIdSoft(user, tenantId) ?? undefined);
   }
 
   @Get('capacity-check')
   capacityCheck(
+    @CurrentUser() user: AuthUser,
     @Query('targetCount') targetCount?: string,
     @Query('pacePreset') pacePreset?: PacePreset,
     @Query('customerGroupIds') customerGroupIds?: string,
     @Query('extraTargets') extraTargets?: string,
+    @Query('tenantId') tenantId?: string,
   ) {
     return this.service.capacityCheck({
       targetCount: targetCount ? parseInt(targetCount, 10) : 0,
       pacePreset,
       customerGroupIds: customerGroupIds ? customerGroupIds.split(',').filter(Boolean) : [],
       extraTargets: extraTargets ? extraTargets.split(',').filter(Boolean) : [],
+      tenantId: resolveTenantIdSoft(user, tenantId),
     });
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.findOne(id);
+  findOne(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.findOneScoped(id, callerTenantId(user));
   }
 
-  /** 列出 campaign 派发出来的所有子任务（执行日志） */
   @Get(':id/tasks')
-  listTasks(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.listTasks(id);
+  listTasks(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.listTasks(id, callerTenantId(user));
   }
 
   @Patch(':id')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateCampaignDto) {
-    return this.service.update(id, dto);
+  update(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateCampaignDto,
+  ) {
+    return this.service.update(id, dto, callerTenantId(user));
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.remove(id);
+  remove(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.remove(id, callerTenantId(user));
   }
 
-  /** 批量重试 campaign 内所有 failed 任务 */
   @Post(':id/retry-failed')
   @HttpCode(HttpStatus.OK)
-  retryFailed(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.retryFailedTasks(id);
+  retryFailed(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.retryFailedTasks(id, callerTenantId(user));
   }
 
-  /** 启动投放 — 真正调度 */
   @Post(':id/send')
   @HttpCode(HttpStatus.OK)
-  async send(@Param('id', ParseUUIDPipe) id: string) {
+  async send(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    // 校验权属 + dispatch 内部还会再校验一次
+    await this.service.findOneScoped(id, callerTenantId(user));
     const result = await this.dispatch.dispatch(id);
     return {
       queued: true,
@@ -108,18 +123,30 @@ export class CampaignsController {
     };
   }
 
-  /** Agent 回写：单条发送完成 +1 */
+  /** Agent 回写：单条发送完成 +1
+   *  Codex #5: body.taskId 强烈建议传, delta 限制 [1,10] */
   @Post(':id/sent')
   @AllowAgent()
   @HttpCode(HttpStatus.OK)
-  incrementSent(@Param('id', ParseUUIDPipe) id: string, @Body() body?: { delta?: number }) {
-    return this.service.incrementSent(id, body?.delta ?? 1);
+  incrementSent(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body?: { delta?: number; taskId?: string },
+  ) {
+    return this.service.incrementSent(id, body?.delta ?? 1, body?.taskId);
   }
 
   /** 客户回复 +1 */
   @Post(':id/reply')
   @HttpCode(HttpStatus.OK)
-  incrementReply(@Param('id', ParseUUIDPipe) id: string, @Body() body?: { delta?: number }) {
-    return this.service.incrementReply(id, body?.delta ?? 1);
+  incrementReply(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body?: { delta?: number; taskId?: string },
+  ) {
+    // 校验 campaign 权属
+    return (async () => {
+      await this.service.findOneScoped(id, callerTenantId(user));
+      return this.service.incrementReply(id, body?.delta ?? 1, body?.taskId);
+    })();
   }
 }
