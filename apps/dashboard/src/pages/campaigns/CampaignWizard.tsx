@@ -611,12 +611,16 @@ function DispatchPreviewCard({ state }: { state: WizardState }) {
       accountSourceMode: state.accountSourceMode,
       adAccountIds: state.adAccountIds,
       scheduleMode: state.scheduleMode,
+      // Codex round-5 #4: preview 也按真实调度参数算时间
+      scheduledAt: (state as any).scheduledAt,
+      scheduleTime: (state as any).scheduleTime,
+      scheduleDayOfWeek: (state as any).scheduleDayOfWeek,
     }).then(res => {
       setPreview(res.data);
     }).catch(() => {
       setErr('预览加载失败（可确保账号配置正确后重试）');
     }).finally(() => setLoading(false));
-  }, [state.customerGroupIds, state.targets, state.pacePreset, state.accountSourceMode, state.adAccountIds, state.scheduleMode]);
+  }, [state.customerGroupIds, state.targets, state.pacePreset, state.accountSourceMode, state.adAccountIds, state.scheduleMode, (state as any).scheduledAt, (state as any).scheduleTime, (state as any).scheduleDayOfWeek]);
 
   const fmt = (iso: string) => {
     const d = new Date(iso);

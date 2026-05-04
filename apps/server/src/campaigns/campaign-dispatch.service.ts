@@ -14,6 +14,7 @@ import {
 import { Account, AccountRole, AccountStatus } from '../accounts/account.entity';
 import { CustomerGroup } from '../customer-groups/customer-group.entity';
 import { AdTemplate } from '../ad-templates/ad-template.entity';
+import { Asset } from '../assets/asset.entity';
 import { GreetingTemplate } from '../greeting-templates/greeting-template.entity';
 import { Task, TaskStatus, TaskType } from '../tasks/task.entity';
 
@@ -88,6 +89,7 @@ export class CampaignDispatchService {
     @InjectRepository(AdTemplate)       private readonly adRepo: Repository<AdTemplate>,
     @InjectRepository(GreetingTemplate) private readonly greetingRepo: Repository<GreetingTemplate>,
     @InjectRepository(Task)             private readonly taskRepo: Repository<Task>,
+    @InjectRepository(Asset)            private readonly assetRepo: Repository<Asset>,
   ) {}
 
   /**
@@ -147,11 +149,11 @@ export class CampaignDispatchService {
       : this.distribute({
           targets, accounts, days, dailyLimit, pace, adVariants, greetings,
           greetingMode: (campaign.greetingMode as GreetingMode) ?? GreetingMode.NONE,
-          // Codex #7: 透传调度时间参数
+          // Codex #7: 透传调度时间参数 (round-5 #2: 字段名修正 dayOfWeek → scheduleDayOfWeek)
           scheduleMode: (campaign.scheduleMode as ScheduleMode) ?? ScheduleMode.IMMEDIATE,
           scheduledAt: (campaign as any).scheduledAt,
           scheduleTime: (campaign as any).scheduleTime,
-          dayOfWeek: (campaign as any).dayOfWeek,
+          dayOfWeek: (campaign as any).scheduleDayOfWeek,
         });
 
     // 6. 落库为 CAMPAIGN_SINGLE 任务
@@ -259,6 +261,11 @@ export class CampaignDispatchService {
     accountSourceMode?: string;
     adAccountIds?: string[];
     scheduleMode?: string;
+    // Codex round-5 #3 #4: 必须传真实 tenantId + 调度参数, 否则 preview 失真
+    tenantId?: string | null;
+    scheduledAt?: string | null;
+    scheduleTime?: string | null;
+    scheduleDayOfWeek?: number | null;
   }): Promise<{
     targetCount: number;
     accountsUsed: number;
@@ -277,14 +284,14 @@ export class CampaignDispatchService {
     const pace = (dto.pacePreset as PacePreset) ?? PacePreset.CONSERVATIVE;
     const paceStr = pace as string;
 
-    // 构造临时 campaign-like 对象（只需 resolveTargets / selectAccounts 需要的字段）
+    // 构造临时 campaign-like 对象 (Codex #3: 用真实 tenantId, 不再 hardcode 'preview')
     const fake = {
       customerGroupIds: dto.customerGroupIds ?? [],
       targets: dto.targets ?? [],
       pacePreset: pace,
       accountSourceMode: dto.accountSourceMode ?? 'auto',
       adAccountIds: dto.adAccountIds ?? [],
-      tenantId: 'preview',
+      tenantId: dto.tenantId ?? null,
     } as unknown as Campaign;
 
     const targets = await this.resolveTargets(fake);
@@ -317,6 +324,11 @@ export class CampaignDispatchService {
           adVariants: [{ text: '[preview]', mediaAssetId: null }],
           greetings: [],
           greetingMode: GreetingMode.NONE,
+          // Codex #4: preview 也按真实调度参数算时间
+          scheduleMode: (dto.scheduleMode as ScheduleMode) ?? ScheduleMode.IMMEDIATE,
+          scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
+          scheduleTime: dto.scheduleTime ?? null,
+          dayOfWeek: dto.scheduleDayOfWeek ?? null,
         });
 
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -518,6 +530,24 @@ export class CampaignDispatchService {
         const missing = ids.filter((id) => !found.has(id));
         throw new ForbiddenException(`adTemplateIds 跨租户或不存在: ${missing.slice(0, 3).join(', ')}`);
       }
+      // Codex round-5 #6: dispatch 阶段预校 mediaAssetId 存在 + tenant 匹配
+      // 避免运行时大批 task 因素材不存在/跨租户全部 failed
+      const mediaAssetIds = tpls
+        .filter((t) => t.hasMedia && t.mediaAssetId)
+        .map((t) => t.mediaAssetId);
+      if (mediaAssetIds.length) {
+        const where: any = { id: In(mediaAssetIds) };
+        if (campaign.tenantId) where.tenantId = campaign.tenantId;
+        const existing = await this.assetRepo?.find({ where }).catch(() => []) ?? [];
+        const validIds = new Set(existing.map((a: any) => a.id));
+        const missing = mediaAssetIds.filter((id) => !validIds.has(id));
+        if (missing.length) {
+          throw new ForbiddenException(
+            `广告模板引用的素材跨租户或不存在: ${missing.slice(0, 3).map((id) => id.slice(0, 8)).join(', ')}`,
+          );
+        }
+      }
+
       for (const t of tpls) {
         const mediaAssetId = t.hasMedia && t.mediaAssetId ? t.mediaAssetId : null;
         if (t.content) pool.push({ text: t.content, mediaAssetId });

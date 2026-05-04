@@ -91,6 +91,10 @@ export const campaignsApi = {
     accountSourceMode?: string;
     adAccountIds?: string[];
     scheduleMode?: string;
+    // Codex round-5 #4: 调度时间参数也透传, 否则 preview 与真实 dispatch 不一致
+    scheduledAt?: string;
+    scheduleTime?: string;
+    scheduleDayOfWeek?: number;
   }) => api.post('/campaigns/dispatch-preview', data, { timeout: 15000 }),
 };
 

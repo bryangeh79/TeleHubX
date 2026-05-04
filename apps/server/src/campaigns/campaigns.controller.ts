@@ -43,17 +43,29 @@ export class CampaignsController {
     return this.service.findAll(status, resolveTenantIdSoft(user, tid));
   }
 
-  /** 预览调度计划（dry-run，不落库） */
+  /** 预览调度计划（dry-run，不落库）
+   *  Codex round-5 #3 #4: 必须传 tenantId 才能查到真实资源, 调度参数也透传 */
   @Post('dispatch-preview')
   @HttpCode(HttpStatus.OK)
-  dispatchPreview(@Body() dto: {
-    customerGroupIds?: string[];
-    targets?: string[];
-    pacePreset?: string;
-    accountSourceMode?: string;
-    adAccountIds?: string[];
-  }) {
-    return this.dispatch.preview(dto);
+  dispatchPreview(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: {
+      customerGroupIds?: string[];
+      targets?: string[];
+      pacePreset?: string;
+      accountSourceMode?: string;
+      adAccountIds?: string[];
+      scheduleMode?: string;
+      scheduledAt?: string;
+      scheduleTime?: string;
+      scheduleDayOfWeek?: number;
+      tenantId?: string;
+    },
+  ) {
+    return this.dispatch.preview({
+      ...dto,
+      tenantId: resolveTenantIdSoft(user, dto.tenantId),
+    });
   }
 
   @Get('dashboard-stats')
