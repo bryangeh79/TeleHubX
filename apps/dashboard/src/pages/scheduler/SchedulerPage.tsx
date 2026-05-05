@@ -1511,27 +1511,27 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
   if (t === 'preset_warmup_7d' || t === 'preset_rampup_7d' || t === 'preset_full_14d' || t === 'preset_mature_ops') {
     return (
       <>
-        <Form.Item name="presetChannels" label="浏览/Follow 频道 (可选, 一行一个)" extra="留空 = 用默认 @telegram / @durov / @trendingbot">
+        <Form.Item name="presetChannels" label={tt('taskF.preset.channels')} extra={tt('taskF.preset.channelsExtra')}>
           <Input.TextArea rows={2} placeholder="@telegram&#10;@durov" />
         </Form.Item>
-        <Form.Item name="presetGroups" label="可加入讨论群 (可选, 一行一个)" extra="D4-D5 / D10-11 GROUP_BUBBLE 用; 没有 → 退化成 BROWSE">
+        <Form.Item name="presetGroups" label={tt('taskF.preset.groups')} extra={tt('taskF.preset.groupsExtra')}>
           <Input.TextArea rows={2} placeholder="-1001234567890&#10;@some_public_chat" />
         </Form.Item>
         {(t === 'preset_rampup_7d' || t === 'preset_full_14d') && (
           <>
-            <Form.Item name="presetKeywords" label="关键词 (Rampup 搜群用, 可选, 一行一个)">
-              <Input.TextArea rows={2} placeholder="外汇&#10;加密货币" />
+            <Form.Item name="presetKeywords" label={tt('taskF.preset.keywords')}>
+              <Input.TextArea rows={2} placeholder="forex&#10;crypto" />
             </Form.Item>
-            <Form.Item name="presetIntensity" label="强度 (Rampup 用)" initialValue="mild" extra="mild = 跳过 CONTACT_ADD / CAMPAIGN_SINGLE; aggressive = 启用">
+            <Form.Item name="presetIntensity" label={tt('taskF.preset.intensity')} initialValue="mild" extra={tt('taskF.preset.intensityExtra')}>
               <Radio.Group>
-                <Radio value="mild">🌱 mild (温和, 推荐)</Radio>
-                <Radio value="aggressive">🔥 aggressive (激进, 进 CAMPAIGN)</Radio>
+                <Radio value="mild">{tt('taskF.preset.intensityMild')}</Radio>
+                <Radio value="aggressive">{tt('taskF.preset.intensityAggr')}</Radio>
               </Radio.Group>
             </Form.Item>
           </>
         )}
         {t === 'preset_mature_ops' && (
-          <Form.Item name="presetOwnGroups" label="自有群 (晚间冒泡用, 可选, 一行一个)">
+          <Form.Item name="presetOwnGroups" label={tt('taskF.preset.ownGroups')}>
             <Input.TextArea rows={2} placeholder="-1001234567890" />
           </Form.Item>
         )}
@@ -1543,11 +1543,11 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
   if (t === 'join_groups') {
     return (
       <>
-        <Form.Item name="joinGroupsList" label="目标群 (一行一个)" rules={[{ required: true }]}
-          extra="支持邀请链接 https://t.me/+xxx 或 @groupname 或 -1001234567890">
+        <Form.Item name="joinGroupsList" label={tt('taskF.join.list')} rules={[{ required: true }]}
+          extra={tt('taskF.join.listExtra')}>
           <Input.TextArea rows={4} placeholder="https://t.me/+abc123&#10;@public_group&#10;-1001234567890" />
         </Form.Item>
-        <Form.Item label="加群间隔 (秒)" extra="每加 1 个群之间随机间隔 (Gaussian 分布)">
+        <Form.Item label={tt('taskF.join.intervalLabel')} extra={tt('taskF.join.intervalExtra')}>
           <Space>
             <Form.Item name="joinIntervalMin" initialValue={60} noStyle><InputNumber min={30} max={3600} /></Form.Item>
             <span>—</span>
@@ -1562,14 +1562,14 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
   if (t === 'join_groups_by_keyword') {
     return (
       <>
-        <Form.Item name="searchKeywords" label="搜索关键词 (一行一个)" rules={[{ required: true }]}
-          extra="例: 外汇 / 加密货币 / 区块链">
-          <Input.TextArea rows={3} placeholder="外汇&#10;加密货币" />
+        <Form.Item name="searchKeywords" label={tt('taskF.search.keywords')} rules={[{ required: true }]}
+          extra={tt('taskF.search.keywordsExtraJoin')}>
+          <Input.TextArea rows={3} placeholder="forex&#10;crypto" />
         </Form.Item>
-        <Form.Item name="searchMinMembers" label="最小成员数" initialValue={100} extra="过滤掉太小的群">
+        <Form.Item name="searchMinMembers" label={tt('taskF.search.minMembers')} initialValue={100} extra={tt('taskF.search.minMembersExtraJoin')}>
           <InputNumber min={10} max={100000} />
         </Form.Item>
-        <Form.Item name="searchMaxPerDay" label="今天最多加几个" initialValue={3} extra="≤3 安全, 防 TG 风控">
+        <Form.Item name="searchMaxPerDay" label={tt('taskF.search.maxPerDay')} initialValue={3} extra={tt('taskF.search.maxPerDayExtra')}>
           <InputNumber min={1} max={10} />
         </Form.Item>
       </>
@@ -1584,18 +1584,18 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
-          message="只搜索 + 评估质量，不加群、不爬人"
-          description="任务跑完后到「群源发现」页面看到列表，按 quality 排序，人工挑高质量的「加+爬」。避免盲跑误中 spam 群浪费配额。"
+          message={tt('taskF.disc.alert.title')}
+          description={tt('taskF.disc.alert.desc')}
         />
-        <Form.Item name="searchKeywords" label="搜索关键词 (一行一个)" rules={[{ required: true }]}
-          extra="例: forex trading / 外汇交流 / 加密货币">
-          <Input.TextArea rows={3} placeholder="forex trading&#10;外汇" />
+        <Form.Item name="searchKeywords" label={tt('taskF.search.keywords')} rules={[{ required: true }]}
+          extra={tt('taskF.search.keywordsExtraDisc')}>
+          <Input.TextArea rows={3} placeholder="forex trading&#10;crypto" />
         </Form.Item>
-        <Form.Item name="searchMinMembers" label="最小成员数" initialValue={50} extra="低于该值不入库">
+        <Form.Item name="searchMinMembers" label={tt('taskF.search.minMembers')} initialValue={50} extra={tt('taskF.search.minMembersExtraDisc')}>
           <InputNumber min={10} max={100000} />
         </Form.Item>
-        <Form.Item name="discoverSampleSize" label="抽样消息数" initialValue={100}
-          extra="每个群拉这么多条历史消息评估真发言者数量">
+        <Form.Item name="discoverSampleSize" label={tt('taskF.disc.sampleSize')} initialValue={100}
+          extra={tt('taskF.disc.sampleSizeExtra')}>
           <InputNumber min={20} max={200} />
         </Form.Item>
       </>
@@ -1605,8 +1605,8 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
   // ─── JOIN_CHANNELS ──────────────────────────────────────
   if (t === 'join_channels') {
     return (
-      <Form.Item name="channelsList" label="频道列表 (一行一个)" rules={[{ required: true }]}
-        extra="@username 或 https://t.me/+invitelink">
+      <Form.Item name="channelsList" label={tt('taskF.channels.list')} rules={[{ required: true }]}
+        extra={tt('taskF.channels.listExtra')}>
         <Input.TextArea rows={4} placeholder="@telegram&#10;@durov" />
       </Form.Item>
     );
@@ -1615,9 +1615,9 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
   // ─── ACCEPT_INVITES ─────────────────────────────────────
   if (t === 'accept_invites') {
     return (
-      <Form.Item label="说明">
+      <Form.Item label={tt('taskF.note.label')}>
         <Text type="secondary" style={{ fontSize: 12 }}>
-          自动接受所有 pending 群组邀请。无需配置 — 直接「确定」即可。
+          {tt('taskF.acceptInvites.note')}
         </Text>
       </Form.Item>
     );
@@ -1649,12 +1649,12 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
   if (t === 'group_invite_members') {
     return (
       <>
-        <Form.Item name="inviteTgChatId" label="目标群 ID / 邀请链接" rules={[{ required: true }]}>
-          <Input placeholder="-1001234567890 或 @groupname 或 https://t.me/+xxx" />
+        <Form.Item name="inviteTgChatId" label={tt('taskF.invite.tgChatId')} rules={[{ required: true }]}>
+          <Input placeholder="-1001234567890 / @groupname / https://t.me/+xxx" />
         </Form.Item>
-        <Form.Item name="inviteTargets" label="要邀请的本池账号" rules={[{ required: true }]}
-          extra="一次最多邀请 6 人, 防 TG too many invitations">
-          <Select mode="multiple" placeholder="选 1-6 个账号" showSearch optionFilterProp="phone"
+        <Form.Item name="inviteTargets" label={tt('taskF.invite.targets')} rules={[{ required: true }]}
+          extra={tt('taskF.invite.targetsExtra')}>
+          <Select mode="multiple" placeholder={tt('taskF.invite.targetsPlaceholder')} showSearch optionFilterProp="phone"
             filterOption={(input, option: any) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
             options={accountOptions} />
         </Form.Item>
@@ -1666,18 +1666,18 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
   if (t === 'group_bubble') {
     return (
       <>
-        <Form.Item name="bubbleTgChatId" label="目标群 ID" rules={[{ required: true }]}>
-          <Input placeholder="-1001234567890 或 @groupname" />
+        <Form.Item name="bubbleTgChatId" label={tt('taskF.bubble.tgChatId')} rules={[{ required: true }]}>
+          <Input placeholder="-1001234567890 / @groupname" />
         </Form.Item>
-        <Form.Item label="冒泡次数 (随机区间)">
+        <Form.Item label={tt('taskF.bubble.countLabel')}>
           <Space>
             <Form.Item name="bubbleCountMin" initialValue={1} noStyle><InputNumber min={1} max={10} /></Form.Item>
             <span>—</span>
             <Form.Item name="bubbleCountMax" initialValue={2} noStyle><InputNumber min={1} max={10} /></Form.Item>
           </Space>
         </Form.Item>
-        <Form.Item name="bubbleTextPool" label="自定义短句 (可选, 一行一个)" extra="留空 = 用默认池 (👍/了解/收到/好的等)">
-          <Input.TextArea rows={3} placeholder="👍&#10;了解&#10;OK 收到" />
+        <Form.Item name="bubbleTextPool" label={tt('taskF.bubble.textPool')} extra={tt('taskF.bubble.textPoolExtra')}>
+          <Input.TextArea rows={3} placeholder="👍&#10;OK&#10;got it" />
         </Form.Item>
       </>
     );
@@ -1687,19 +1687,19 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
   if (t === 'keyword_lead_hunt') {
     return (
       <>
-        <Form.Item name="huntKeywords" label="关键词 (一行一个)" rules={[{ required: true }]}
-          extra="例: 外汇 / 加密货币 / 区块链 — 系统按这些词搜公开群作为补充">
-          <Input.TextArea rows={2} placeholder="外汇" />
+        <Form.Item name="huntKeywords" label={tt('taskF.hunt.keywords')} rules={[{ required: true }]}
+          extra={tt('taskF.hunt.keywordsExtra')}>
+          <Input.TextArea rows={2} placeholder="forex" />
         </Form.Item>
-        <Form.Item name="huntSeedGroups" label="🎯 指定群 (可选, 一行一个)"
-          extra="格式: -1001234567890 / @groupname / https://t.me/+xxx — 系统优先在这些群拉; 不够再用关键词搜公开群补足">
+        <Form.Item name="huntSeedGroups" label={tt('taskF.hunt.seedGroups')}
+          extra={tt('taskF.hunt.seedGroupsExtra')}>
           <Input.TextArea rows={2} placeholder="-1001234567890&#10;@my_target_chat" />
         </Form.Item>
-        <Form.Item name="huntTargetCandidates" label="目标候选人数 (累计)" rules={[{ required: true }]} initialValue={300}>
+        <Form.Item name="huntTargetCandidates" label={tt('taskF.hunt.targetCandidates')} rules={[{ required: true }]} initialValue={300}>
           <InputNumber min={10} max={5000} style={{ width: 160 }} />
         </Form.Item>
-        <Form.Item name="huntDurationDays" label="执行天数" rules={[{ required: true }]} initialValue={10}
-          extra="3-90 天. 系统按 (目标人数 / 天数) 自动算每天加群速度">
+        <Form.Item name="huntDurationDays" label={tt('taskF.hunt.durationDays')} rules={[{ required: true }]} initialValue={10}
+          extra={tt('taskF.hunt.durationDaysExtra')}>
           <InputNumber min={3} max={90} style={{ width: 160 }} />
         </Form.Item>
       </>
@@ -1710,11 +1710,11 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
   if (t === 'group_scrape') {
     return (
       <>
-        <Form.Item name="scrapeTgChatIds" label="目标群 ID 列表 (一行一个)" rules={[{ required: true }]}
-          extra="账号必须已加入这些群">
+        <Form.Item name="scrapeTgChatIds" label={tt('taskF.scrape.tgChatIds')} rules={[{ required: true }]}
+          extra={tt('taskF.scrape.tgChatIdsExtra')}>
           <Input.TextArea rows={4} placeholder="-1001234567890&#10;@some_public_chat" />
         </Form.Item>
-        <Form.Item name="scrapeMaxPerGroup" label="每群最多爬几人" initialValue={50}>
+        <Form.Item name="scrapeMaxPerGroup" label={tt('taskF.scrape.maxPerGroup')} initialValue={50}>
           <InputNumber min={10} max={200} />
         </Form.Item>
       </>
@@ -1725,21 +1725,21 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
   if (t === 'contact_add') {
     return (
       <>
-        <Form.Item name="contactMode" label="目标类型" initialValue="username">
+        <Form.Item name="contactMode" label={tt('taskF.contact.mode')} initialValue="username">
           <Radio.Group>
             <Radio value="username">@username</Radio>
-            <Radio value="phone">手机号</Radio>
+            <Radio value="phone">{tt('taskF.contact.modePhone')}</Radio>
           </Radio.Group>
         </Form.Item>
-        <Form.Item name="contactTargetsText" label="目标列表 (一行一个)" rules={[{ required: true }]}
-          extra="username 模式填 @xxx, phone 模式填 +60xxx">
+        <Form.Item name="contactTargetsText" label={tt('taskF.contact.targets')} rules={[{ required: true }]}
+          extra={tt('taskF.contact.targetsExtra')}>
           <Input.TextArea rows={4} placeholder="@user1&#10;@user2&#10;@user3" />
         </Form.Item>
-        <Form.Item name="contactMaxPerDay" label="今天最多加几个" initialValue={5} extra="≤5 安全 (TG 限制), 老号可加大">
+        <Form.Item name="contactMaxPerDay" label={tt('taskF.contact.maxPerDay')} initialValue={5} extra={tt('taskF.contact.maxPerDayExtra')}>
           <InputNumber min={1} max={20} />
         </Form.Item>
-        <Form.Item name="contactGreeting" label="加完后立即发的开场白 (可选)">
-          <Input.TextArea rows={2} placeholder="您好,我是..." maxLength={500} />
+        <Form.Item name="contactGreeting" label={tt('taskF.contact.greeting')}>
+          <Input.TextArea rows={2} placeholder={tt('taskF.contact.greetingPlaceholder')} maxLength={500} />
         </Form.Item>
       </>
     );
@@ -1749,14 +1749,14 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
   if (t === 'campaign_single') {
     return (
       <>
-        <Form.Item name="campTargetsText" label="目标列表 (一行一个 username 或 +phone)" rules={[{ required: true }]}>
+        <Form.Item name="campTargetsText" label={tt('taskF.camp.targets')} rules={[{ required: true }]}>
           <Input.TextArea rows={3} placeholder="@user1&#10;@user2" />
         </Form.Item>
-        <Form.Item name="campVariantsText" label="文案变体 (一行一条, 至少 3 条)" rules={[{ required: true }]}
-          extra="每条消息从这些变体中随机抽 1 条, 防止内容重复检测">
-          <Input.TextArea rows={4} placeholder="您好, 想跟你聊聊...&#10;Hi, 看到您的资料...&#10;请问您有兴趣..." />
+        <Form.Item name="campVariantsText" label={tt('taskF.camp.variants')} rules={[{ required: true }]}
+          extra={tt('taskF.camp.variantsExtra')}>
+          <Input.TextArea rows={4} placeholder="Hi, would love to chat...&#10;Hi, saw your profile...&#10;Are you interested..." />
         </Form.Item>
-        <Form.Item label="每条消息间隔 (秒)">
+        <Form.Item label={tt('taskF.camp.intervalLabel')}>
           <Space>
             <Form.Item name="campIntervalMin" initialValue={60} noStyle><InputNumber min={30} max={3600} /></Form.Item>
             <span>—</span>
@@ -1771,17 +1771,17 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
   if (t === 'reaction_boost') {
     return (
       <>
-        <Form.Item name="reactTgChatId" label="目标群/频道 ID" rules={[{ required: true }]}>
-          <Input placeholder="-1001234567890 或 @channel" />
+        <Form.Item name="reactTgChatId" label={tt('taskF.react.tgChatId')} rules={[{ required: true }]}>
+          <Input placeholder="-1001234567890 / @channel" />
         </Form.Item>
-        <Form.Item label="点赞次数 (随机区间)">
+        <Form.Item label={tt('taskF.react.countLabel')}>
           <Space>
             <Form.Item name="reactCountMin" initialValue={3} noStyle><InputNumber min={1} max={50} /></Form.Item>
             <span>—</span>
             <Form.Item name="reactCountMax" initialValue={8} noStyle><InputNumber min={1} max={50} /></Form.Item>
           </Space>
         </Form.Item>
-        <Form.Item name="reactEmojiPool" label="emoji 池 (留空用默认)" extra="一行一个 emoji">
+        <Form.Item name="reactEmojiPool" label={tt('taskF.react.emojiPool')} extra={tt('taskF.react.emojiPoolExtra')}>
           <Input.TextArea rows={2} placeholder="👍&#10;❤️&#10;🔥" />
         </Form.Item>
       </>
@@ -1792,10 +1792,10 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
   if (t === 'browse_channel') {
     return (
       <>
-        <Form.Item name="browseChannels" label="频道列表 (一行一个)" rules={[{ required: true }]}>
+        <Form.Item name="browseChannels" label={tt('taskF.browse.list')} rules={[{ required: true }]}>
           <Input.TextArea rows={3} placeholder="@telegram&#10;@durov" />
         </Form.Item>
-        <Form.Item label="每个频道停留 (秒, 模拟阅读)">
+        <Form.Item label={tt('taskF.browse.dwellLabel')}>
           <Space>
             <Form.Item name="browseDurMin" initialValue={20} noStyle><InputNumber min={5} max={600} /></Form.Item>
             <span>—</span>
@@ -1810,19 +1810,19 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
   if (t === 'profile_update') {
     return (
       <>
-        <Form.Item label="说明">
+        <Form.Item label={tt('taskF.note.label')}>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            填一项或多项 — 留空字段不会改动。一次只改一项更像真人。
+            {tt('taskF.profile.note')}
           </Text>
         </Form.Item>
-        <Form.Item name="profileFirstName" label="新昵称 (姓)">
+        <Form.Item name="profileFirstName" label={tt('taskF.profile.firstName')}>
           <Input maxLength={64} />
         </Form.Item>
-        <Form.Item name="profileLastName" label="新昵称 (名)">
+        <Form.Item name="profileLastName" label={tt('taskF.profile.lastName')}>
           <Input maxLength={64} />
         </Form.Item>
-        <Form.Item name="profileBio" label="新签名 (bio)">
-          <Input.TextArea rows={2} maxLength={70} placeholder="热爱生活 · 分享日常 ✨" />
+        <Form.Item name="profileBio" label={tt('taskF.profile.bio')}>
+          <Input.TextArea rows={2} maxLength={70} placeholder={tt('taskF.profile.bioPlaceholder')} />
         </Form.Item>
       </>
     );
@@ -1831,9 +1831,9 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
   // ─── IDLE_KEEPALIVE ─────────────────────────────────────
   if (t === 'idle_keepalive') {
     return (
-      <Form.Item label="说明">
+      <Form.Item label={tt('taskF.note.label')}>
         <Text type="secondary" style={{ fontSize: 12 }}>
-          保活: 让账号在 TG 显示一次「最近活跃」状态。无需配置, 直接「确定」即可。
+          {tt('taskF.idle.note')}
         </Text>
       </Form.Item>
     );
@@ -1854,14 +1854,15 @@ interface MediaTaskFieldsProps {
 }
 
 function MediaTaskFields({ taskType, category, accountOptions, assetPools, assetOptions, loadAssets }: MediaTaskFieldsProps) {
+  const tt = useT();
   const poolsForCat = assetPools.filter((p) => p.category === category);
   const filteredAssetsByCat = assetOptions.filter((a) => a.category === category);
 
   return (
     <>
-      <Form.Item name="accountId" label="执行账号 (谁来发)" rules={[{ required: true }]}>
+      <Form.Item name="accountId" label={tt('taskF.account.runner')} rules={[{ required: true }]}>
         <Select
-          placeholder={accountOptions.length === 0 ? '没有可用账号' : '选择账号'}
+          placeholder={accountOptions.length === 0 ? tt('taskF.account.empty') : tt('taskF.account.placeholder')}
           showSearch optionFilterProp="phone"
           filterOption={(input, option: any) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
           options={accountOptions}
@@ -1870,28 +1871,28 @@ function MediaTaskFields({ taskType, category, accountOptions, assetPools, asset
 
       {/* 接收方 */}
       <Card size="small" style={{ marginBottom: 12, background: '#f6ffed' }}
-        title={<Text strong>📤 接收方 (发到哪)</Text>}>
+        title={<Text strong>{tt('taskF.media.recvTitle')}</Text>}>
         <Form.Item name="targetMode" initialValue="external" label={null} style={{ marginBottom: 8 }}>
           <Radio.Group>
-            <Radio value="external">🌐 外部目标 (群 / 频道 / 用户名)</Radio>
-            <Radio value="own">👤 内池号 (本租户的账号)</Radio>
+            <Radio value="external">{tt('taskF.media.recvExternal')}</Radio>
+            <Radio value="own">{tt('taskF.media.recvOwn')}</Radio>
           </Radio.Group>
         </Form.Item>
         <Form.Item shouldUpdate={(p, c) => p.targetMode !== c.targetMode} noStyle>
           {({ getFieldValue }) => getFieldValue('targetMode') === 'own' ? (
-            <Form.Item name="targetAccountId" label={null} rules={[{ required: true, message: '请选内池接收账号' }]}
-              extra="任务发出去对方不会触发自动回复（自己人白名单已覆盖）">
+            <Form.Item name="targetAccountId" label={null} rules={[{ required: true, message: tt('taskF.media.recvOwnRequired') }]}
+              extra={tt('taskF.media.recvOwnExtra')}>
               <Select
-                placeholder="选择内池接收账号"
+                placeholder={tt('taskF.media.recvOwnPlaceholder')}
                 showSearch optionFilterProp="phone"
                 filterOption={(input, option: any) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
                 options={accountOptions}
               />
             </Form.Item>
           ) : (
-            <Form.Item name="targetExternal" label={null} rules={[{ required: true, message: '请填外部目标' }]}
-              extra="格式：-1001234567890 / @groupname / @username / +60xxx 或频道 id">
-              <Input placeholder="例：@my_channel / -1001234567890" />
+            <Form.Item name="targetExternal" label={null} rules={[{ required: true, message: tt('taskF.media.recvExternalRequired') }]}
+              extra={tt('taskF.media.recvExternalExtra')}>
+              <Input placeholder={tt('taskF.media.recvExternalPlaceholder')} />
             </Form.Item>
           )}
         </Form.Item>
@@ -1899,31 +1900,31 @@ function MediaTaskFields({ taskType, category, accountOptions, assetPools, asset
 
       {/* 素材选择 */}
       <Card size="small" style={{ marginBottom: 12, background: '#fff7e6' }}
-        title={<Text strong>🎨 素材 (从素材库随机抽 或 指定具体)</Text>}>
+        title={<Text strong>{tt('taskF.media.assetTitle')}</Text>}>
         <Form.Item name="assetMode" initialValue="random" label={null} style={{ marginBottom: 8 }}>
           <Radio.Group onChange={() => loadAssets(category)}>
-            <Radio value="random">🎲 随机抽 (按 pool / category)</Radio>
-            <Radio value="specific">📌 指定具体素材</Radio>
+            <Radio value="random">{tt('taskF.media.assetRandom')}</Radio>
+            <Radio value="specific">{tt('taskF.media.assetSpecific')}</Radio>
           </Radio.Group>
         </Form.Item>
         <Form.Item shouldUpdate={(p, c) => p.assetMode !== c.assetMode} noStyle>
           {({ getFieldValue }) => getFieldValue('assetMode') === 'specific' ? (
-            <Form.Item name="assetId" label={null} rules={[{ required: true, message: '请选具体素材' }]}>
+            <Form.Item name="assetId" label={null} rules={[{ required: true, message: tt('taskF.media.assetSpecRequired') }]}>
               <Select
-                placeholder={filteredAssetsByCat.length === 0 ? `加载中或无 ${category} 素材` : '搜索 / 选择具体素材'}
+                placeholder={filteredAssetsByCat.length === 0 ? tt('taskF.media.assetSpecLoading', { category }) : tt('taskF.media.assetSpecPlaceholder')}
                 showSearch optionFilterProp="label" allowClear
                 options={filteredAssetsByCat}
                 onFocus={() => loadAssets(category)}
               />
             </Form.Item>
           ) : (
-            <Form.Item name="poolName" label={null} extra={`留空 = 从所有 ${category} 素材随机抽`}>
+            <Form.Item name="poolName" label={null} extra={tt('taskF.media.poolExtra', { category })}>
               <Select
-                placeholder={`不限 pool (从 ${category} 池随机抽)`}
+                placeholder={tt('taskF.media.poolPlaceholder', { category })}
                 allowClear
                 options={poolsForCat.map((p) => ({
                   value: p.poolName,
-                  label: `${p.poolName.replace('_builtin_', '')} (${p.count} 件)`,
+                  label: `${p.poolName.replace('_builtin_', '')} ${tt('taskF.media.poolItemSuffix', { count: p.count })}`,
                 }))}
               />
             </Form.Item>
@@ -1932,8 +1933,8 @@ function MediaTaskFields({ taskType, category, accountOptions, assetPools, asset
       </Card>
 
       {(taskType === 'media_photo' || taskType === 'media_video' || taskType === 'post_channel') && (
-        <Form.Item name="caption" label="文案 (可选)" extra="发送时附带的文字说明">
-          <Input.TextArea rows={2} placeholder="例：今日打卡，欢迎关注我们" maxLength={1024} />
+        <Form.Item name="caption" label={tt('taskF.media.captionLabel')} extra={tt('taskF.media.captionExtra')}>
+          <Input.TextArea rows={2} placeholder={tt('taskF.media.captionPlaceholder')} maxLength={1024} />
         </Form.Item>
       )}
     </>
