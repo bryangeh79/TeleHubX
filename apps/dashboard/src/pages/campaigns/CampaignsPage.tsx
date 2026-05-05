@@ -57,13 +57,14 @@ const STATUS_BADGE: Record<CampaignStatus, 'default' | 'warning' | 'processing' 
   paused:    'default',
   completed: 'success',
 };
-const STATUS_TEXT: Record<CampaignStatus, string> = {
-  draft:     '草稿',
-  scheduled: '已排期',
-  running:   '运行中',
-  paused:    '已暂停',
-  completed: '已完成',
-};
+/** 用法: STATUS_TEXT(t)[status]. 接 i18n t() 返回 4 语 label. */
+const STATUS_TEXT = (t: (k: string) => string): Record<CampaignStatus, string> => ({
+  draft:     t('page.campaigns.status.draft'),
+  scheduled: t('page.campaigns.status.scheduled'),
+  running:   t('page.campaigns.status.running'),
+  paused:    t('page.campaigns.status.paused'),
+  completed: t('page.campaigns.status.completed'),
+});
 const TYPE_TEXT: Record<CampaignType, string> = {
   broadcast:  '群发',
   sequential: '顺序',
@@ -214,9 +215,10 @@ export default function CampaignsPage() {
     }
   };
 
+  const STATUS_TEXT_MAP = STATUS_TEXT(t);
   const columns: ColumnsType<ApiCampaign> = [
     {
-      title: '投放名称',
+      title: t('page.campaigns.col.name'),
       dataIndex: 'name',
       key: 'name',
       width: 220,
@@ -237,7 +239,7 @@ export default function CampaignsPage() {
       ),
     },
     {
-      title: '投放类型 / 节奏档位',
+      title: t('page.campaigns.col.typePace'),
       key: 'typePace',
       width: 150,
       render: (_, r) => {
@@ -255,23 +257,23 @@ export default function CampaignsPage() {
       },
     },
     {
-      title: '状态',
+      title: t('common.status'),
       dataIndex: 'status',
       key: 'status',
       width: 100,
       render: (s: CampaignStatus) => (
         <div>
-          <Badge status={STATUS_BADGE[s]} text={<Text style={{ fontSize: 12 }}>{STATUS_TEXT[s] ?? s}</Text>} />
+          <Badge status={STATUS_BADGE[s]} text={<Text style={{ fontSize: 12 }}>{STATUS_TEXT_MAP[s] ?? s}</Text>} />
         </div>
       ),
     },
     {
-      title: '进度 (已发 / 总目标)',
+      title: t('page.campaigns.col.progress'),
       key: 'progress',
       width: 200,
       render: (_, r) => {
         const total = computeTotal(r);
-        if (total === 0) return <Tag>无目标</Tag>;
+        if (total === 0) return <Tag>{t('page.campaigns.noTargets')}</Tag>;
         const pct = Math.min(100, Math.round((r.sentCount / total) * 100));
         const color = pct >= 100 ? '#52c41a'
           : pct >= 50 ? '#52c41a'
@@ -290,7 +292,7 @@ export default function CampaignsPage() {
       },
     },
     {
-      title: '回复数',
+      title: t('page.campaigns.col.replyCount'),
       dataIndex: 'replyCount',
       key: 'replyCount',
       width: 80,
@@ -301,7 +303,7 @@ export default function CampaignsPage() {
       },
     },
     {
-      title: '发送号 / 客户群',
+      title: t('page.campaigns.col.targetSummary'),
       key: 'targets',
       width: 170,
       render: (_, r) => {
@@ -334,7 +336,7 @@ export default function CampaignsPage() {
       },
     },
     {
-      title: '创建时间',
+      title: t('common.createdAt'),
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 130,
@@ -346,7 +348,7 @@ export default function CampaignsPage() {
       ),
     },
     {
-      title: '操作',
+      title: t('page.campaigns.col.actions'),
       key: 'actions',
       width: 220,
       render: (_, record) => {
@@ -357,25 +359,25 @@ export default function CampaignsPage() {
           <Space size={4} wrap>
             {canSend && hasTargets && (
               <Button size="small" type="primary" icon={<SendOutlined />} onClick={() => handleSend(record)}>
-                发送
+                {t('page.campaigns.action.send')}
               </Button>
             )}
             {isRunningOrDone && (
               <Button size="small" icon={<HistoryOutlined />}
                 onClick={() => setLogCampaign({ id: record.id, name: record.name })}>
-                日志
+                {t('page.campaigns.action.log')}
               </Button>
             )}
             <Tooltip title="复制此投放配置创建新草稿（会重发给所有目标）。如只想重试失败的，请打开「日志」单独重试。">
               <Button size="small" icon={<CopyOutlined />} onClick={() => handleRerun(record)}>
-                复制
+                {t('page.campaigns.action.clone')}
               </Button>
             </Tooltip>
             <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record.id)} />
             <Popconfirm
-              title={`删除「${record.name}」?`}
+              title={`${t('common.delete')}「${record.name}」?`}
               onConfirm={() => handleDelete(record)}
-              okText="删除" cancelText="取消" okButtonProps={{ danger: true }}
+              okText={t('common.delete')} cancelText={t('common.cancel')} okButtonProps={{ danger: true }}
             >
               <Button size="small" danger icon={<DeleteOutlined />} />
             </Popconfirm>

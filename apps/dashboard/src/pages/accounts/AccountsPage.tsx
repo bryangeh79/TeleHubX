@@ -206,7 +206,7 @@ export default function AccountsPage() {
 
   const columns: ColumnsType<ApiSlot> = [
     {
-      title: '编号',
+      title: t('page.accounts.col.no'),
       key: 'no',
       width: 70,
       align: 'center',
@@ -217,7 +217,7 @@ export default function AccountsPage() {
       ),
     },
     {
-      title: '手机号',
+      title: t('common.phone'),
       key: 'phoneNumber',
       width: 180,
       render: (_, slot) => {
@@ -234,19 +234,19 @@ export default function AccountsPage() {
                 {slot.account.phoneNumber}
               </Typography.Text>
               <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
-                {country ?? <span style={{ fontStyle: 'italic' }}>未知区号</span>}
+                {country ?? <span style={{ fontStyle: 'italic' }}>{t('page.accounts.unknownArea')}</span>}
               </div>
             </div>
           );
         }
         if (slot.status === 'released') {
-          return <Typography.Text type="warning">已释放 — 需要重置</Typography.Text>;
+          return <Typography.Text type="warning">{t('page.accounts.status.released')}</Typography.Text>;
         }
-        return <Typography.Text type="secondary">空闲</Typography.Text>;
+        return <Typography.Text type="secondary">{t('page.accounts.status.vacant')}</Typography.Text>;
       },
     },
     {
-      title: '角色',
+      title: t('common.role'),
       key: 'role',
       width: 90,
       render: (_, slot) =>
@@ -257,34 +257,38 @@ export default function AccountsPage() {
         ),
     },
     {
-      title: '组别',
+      title: t('page.accounts.col.group'),
       key: 'executionGroupId',
       width: 80,
       render: (_, slot) => {
         if (!slot.account) return <Typography.Text type="secondary">—</Typography.Text>;
         const gid = slot.account.executionGroupId;
-        if (!gid) return <Typography.Text type="secondary" style={{ fontSize: 11 }}>未分组</Typography.Text>;
+        if (!gid) return <Typography.Text type="secondary" style={{ fontSize: 11 }}>{t('page.accounts.notGrouped')}</Typography.Text>;
         const slotNum = groupMap.get(gid);
         return slotNum
-          ? <Tag color="blue" style={{ fontFamily: SF_PRO_FONT }}>组 {slotNum}</Tag>
+          ? <Tag color="blue" style={{ fontFamily: SF_PRO_FONT }}>{t('page.accounts.col.group')} {slotNum}</Tag>
           : <Typography.Text type="secondary" style={{ fontSize: 11 }}>?</Typography.Text>;
       },
     },
     {
-      title: '状态',
+      title: t('common.status'),
       key: 'status',
       width: 150,
       render: (_, slot) => {
         if (slot.status === 'released') {
-          return <Badge status="error" text="已释放" />;
+          return <Badge status="error" text={t('page.accounts.status.released')} />;
         }
         if (slot.status === 'vacant') {
-          return <Badge status="default" text="空闲" />;
+          return <Badge status="default" text={t('page.accounts.status.vacant')} />;
         }
         const a = slot.account;
         if (!a) return <Badge status="default" text="—" />;
         const STATUS_LABEL: Record<AccountStatus, string> = {
-          online: '在线', offline: '离线', connecting: '连接中', error: '异常', banned: '已封禁',
+          online: t('page.accounts.status.online'),
+          offline: t('page.accounts.status.offline'),
+          connecting: t('page.accounts.status.connecting'),
+          error: t('page.accounts.status.error'),
+          banned: t('page.accounts.status.banned'),
         };
         return (
           <Space size={6}>
@@ -324,19 +328,19 @@ export default function AccountsPage() {
         }
         return (
           <Tooltip title="使用宿主机系统默认 VPN（建议每号绑定专属代理避免共享 IP）">
-            <Tag style={{ marginRight: 0, cursor: 'help' }}>默认系统</Tag>
+            <Tag style={{ marginRight: 0, cursor: 'help' }}>{t('page.accounts.proxy.system')}</Tag>
           </Tooltip>
         );
       },
     },
     {
-      title: '养号',
+      title: t('page.accounts.col.warmup'),
       key: 'warmupPhase',
       width: 80,
       render: (_, slot) => (slot.account ? <Tag>P{slot.account.warmupPhase}</Tag> : <Typography.Text type="secondary">—</Typography.Text>),
     },
     {
-      title: '健康分',
+      title: t('common.health'),
       key: 'healthScore',
       width: 75,
       render: (_, slot) => {
@@ -354,17 +358,17 @@ export default function AccountsPage() {
         if (!slot.account) return <Typography.Text type="secondary">—</Typography.Text>;
         return slot.account.sessionEncrypted ? (
           <Tooltip title="AES-256-GCM 加密存储">
-            <Tag icon={<LockOutlined />} color="green">已加密</Tag>
+            <Tag icon={<LockOutlined />} color="green">{t('page.accounts.session.encrypted')}</Tag>
           </Tooltip>
         ) : (
           <Tooltip title="明文存储 — 请在 .env 设置 SESSION_ENCRYPTION_KEY">
-            <Tag icon={<UnlockOutlined />} color="orange">明文</Tag>
+            <Tag icon={<UnlockOutlined />} color="orange">{t('page.accounts.session.plain')}</Tag>
           </Tooltip>
         );
       },
     },
     {
-      title: '最后活跃',
+      title: t('page.accounts.col.lastActive'),
       key: 'lastActiveAt',
       width: 110,
       render: (_, slot) => {
@@ -387,7 +391,7 @@ export default function AccountsPage() {
       },
     },
     {
-      title: '操作',
+      title: t('page.accounts.col.actions'),
       key: 'actions',
       width: 220,
       render: (_, slot) => {
@@ -395,23 +399,17 @@ export default function AccountsPage() {
           return (
             <Space size={4}>
               <Button size="small" onClick={() => navigate(`/accounts/${slot.account!.id}`)}>
-                详情
+                {t('page.accounts.action.detail')}
               </Button>
               <Popconfirm
-                title={`删除 No.${slot.no} 槽位的账号？`}
-                description={
-                  <div style={{ maxWidth: 280 }}>
-                    将删除加密的 session 及账号绑定的所有数据。
-                    槽位 No.{slot.no} 状态变为 <Typography.Text strong>已释放</Typography.Text>，
-                    需点击 <Typography.Text strong>重置</Typography.Text> 后才能绑定新账号。
-                  </div>
-                }
-                okText="删除"
+                title={`${t('page.accounts.action.release')} No.${slot.no}?`}
+                okText={t('common.delete')}
+                cancelText={t('common.cancel')}
                 okButtonProps={{ danger: true }}
                 onConfirm={() => handleRelease(slot)}
               >
                 <Button size="small" danger icon={<LogoutOutlined />}>
-                  释放
+                  {t('page.accounts.action.release')}
                 </Button>
               </Popconfirm>
             </Space>
@@ -420,14 +418,14 @@ export default function AccountsPage() {
         if (slot.status === 'released') {
           return (
             <Popconfirm
-              title={`重置 No.${slot.no} 槽位？`}
-              description="将清除释放标记。下次绑定新账号将使用该槽位。历史记录（广告、线索）仍绑定到旧账号 UUID。"
-              okText="重置为空闲"
+              title={`${t('page.accounts.action.reset')} No.${slot.no}?`}
+              okText={t('page.accounts.action.reset')}
+              cancelText={t('common.cancel')}
               okButtonProps={{ danger: false }}
               onConfirm={() => handleReset(slot)}
             >
               <Button size="small" type="primary" icon={<RedoOutlined />}>
-                重置
+                {t('page.accounts.action.reset')}
               </Button>
             </Popconfirm>
           );
@@ -435,7 +433,7 @@ export default function AccountsPage() {
         // vacant
         return (
           <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-            可绑定新账号
+            {t('page.accounts.canBind')}
           </Typography.Text>
         );
       },

@@ -163,6 +163,24 @@ function buildGroupedTaskOptions() {
   }));
 }
 
+/** 颜色 static, label 通过 statusMeta(t) 函数取 4 语. */
+const STATUS_COLOR: Record<TaskStatus, string> = {
+  pending:  'default',
+  running:  'processing',
+  done:     'success',
+  failed:   'error',
+  paused:   'warning',
+};
+function statusMeta(t: (k: string) => string): Record<TaskStatus, { label: string; color: string }> {
+  return {
+    pending:  { label: t('page.scheduler.status.pending'), color: STATUS_COLOR.pending },
+    running:  { label: t('page.scheduler.status.running'), color: STATUS_COLOR.running },
+    done:     { label: t('page.scheduler.status.done'),    color: STATUS_COLOR.done },
+    failed:   { label: t('page.scheduler.status.failed'),  color: STATUS_COLOR.failed },
+    paused:   { label: t('page.scheduler.status.paused'),  color: STATUS_COLOR.paused },
+  };
+}
+/** Backward compat: zh fallback for code paths that still reference STATUS_META. */
 const STATUS_META: Record<TaskStatus, { label: string; color: string }> = {
   pending:  { label: '待运行', color: 'default' },
   running:  { label: '运行中', color: 'processing' },
@@ -538,15 +556,16 @@ export default function SchedulerPage() {
     }
   };
 
+  const STATUS_META_T = statusMeta(t);
   const columns: ColumnsType<Task> = [
     {
-      title: '任务 ID', key: 'shortId', width: 80,
+      title: t('page.scheduler.col.id'), key: 'shortId', width: 80,
       render: (_, row) => (
         <Text code>#{row.seq ?? row.id.slice(0, 6)}</Text>
       ),
     },
     {
-      title: '任务类型', key: 'type', width: 200,
+      title: t('page.scheduler.col.type'), key: 'type', width: 200,
       render: (_, row) => {
         const m = TASK_TYPE_LABELS[row.type];
         return (
@@ -557,7 +576,7 @@ export default function SchedulerPage() {
       },
     },
     {
-      title: '目标', key: 'target', width: 280,
+      title: t('page.scheduler.col.target'), key: 'target', width: 280,
       render: (_, row) => {
         // chat_script_ab/4p: 显示 A/B/C/D 多账号
         const p = row.payload as any;
@@ -593,9 +612,9 @@ export default function SchedulerPage() {
       },
     },
     {
-      title: '状态', key: 'status', width: 150,
+      title: t('page.scheduler.col.status'), key: 'status', width: 150,
       render: (_, row) => {
-        const m = STATUS_META[row.status];
+        const m = STATUS_META_T[row.status];
         // 多天父任务: preset_* / keyword_lead_hunt — 永远显示进度条 (即使 0%)
         const isOrchestrator = (row.type as string).startsWith('preset_') || row.type === 'keyword_lead_hunt';
 
@@ -606,7 +625,7 @@ export default function SchedulerPage() {
                 status={row.status === 'paused' ? 'normal' : row.status === 'pending' ? 'normal' : 'active'} />
               <Tag color={m.color as any} style={{ fontSize: 10, marginTop: 2 }}>
                 {row.status === 'running' ? <LoadingOutlined /> : null} {m.label}
-                {isOrchestrator && row.status === 'pending' && ' (已排期)'}
+                {isOrchestrator && row.status === 'pending' && ` (${t('page.scheduler.statusScheduled')})`}
               </Tag>
             </div>
           );
@@ -617,24 +636,24 @@ export default function SchedulerPage() {
             return (
               <div>
                 <Progress percent={100} size="small" status="success" />
-                <Tag color="success" icon={<CheckCircleFilled />} style={{ fontSize: 10, marginTop: 2 }}>已完成</Tag>
+                <Tag color="success" icon={<CheckCircleFilled />} style={{ fontSize: 10, marginTop: 2 }}>{t('page.scheduler.status.done')}</Tag>
               </div>
             );
           }
-          return <Tag color="success" icon={<CheckCircleFilled />}>已完成</Tag>;
+          return <Tag color="success" icon={<CheckCircleFilled />}>{t('page.scheduler.status.done')}</Tag>;
         }
-        if (row.status === 'failed') return <Tag color="error" icon={<CloseCircleFilled />}>失败</Tag>;
+        if (row.status === 'failed') return <Tag color="error" icon={<CloseCircleFilled />}>{t('page.scheduler.status.failed')}</Tag>;
         return <Tag color={m.color as any}>{m.label}</Tag>;
       },
     },
     {
-      title: '计划时间', dataIndex: 'scheduledAt', key: 'scheduledAt', width: 140,
+      title: t('page.scheduler.col.scheduledAt'), dataIndex: 'scheduledAt', key: 'scheduledAt', width: 140,
       render: (ts: string) => (
         <Text style={{ fontSize: 12 }}>{dayjs(ts).format('MM-DD HH:mm')}</Text>
       ),
     },
     {
-      title: '操作', key: 'ops', width: 260,
+      title: t('page.scheduler.col.actions'), key: 'ops', width: 260,
       render: (_, row) => (
         <Space size={4}>
           <Button
@@ -642,24 +661,24 @@ export default function SchedulerPage() {
             type="primary"
             icon={<ThunderboltOutlined />}
             onClick={() => handleRunNow(row.id)}
-            title="克隆该任务并立即排队执行"
+            title={t('page.scheduler.action.runNow')}
           >
-            执行
+            {t('page.scheduler.action.runNow')}
           </Button>
-          <Button size="small" icon={<EyeOutlined />} onClick={() => setLogTask(row)}>日志</Button>
-          {row.status === 'running' && <Button size="small" icon={<PauseCircleOutlined />} onClick={() => handlePause(row.id)} />}
-          {row.status === 'paused' && <Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={() => handleResume(row.id)} />}
-          {row.status === 'failed' && <Button size="small" icon={<ReloadOutlined />} onClick={() => handleRetry(row.id)}>重试</Button>}
+          <Button size="small" icon={<EyeOutlined />} onClick={() => setLogTask(row)}>{t('page.scheduler.action.log')}</Button>
+          {row.status === 'running' && <Button size="small" icon={<PauseCircleOutlined />} onClick={() => handlePause(row.id)} title={t('common.pause')} />}
+          {row.status === 'paused' && <Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={() => handleResume(row.id)} title={t('common.resume')} />}
+          {row.status === 'failed' && <Button size="small" icon={<ReloadOutlined />} onClick={() => handleRetry(row.id)}>{t('page.scheduler.action.retry')}</Button>}
           {(row.status === 'running' || row.status === 'pending' || row.status === 'paused') && (
             <Popconfirm
-              title="强制停止此任务？"
-              description="agent 完成当前 turn 后停下；任务标 failed，不会再被领取"
+              title={t('page.scheduler.cancelConfirm.title')}
+              description={t('page.scheduler.cancelConfirm.desc')}
               onConfirm={() => handleCancel(row.id)}
             >
-              <Button size="small" danger icon={<StopOutlined />} title="强制停止" />
+              <Button size="small" danger icon={<StopOutlined />} title={t('page.scheduler.action.forceStop')} />
             </Popconfirm>
           )}
-          <Popconfirm title="确认删除？" onConfirm={() => handleDelete(row.id)}>
+          <Popconfirm title={t('common.confirmDelete')} onConfirm={() => handleDelete(row.id)}>
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
         </Space>
