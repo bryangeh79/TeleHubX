@@ -45,6 +45,7 @@ function AdTemplateModal({
   onSave: () => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const [form] = Form.useForm();
   const [aiEnabled, setAiEnabled] = useState(false);
   const [variants, setVariants] = useState<Array<{ text: string }>>([]);
@@ -197,39 +198,36 @@ function AdTemplateModal({
   return (
     <Modal
       open={open}
-      title={isEdit ? '编辑广告' : '新建广告'}
+      title={isEdit ? t('campaign.adTemplate.modal.edit') : t('campaign.adTemplate.modal.add')}
       onCancel={onClose}
       width={580}
       footer={
         <Space style={{ justifyContent: 'flex-end', width: '100%' }}>
-          <Button onClick={onClose}>取消</Button>
+          <Button onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="primary" loading={saving} onClick={handleSave}
             style={{ background: '#52c41a', borderColor: '#52c41a' }}>
-            保存
+            {t('common.save')}
           </Button>
         </Space>
       }
     >
       <Form form={form} layout="vertical">
-        <Form.Item name="name" label={<span style={{ color: '#ff4d4f' }}>* 名称</span>}
-          rules={[{ required: true, message: '必填' }]}>
-          <Input placeholder="例: 618 促销广告" maxLength={50} showCount />
+        <Form.Item name="name" label={<span style={{ color: '#ff4d4f' }}>* {t('common.name')}</span>}
+          rules={[{ required: true, message: t('form.required') }]}>
+          <Input placeholder={t('form.placeholder.required')} maxLength={50} showCount />
         </Form.Item>
 
-        <Form.Item name="content" label={<span style={{ color: '#ff4d4f' }}>* 文案内容</span>}
-          rules={[{ required: true, message: '必填' }]}>
+        <Form.Item name="content" label={<span style={{ color: '#ff4d4f' }}>* {t('campaign.adTemplate.content')}</span>}
+          rules={[{ required: true, message: t('form.required') }]}>
           <TextArea
             rows={5}
-            placeholder="写你要发给客户的广告内容…"
+            placeholder={t('form.placeholder.required')}
             maxLength={4096}
             showCount
           />
         </Form.Item>
-        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: -8, marginBottom: 12 }}>
-          原始文案 · 发送时会根据下方「AI 变体池」设置决定实际发哪条
-        </Text>
 
-        <Form.Item label="附加素材 (可选)">
+        <Form.Item label={t('campaign.adTemplate.attachment')}>
           <input
             ref={fileInputRef}
             type="file"
@@ -354,20 +352,20 @@ function AdTemplateModal({
       >
         <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
           <div style={{ fontSize: 28, marginBottom: 8 }}>⚠️</div>
-          <Title level={5} style={{ margin: 0 }}>现在生成 10 条 AI 变体？</Title>
+          <Title level={5} style={{ margin: 0 }}>{t('campaign.adTemplate.aiVariants.title')}</Title>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            会先自动保存这条广告，然后用 AI 生成 10 条变体 · 约 5-15 秒
+            {t('campaign.adTemplate.aiVariants.desc')}
           </Text>
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-          <Button onClick={() => setShowConfirm(false)}>先不生成</Button>
+          <Button onClick={() => setShowConfirm(false)}>{t('common.cancel')}</Button>
           <Button
             type="primary"
             loading={generating}
             onClick={handleGenerateVariants}
             style={{ background: '#52c41a', borderColor: '#52c41a' }}
           >
-            开始生成
+            {t('common.confirm')}
           </Button>
         </div>
       </Modal>

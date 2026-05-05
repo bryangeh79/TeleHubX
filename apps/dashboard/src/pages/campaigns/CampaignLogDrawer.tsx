@@ -257,7 +257,7 @@ export default function CampaignLogDrawer({ open, campaignId, campaignName, onCl
       render: (v: number | null) => v ? `#${v}` : '—',
     },
     {
-      title: '状态',
+      title: t('common.status'),
       dataIndex: 'status',
       width: 90,
       render: (s: string) => {
@@ -266,31 +266,31 @@ export default function CampaignLogDrawer({ open, campaignId, campaignName, onCl
       },
     },
     {
-      title: '账号',
+      title: t('page.scheduler.col.target'),
       dataIndex: 'accountLabel',
       width: 130,
       render: (v: string | null) => v ?? <Text type="secondary">—</Text>,
     },
     {
-      title: '目标',
+      title: t('campaign.log.targetCustomer'),
       dataIndex: 'target',
       ellipsis: true,
       render: (v: string | null) => v ?? <Text type="secondary">—</Text>,
     },
     {
-      title: '计划时间',
+      title: t('task.scheduledAt'),
       dataIndex: 'scheduledAt',
       width: 130,
       render: (v: string) => dayjs(v).format('M/D HH:mm:ss'),
     },
     {
-      title: '完成时间',
+      title: t('task.finishedAt'),
       dataIndex: 'finishedAt',
       width: 130,
       render: (v: string | null) => v ? dayjs(v).format('M/D HH:mm:ss') : '—',
     },
     {
-      title: '错误信息',
+      title: t('task.errorMsg'),
       dataIndex: 'errorMsg',
       width: 280,
       // 不加 ellipsis，让长文本换行展示
@@ -306,7 +306,7 @@ export default function CampaignLogDrawer({ open, campaignId, campaignName, onCl
               </Text>
               {showRaw && (
                 <Text type="secondary" style={{ fontSize: 10, display: 'block', wordBreak: 'break-all', marginTop: 2 }}>
-                  原始：{v}
+                  {v}
                 </Text>
               )}
             </div>
@@ -315,7 +315,7 @@ export default function CampaignLogDrawer({ open, campaignId, campaignName, onCl
       },
     },
     {
-      title: '操作',
+      title: t('common.actions'),
       key: 'actions',
       width: 80,
       fixed: 'right' as const,
@@ -329,7 +329,7 @@ export default function CampaignLogDrawer({ open, campaignId, campaignName, onCl
             loading={retryingId === record.id}
             onClick={() => handleRetryOne(record.id)}
           >
-            重试
+            {t('common.retry')}
           </Button>
         );
       },
@@ -351,20 +351,20 @@ export default function CampaignLogDrawer({ open, campaignId, campaignName, onCl
       footer={
         <Space style={{ justifyContent: 'space-between', width: '100%' }}>
           <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>
-            刷新
+            {t('common.refresh')}
           </Button>
-          <Button type="primary" onClick={onClose}>关闭</Button>
+          <Button type="primary" onClick={onClose}>{t('common.close')}</Button>
         </Space>
       }
       styles={{ body: { padding: '16px 20px', maxHeight: '75vh', overflowY: 'auto' } }}
     >
       {!data ? (
         <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
-          {loading ? '加载中…' : '无数据'}
+          {loading ? t('common.loading') : t('common.none')}
         </div>
       ) : data.summary.total === 0 ? (
         <Empty
-          description="还没有派发出来的任务"
+          description={t('common.none')}
           image={Empty.PRESENTED_IMAGE_SIMPLE}
           style={{ padding: 40 }}
         />
@@ -373,19 +373,19 @@ export default function CampaignLogDrawer({ open, campaignId, campaignName, onCl
           {/* Stats */}
           <Row gutter={8} style={{ marginBottom: 16 }}>
             <Col span={4}>
-              <Statistic title="总数" value={data.summary.total} valueStyle={{ fontSize: 18 }} />
+              <Statistic title={t('campaign.log.summary.total')} value={data.summary.total} valueStyle={{ fontSize: 18 }} />
             </Col>
             <Col span={4}>
-              <Statistic title="待发" value={data.summary.pending} valueStyle={{ fontSize: 18, color: '#8c8c8c' }} />
+              <Statistic title={t('campaign.log.summary.pending')} value={data.summary.pending} valueStyle={{ fontSize: 18, color: '#8c8c8c' }} />
             </Col>
             <Col span={4}>
-              <Statistic title="发送中" value={data.summary.running} valueStyle={{ fontSize: 18, color: '#1677ff' }} />
+              <Statistic title={t('campaign.log.summary.running')} value={data.summary.running} valueStyle={{ fontSize: 18, color: '#1677ff' }} />
             </Col>
             <Col span={4}>
-              <Statistic title="已发" value={data.summary.done} valueStyle={{ fontSize: 18, color: '#52c41a' }} />
+              <Statistic title={t('campaign.log.summary.done')} value={data.summary.done} valueStyle={{ fontSize: 18, color: '#52c41a' }} />
             </Col>
             <Col span={4}>
-              <Statistic title="失败" value={data.summary.failed} valueStyle={{ fontSize: 18, color: '#ff4d4f' }} />
+              <Statistic title={t('campaign.log.summary.failed')} value={data.summary.failed} valueStyle={{ fontSize: 18, color: '#ff4d4f' }} />
             </Col>
             <Col span={4}>
               <Statistic title="已暂停" value={data.summary.paused} valueStyle={{ fontSize: 18, color: '#8c8c8c' }} />

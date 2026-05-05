@@ -74,22 +74,23 @@ function SummaryPanel({
   adTemplates: any[];
   greetingTemplates: any[];
 }) {
+  const t = useT();
   const safetyColor = capacity?.safetyLevel === 'safe' ? '#52c41a'
     : capacity?.safetyLevel === 'warning' ? '#faad14'
     : capacity?.safetyLevel === 'risk' ? '#ff4d4f'
     : '#d9d9d9';
 
-  const safetyLabel = capacity?.safetyLevel === 'safe' ? '可启动'
-    : capacity?.safetyLevel === 'warning' ? '有风险'
-    : capacity?.safetyLevel === 'risk' ? '承载不足'
-    : '准备配置中';
+  const safetyLabel = capacity?.safetyLevel === 'safe' ? t('campaign.wizard.safety.safe')
+    : capacity?.safetyLevel === 'warning' ? t('campaign.wizard.safety.warning')
+    : capacity?.safetyLevel === 'risk' ? t('campaign.wizard.safety.risk')
+    : t('campaign.wizard.safety.config');
 
-  const scheduleText = state.scheduleMode === 'immediate' ? '立即开始'
-    : state.scheduleMode === 'once' ? `定时: ${state.scheduledAt ?? '--'}`
-    : state.scheduleMode === 'daily' ? `每天 ${state.scheduleTime ?? '--'}`
+  const scheduleText = state.scheduleMode === 'immediate' ? t('campaign.wizard.schedule.immediate')
+    : state.scheduleMode === 'once' ? `${t('campaign.wizard.schedule.once')}: ${state.scheduledAt ?? '--'}`
+    : state.scheduleMode === 'daily' ? `${t('campaign.wizard.schedule.daily')} ${state.scheduleTime ?? '--'}`
     : state.scheduleDayOfWeek != null
-      ? `每周${DAY_LABELS[state.scheduleDayOfWeek]} ${state.scheduleTime ?? ''}`
-      : '每周 --';
+      ? `${t('campaign.wizard.schedule.weekly')} ${DAY_LABELS[state.scheduleDayOfWeek]} ${state.scheduleTime ?? ''}`
+      : t('campaign.wizard.schedule.weekly');
 
   const groupNames = customerGroups
     .filter(g => state.customerGroupIds.includes(g.id))
@@ -98,31 +99,31 @@ function SummaryPanel({
   const extraCount = state.targets.trim().split(/\n+/).filter(Boolean).length;
 
   const adText = state.adMode === 'single' && state.adTemplateId
-    ? `1 条 · 单一`
+    ? `1 · ${t('campaign.wizard.adMode.single')}`
     : state.adTemplateIds.length
-    ? `${state.adTemplateIds.length} 条 · 轮换`
+    ? `${state.adTemplateIds.length} · ${t('campaign.wizard.adMode.rotate')}`
     : '—';
 
-  const greetText = state.greetingMode === 'none' ? '不加开场'
-    : state.greetingMode === 'fixed' ? `固定 · ${state.greetingTemplateIds.length} 条`
-    : `随机 · ${state.greetingTemplateIds.length} 条`;
+  const greetText = state.greetingMode === 'none' ? t('campaign.wizard.greetingMode.none')
+    : state.greetingMode === 'fixed' ? `${t('campaign.wizard.greetingMode.fixed')} · ${state.greetingTemplateIds.length}`
+    : `${t('campaign.wizard.greetingMode.random')} · ${state.greetingTemplateIds.length}`;
 
   return (
     <Card
-      title="本次投放摘要"
+      title={t('campaign.wizard.summary.title')}
       size="small"
       extra={<Badge color={safetyColor} text={<Text style={{ fontSize: 12, color: safetyColor }}>{safetyLabel}</Text>} />}
       style={{ position: 'sticky', top: 0 }}
     >
       <Descriptions column={1} size="small" labelStyle={{ color: '#999', width: 70 }}>
-        <Descriptions.Item label="名称">{state.name || '—'}</Descriptions.Item>
-        <Descriptions.Item label="时间">{scheduleText}</Descriptions.Item>
-        <Descriptions.Item label="客户群">{groupNames}</Descriptions.Item>
-        <Descriptions.Item label="补充号码">{extraCount > 0 ? `${extraCount} 个` : '—'}</Descriptions.Item>
-        <Descriptions.Item label="广告">{adText}</Descriptions.Item>
-        <Descriptions.Item label="开场">{greetText}</Descriptions.Item>
-        <Descriptions.Item label="执行方式">{state.accountSourceMode === 'auto' ? '系统智能' : `自定义槽位 (${state.adAccountIds.length})`}</Descriptions.Item>
-        <Descriptions.Item label="节奏">{PACE_INFO[state.pacePreset].label}</Descriptions.Item>
+        <Descriptions.Item label={t('common.name')}>{state.name || '—'}</Descriptions.Item>
+        <Descriptions.Item label={t('campaign.wizard.summary.time')}>{scheduleText}</Descriptions.Item>
+        <Descriptions.Item label={t('campaign.wizard.summary.groups')}>{groupNames}</Descriptions.Item>
+        <Descriptions.Item label={t('campaign.wizard.summary.extra')}>{extraCount > 0 ? `${extraCount}` : '—'}</Descriptions.Item>
+        <Descriptions.Item label={t('campaign.wizard.summary.ad')}>{adText}</Descriptions.Item>
+        <Descriptions.Item label={t('campaign.wizard.summary.greeting')}>{greetText}</Descriptions.Item>
+        <Descriptions.Item label={t('wizard.step.account')}>{state.accountSourceMode === 'auto' ? t('campaign.wizard.account.auto') : `${t('campaign.wizard.account.manual')} (${state.adAccountIds.length})`}</Descriptions.Item>
+        <Descriptions.Item label={t('wizard.step.pace')}>{PACE_INFO[state.pacePreset].label}</Descriptions.Item>
       </Descriptions>
     </Card>
   );
@@ -337,7 +338,7 @@ function Step2({
         )}
 
         {noAd && adTemplates.length > 0 && (
-          <Alert type="warning" showIcon message="请至少选择 1 条广告" style={{ marginTop: 8 }} />
+          <Alert type="warning" showIcon message={t('campaign.wizard.alert.adRequired')} style={{ marginTop: 8 }} />
         )}
       </Card>
 
@@ -377,7 +378,7 @@ function Step2({
               </Text>
             </div>
             {greetingTemplates.length === 0 ? (
-              <Alert type="info" showIcon message="还没有开场白模板，请先在「开场白库」添加。" />
+              <Alert type="info" showIcon message={t('campaign.wizard.alert.noGreeting')} />
             ) : (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {greetingTemplates.map(g => {
@@ -518,7 +519,7 @@ function Step3({
 
       <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>🛡</span>{t('wizard.step.safety')}</>}>
         {capacityLoading ? (
-          <Text type="secondary">计算中…</Text>
+          <Text type="secondary">{t('campaign.wizard.calculating')}</Text>
         ) : capacity ? (
           <>
             <Progress
@@ -805,6 +806,7 @@ interface Props {
 }
 
 export default function CampaignWizard({ open, editId, onClose, onSuccess }: Props) {
+  const t = useT();
   const [step, setStep] = useState(0);
   const [state, setState] = useState<WizardState>(INITIAL);
   const [customerGroups, setCustomerGroups] = useState<any[]>([]);
@@ -1016,7 +1018,12 @@ export default function CampaignWizard({ open, editId, onClose, onSuccess }: Pro
   };
 
   const STEPS = ['投放对象', '广告内容', '执行方式', '确认启动'];
-  const STEP_DESCS = ['设置目标对象', '配置广告素材', '设置执行策略', '确认并启动'];
+  const STEP_DESCS = [
+    t('campaign.wizard.step.targetDesc'),
+    t('campaign.wizard.step.adDesc'),
+    t('campaign.wizard.step.policyDesc'),
+    t('campaign.wizard.step.confirmDesc'),
+  ];
 
   return (
     <Modal
@@ -1024,7 +1031,7 @@ export default function CampaignWizard({ open, editId, onClose, onSuccess }: Pro
       onCancel={handleClose}
       title={
         <div style={{ fontSize: 16, fontWeight: 600 }}>
-          {editId ? '编辑广告投放' : '新建广告投放'}
+          {editId ? t('common.edit') + ' ' + t('nav.campaigns') : t('page.campaigns.create')}
         </div>
       }
       width={900}

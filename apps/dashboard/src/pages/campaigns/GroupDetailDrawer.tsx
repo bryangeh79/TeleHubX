@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { customerGroupsApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -51,6 +52,7 @@ const SOURCE_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 export default function GroupDetailDrawer({ groupId, tenantId, onClose, onChange }: Props) {
+  const t = useT();
   const [group, setGroup] = useState<GroupDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -141,7 +143,7 @@ export default function GroupDetailDrawer({ groupId, tenantId, onClose, onChange
 
   const columns = [
     {
-      title: '号码 / 标识',
+      title: t('campaign.group.member'),
       dataIndex: 'value',
       render: (v: string, r: any) => (
         <Space size={4}>
@@ -151,7 +153,7 @@ export default function GroupDetailDrawer({ groupId, tenantId, onClose, onChange
       ),
     },
     {
-      title: '来源',
+      title: t('campaign.group.source'),
       dataIndex: 'source',
       width: 90,
       render: (s: string) => {
@@ -160,18 +162,18 @@ export default function GroupDetailDrawer({ groupId, tenantId, onClose, onChange
       },
     },
     {
-      title: '加入时间',
+      title: t('campaign.group.addedAt'),
       dataIndex: 'addedAt',
       width: 130,
       render: (v: string) => v ? dayjs(v).format('M/D HH:mm') : '—',
     },
     {
-      title: '操作',
+      title: t('common.actions'),
       width: 70,
       render: (_: any, r: any) => (
-        <Popconfirm title="确认从群移除？" onConfirm={() => handleRemoveMember(r.value)}
-          okText="移除" cancelText="取消" okButtonProps={{ danger: true }}>
-          <Button size="small" type="link" danger>移除</Button>
+        <Popconfirm title={t('common.confirmDelete')} onConfirm={() => handleRemoveMember(r.value)}
+          okText={t('common.delete')} cancelText={t('common.cancel')} okButtonProps={{ danger: true }}>
+          <Button size="small" type="link" danger>{t('common.delete')}</Button>
         </Popconfirm>
       ),
     },
@@ -184,8 +186,8 @@ export default function GroupDetailDrawer({ groupId, tenantId, onClose, onChange
         onClose={onClose}
         title={
           <Space>
-            <Button size="small" type="text" icon={<ArrowLeftOutlined />} onClick={onClose}>返回列表</Button>
-            <span>客户群 · {group?.name ?? '...'}</span>
+            <Button size="small" type="text" icon={<ArrowLeftOutlined />} onClick={onClose}>{t('common.back')}</Button>
+            <span>{t('drawer.customerGroup')} · {group?.name ?? '...'}</span>
           </Space>
         }
         width={780}
@@ -214,13 +216,13 @@ export default function GroupDetailDrawer({ groupId, tenantId, onClose, onChange
             <Space wrap style={{ marginBottom: 12 }}>
               <Button type="primary" icon={<PlusOutlined />} onClick={() => setAppendOpen(true)}
                 style={{ background: '#52c41a', borderColor: '#52c41a' }}>
-                追加号码
+                {t('common.add')}
               </Button>
-              <Button icon={<DownloadOutlined />} onClick={handleExport}>导出 CSV</Button>
-              <Button icon={<ReloadOutlined />} onClick={() => void load()}>刷新</Button>
-              <Popconfirm title="确认清空所有成员？" description="此操作不可撤销"
-                onConfirm={handleClearAll} okText="清空" cancelText="取消" okButtonProps={{ danger: true }}>
-                <Button icon={<ClearOutlined />} danger>清空成员</Button>
+              <Button icon={<DownloadOutlined />} onClick={handleExport}>{t('common.export')} CSV</Button>
+              <Button icon={<ReloadOutlined />} onClick={() => void load()}>{t('common.refresh')}</Button>
+              <Popconfirm title={t('common.confirmDelete')}
+                onConfirm={handleClearAll} okText={t('common.confirm')} cancelText={t('common.cancel')} okButtonProps={{ danger: true }}>
+                <Button icon={<ClearOutlined />} danger>{t('common.delete')}</Button>
               </Popconfirm>
             </Space>
 
@@ -248,11 +250,11 @@ export default function GroupDetailDrawer({ groupId, tenantId, onClose, onChange
       {/* 追加号码 Modal */}
       <Modal
         open={appendOpen}
-        title="追加号码到当前群"
+        title={t('common.add')}
         onCancel={() => setAppendOpen(false)}
         onOk={handleAppend}
         confirmLoading={appending}
-        okText="追加" cancelText="取消"
+        okText={t('common.add')} cancelText={t('common.cancel')}
         okButtonProps={{ style: { background: '#52c41a', borderColor: '#52c41a' } }}
       >
         <Text type="secondary" style={{ fontSize: 11 }}>

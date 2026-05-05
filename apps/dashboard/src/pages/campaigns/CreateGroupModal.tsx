@@ -10,6 +10,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { customerGroupsApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -28,6 +29,7 @@ type SourceTab = 'paste' | 'excel' | 'candidates';
 interface HuntTask { huntTaskId: string; count: number; firstSeen: string }
 
 export default function CreateGroupModal({ open, tenantId, existingGroups, onClose, onSuccess }: Props) {
+  const t = useT();
   const [mode, setMode] = useState<Mode>('new');
   const [tab, setTab] = useState<SourceTab>('paste');
 
@@ -193,22 +195,22 @@ export default function CreateGroupModal({ open, tenantId, existingGroups, onClo
   return (
     <Modal
       open={open}
-      title="新建客户群 / 导入号码"
+      title={t('campaign.group.createTitle')}
       onCancel={onClose}
       width={680}
       footer={
         <Space style={{ justifyContent: 'space-between', width: '100%' }}>
           <Space>
-            <Button onClick={onClose}>取消</Button>
+            <Button onClick={onClose}>{t('common.cancel')}</Button>
             {mode === 'new' && tab !== 'candidates' && (
               <Button onClick={() => handleSubmit(true)} loading={submitting}>
-                仅创建空组 (不导入号码)
+                {t('campaign.group.createEmpty')}
               </Button>
             )}
           </Space>
           <Button type="primary" loading={submitting} onClick={() => handleSubmit(false)}
             style={{ background: '#52c41a', borderColor: '#52c41a' }}>
-            {tab === 'candidates' ? `从候选池建组 (${previewCount ?? 0} 人)` : '保 存'}
+            {tab === 'candidates' ? `${t('common.create')} (${previewCount ?? 0})` : t('common.save')}
           </Button>
         </Space>
       }
@@ -216,8 +218,8 @@ export default function CreateGroupModal({ open, tenantId, existingGroups, onClo
       {/* Step 1: mode */}
       <Title level={5} style={{ fontSize: 14 }}>1. 选择目标客户群</Title>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <ModeCard value="new" icon={<PlusOutlined />} title="创建新组" sub="新建一个客户群 · 把这批号放进去" />
-        <ModeCard value="append" icon={<FolderOpenOutlined />} title="导入到已有组" sub="加到已存在的客户群 · 自动去重" />
+        <ModeCard value="new" icon={<PlusOutlined />} title={t('campaign.group.modeNew')} sub="" />
+        <ModeCard value="append" icon={<FolderOpenOutlined />} title={t('campaign.group.modeAppend')} sub="" />
       </div>
 
       {mode === 'new' ? (

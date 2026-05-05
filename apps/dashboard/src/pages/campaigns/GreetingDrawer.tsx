@@ -43,6 +43,7 @@ function GreetingModal({
   onSave: () => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [scoring, setScoring] = useState(false);
@@ -155,27 +156,27 @@ function GreetingModal({
   return (
     <Modal
       open={open}
-      title={template ? '编辑开场白' : '新建开场白'}
+      title={template ? t('campaign.greeting.modal.edit') : t('campaign.greeting.modal.add')}
       onCancel={onClose}
       width={520}
       footer={
         <Space style={{ justifyContent: 'flex-end', width: '100%' }}>
-          <Button onClick={onClose}>取消</Button>
+          <Button onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="primary" loading={saving} onClick={handleSave}
             style={{ background: '#52c41a', borderColor: '#52c41a' }}>
-            保存
+            {t('common.save')}
           </Button>
         </Space>
       }
     >
       <Form form={form} layout="vertical">
-        <Form.Item name="text" label={<span style={{ color: '#ff4d4f' }}>* 开场白文案</span>}
-          rules={[{ required: true, message: '必填' }]}>
-          <TextArea rows={2} placeholder="例: 你好，打扰您一下 👋" maxLength={200} showCount />
+        <Form.Item name="text" label={<span style={{ color: '#ff4d4f' }}>* {t('campaign.greeting.text')}</span>}
+          rules={[{ required: true, message: t('form.required') }]}>
+          <TextArea rows={2} placeholder={t('form.placeholder.required')} maxLength={200} showCount />
         </Form.Item>
 
-        <Form.Item name="category" label="分类 (可选)">
-          <Select placeholder="选择分类" allowClear
+        <Form.Item name="category" label={t('campaign.greeting.category')}>
+          <Select placeholder={t('form.placeholder.optional')} allowClear
             options={CATEGORIES.map(c => ({ value: c, label: c }))} />
         </Form.Item>
 
