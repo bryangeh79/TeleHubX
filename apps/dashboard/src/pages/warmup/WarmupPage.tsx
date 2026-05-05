@@ -9,6 +9,7 @@ import {
   Badge,
   Tooltip,
   Empty,
+  Popconfirm,
   message as antdMessage,
 } from 'antd';
 import {
@@ -17,6 +18,7 @@ import {
   StepForwardOutlined,
   ReloadOutlined,
   RedoOutlined,
+  StopOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -124,12 +126,16 @@ export default function WarmupPage() {
             plan: await fetchPlanFor(s.account!.id),
           })),
         ),
-        // 拉所有 running 状态的 preset_* 任务（合并多种类型）
+        // 拉所有 running + paused 状态的 preset_* 任务 (paused 也要展示, 才有"恢复"按钮)
         Promise.all([
           tasksApi.list({ status: 'running', type: 'preset_warmup_7d' }).catch(() => ({ data: [] })),
           tasksApi.list({ status: 'running', type: 'preset_full_14d' }).catch(() => ({ data: [] })),
           tasksApi.list({ status: 'running', type: 'preset_rampup_7d' }).catch(() => ({ data: [] })),
           tasksApi.list({ status: 'running', type: 'preset_mature_ops' }).catch(() => ({ data: [] })),
+          tasksApi.list({ status: 'paused',  type: 'preset_warmup_7d' }).catch(() => ({ data: [] })),
+          tasksApi.list({ status: 'paused',  type: 'preset_full_14d' }).catch(() => ({ data: [] })),
+          tasksApi.list({ status: 'paused',  type: 'preset_rampup_7d' }).catch(() => ({ data: [] })),
+          tasksApi.list({ status: 'paused',  type: 'preset_mature_ops' }).catch(() => ({ data: [] })),
         ]).then(arr => arr.flatMap(r => (Array.isArray(r.data) ? r.data : []))),
       ]);
 
@@ -217,6 +223,50 @@ export default function WarmupPage() {
     } catch (err: any) {
       const msg = err?.response?.data?.message;
       antdMessage.error(typeof msg === 'string' ? msg : t('wu.resumeFail'));
+    } finally {
+      setBusy(row.slot.account.id, false);
+    }
+  };
+
+  // ─── preset (任务调度启动的养号) 控制: 调 tasksApi 的 pause/resume/cancel,
+  //     server 端会级联到所有子任务. ─────────────────────────────────────────
+  const handlePausePreset = async (row: Row, taskId: string) => {
+    if (!row.slot.account) return;
+    setBusy(row.slot.account.id, true);
+    try {
+      await tasksApi.pause(taskId);
+      antdMessage.warning(t('wu.presetPausedMsg', { no: row.slot.no }));
+      await reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? t('wu.pauseFail'));
+    } finally {
+      setBusy(row.slot.account.id, false);
+    }
+  };
+
+  const handleResumePreset = async (row: Row, taskId: string) => {
+    if (!row.slot.account) return;
+    setBusy(row.slot.account.id, true);
+    try {
+      await tasksApi.resume(taskId);
+      antdMessage.success(t('wu.presetResumedMsg', { no: row.slot.no }));
+      await reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? t('wu.resumeFail'));
+    } finally {
+      setBusy(row.slot.account.id, false);
+    }
+  };
+
+  const handleCancelPreset = async (row: Row, taskId: string) => {
+    if (!row.slot.account) return;
+    setBusy(row.slot.account.id, true);
+    try {
+      await tasksApi.cancel(taskId);
+      antdMessage.success(t('wu.presetCancelledMsg', { no: row.slot.no }));
+      await reload();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? t('msg.opFailed'));
     } finally {
       setBusy(row.slot.account.id, false);
     }
@@ -343,10 +393,63 @@ export default function WarmupPage() {
 
         if (!row.plan) {
           if (row.presetTask) {
+            const tk = row.presetTask;
+            const tkId = tk.id;
+            const tkSeq = tk.seq ?? '';
+            // 终态: 不显示按钮, 只显示状态 Tag
+            if (tk.status === 'done') {
+              return <Tag color="success">{t('wu.tagDone')}</Tag>;
+            }
+            if (tk.status === 'failed') {
+              return <Tag color="error">{t('wu.tagCancelled')}</Tag>;
+            }
+            // running / paused: 状态 Tag + 控制按钮组
+            const isPaused = tk.status === 'paused';
             return (
-              <Tooltip title={t('wu.runningPresetTip', { seq: row.presetTask.seq ?? '' })}>
-                <Tag color="processing">{t('wu.tagRunning')}</Tag>
-              </Tooltip>
+              <Space size={4}>
+                <Tooltip title={t('wu.runningPresetTip', { seq: tkSeq })}>
+                  <Tag color={isPaused ? 'orange' : 'processing'}>
+                    {isPaused ? t('wu.tagPaused') : t('wu.tagRunning')}
+                  </Tag>
+                </Tooltip>
+                {isPaused ? (
+                  <Tooltip title={t('wu.btnResumePreset')}>
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<PlayCircleOutlined />}
+                      loading={busy}
+                      onClick={() => handleResumePreset(row, tkId)}
+                    />
+                  </Tooltip>
+                ) : (
+                  <Tooltip title={t('wu.btnPausePreset')}>
+                    <Button
+                      size="small"
+                      icon={<PauseCircleOutlined />}
+                      loading={busy}
+                      onClick={() => handlePausePreset(row, tkId)}
+                    />
+                  </Tooltip>
+                )}
+                <Popconfirm
+                  title={t('wu.cancelPresetConfirm')}
+                  description={t('wu.cancelPresetDesc')}
+                  okType="danger"
+                  okText={t('common.confirm')}
+                  cancelText={t('common.cancel')}
+                  onConfirm={() => handleCancelPreset(row, tkId)}
+                >
+                  <Tooltip title={t('wu.btnCancelPreset')}>
+                    <Button
+                      size="small"
+                      danger
+                      icon={<StopOutlined />}
+                      loading={busy}
+                    />
+                  </Tooltip>
+                </Popconfirm>
+              </Space>
             );
           }
           return (

@@ -784,18 +784,91 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     await this.repo.save(parent);
   }
 
+  // ─── 级联辅助 (preset_* / keyword_lead_hunt 父任务) ───────────────────
+  // 父任务是调度容器, RUNNING 状态会持续 7-14 天, 真正干活的是 21+ 条
+  // 子任务. 父任务的 pause/resume/cancel 必须级联到 pending/paused 子任务,
+  // 否则按钮等于不存在 — 子任务还是会按各自 scheduledAt 被 dispatcher 派出去.
+  private isPresetParentType(type: TaskType | string): boolean {
+    const s = String(type);
+    return s.startsWith('preset_') || s === 'keyword_lead_hunt';
+  }
+
+  /** 父被取消: pending/paused 子标 FAILED, running 子只置 cancelRequested 让 agent 优雅 abort */
+  private async cascadeCancelChildren(parentId: string): Promise<number> {
+    const now = new Date();
+    const r1 = await this.repo
+      .createQueryBuilder()
+      .update(Task)
+      .set({
+        status: TaskStatus.FAILED,
+        errorMsg: 'Parent task cancelled',
+        finishedAt: now,
+        cancelRequested: true,
+      })
+      .where('"parentTaskId" = :pid', { pid: parentId })
+      .andWhere('status IN (:...ss)', { ss: [TaskStatus.PENDING, TaskStatus.PAUSED] })
+      .execute();
+    const r2 = await this.repo
+      .createQueryBuilder()
+      .update(Task)
+      .set({ cancelRequested: true })
+      .where('"parentTaskId" = :pid', { pid: parentId })
+      .andWhere('status = :s', { s: TaskStatus.RUNNING })
+      .execute();
+    return (r1.affected ?? 0) + (r2.affected ?? 0);
+  }
+
+  /** 父被暂停: 所有 pending 子 → paused (running 子自然跑完, 不被强制中断) */
+  private async cascadePauseChildren(parentId: string): Promise<number> {
+    const r = await this.repo
+      .createQueryBuilder()
+      .update(Task)
+      .set({ status: TaskStatus.PAUSED })
+      .where('"parentTaskId" = :pid', { pid: parentId })
+      .andWhere('status = :s', { s: TaskStatus.PENDING })
+      .execute();
+    return r.affected ?? 0;
+  }
+
+  /** 父被恢复: 所有 paused 子 → pending (dispatcher 重新可派发) */
+  private async cascadeResumeChildren(parentId: string): Promise<number> {
+    const r = await this.repo
+      .createQueryBuilder()
+      .update(Task)
+      .set({ status: TaskStatus.PENDING })
+      .where('"parentTaskId" = :pid', { pid: parentId })
+      .andWhere('status = :s', { s: TaskStatus.PAUSED })
+      .execute();
+    return r.affected ?? 0;
+  }
+
   async pause(id: string): Promise<Task> {
     const t = await this.findOne(id);
-    if (t.status !== TaskStatus.RUNNING) return t;
+    // preset 父任务也允许从 PENDING / RUNNING 暂停 (PENDING 父刚创建未派发就要暂停的场景)
+    if (
+      t.status === TaskStatus.PAUSED ||
+      t.status === TaskStatus.DONE ||
+      t.status === TaskStatus.FAILED
+    ) return t;
     t.status = TaskStatus.PAUSED;
-    return this.repo.save(t);
+    const saved = await this.repo.save(t);
+    if (this.isPresetParentType(t.type)) {
+      const n = await this.cascadePauseChildren(t.id);
+      this.logger.log(`[cascade] preset parent #${t.seq} paused, ${n} child task(s) → paused`);
+    }
+    return saved;
   }
 
   async resume(id: string): Promise<Task> {
     const t = await this.findOne(id);
     if (t.status !== TaskStatus.PAUSED) return t;
     t.status = TaskStatus.RUNNING;
-    return this.repo.save(t);
+    const saved = await this.repo.save(t);
+    if (this.isPresetParentType(t.type)) {
+      const n = await this.cascadeResumeChildren(t.id);
+      this.logger.log(`[cascade] preset parent #${t.seq} resumed, ${n} child task(s) → pending`);
+    }
+    return saved;
   }
 
   /**
@@ -827,7 +900,12 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     t.errorMsg = 'Cancelled by user';
     t.finishedAt = new Date();
     t.cancelRequested = true;
-    return this.repo.save(t);
+    const saved = await this.repo.save(t);
+    if (this.isPresetParentType(t.type)) {
+      const n = await this.cascadeCancelChildren(t.id);
+      this.logger.log(`[cascade] preset parent #${t.seq} cancelled, ${n} child task(s) terminated`);
+    }
+    return saved;
   }
 
   /**
