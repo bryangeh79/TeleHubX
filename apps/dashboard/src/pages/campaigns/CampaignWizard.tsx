@@ -54,12 +54,14 @@ const PACE_INFO: Record<PacePreset, { label: string; daily: number; windows: num
   aggressive:   { label: 'Aggressive',   daily: 40, windows: 2 },
 };
 
-const SCHEDULE_OPTIONS: { value: ScheduleMode; label: string; icon: React.ReactNode }[] = [
-  { value: 'immediate', label: '立即开始', icon: <ThunderboltOutlined /> },
-  { value: 'once',      label: '单次定时', icon: <CalendarOutlined /> },
-  { value: 'daily',     label: '每天',     icon: <ReloadOutlined /> },
-  { value: 'weekly',    label: '每周',     icon: <CalendarOutlined /> },
-];
+/** Round-11: SCHEDULE_OPTIONS labels 走 t() — 渲染时再 resolve. icon/value 静态 */
+const SCHEDULE_ICONS: Record<ScheduleMode, React.ReactNode> = {
+  immediate: <ThunderboltOutlined />,
+  once:      <CalendarOutlined />,
+  daily:     <ReloadOutlined />,
+  weekly:    <CalendarOutlined />,
+};
+const SCHEDULE_VALUES: ScheduleMode[] = ['immediate', 'once', 'daily', 'weekly'];
 
 const DAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
@@ -146,7 +148,7 @@ function Step1({
         <Input
           value={state.name}
           onChange={e => onChange({ name: e.target.value })}
-          placeholder="例: 五月产品推广"
+          placeholder={t('form.placeholder.required')}
           maxLength={50}
           showCount
         />
@@ -154,20 +156,20 @@ function Step1({
 
       <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>⏱</span>{t('wizard.step.schedule')}</>} style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {SCHEDULE_OPTIONS.map(opt => (
+          {SCHEDULE_VALUES.map(value => (
             <div
-              key={opt.value}
-              onClick={() => onChange({ scheduleMode: opt.value })}
+              key={value}
+              onClick={() => onChange({ scheduleMode: value })}
               style={{
-                flex: 1, minWidth: 100, border: `1px solid ${state.scheduleMode === opt.value ? '#52c41a' : '#d9d9d9'}`,
+                flex: 1, minWidth: 100, border: `1px solid ${state.scheduleMode === value ? '#52c41a' : '#d9d9d9'}`,
                 borderRadius: 8, padding: '10px 12px', cursor: 'pointer', textAlign: 'center',
-                background: state.scheduleMode === opt.value ? '#f6ffed' : '#fff',
-                color: state.scheduleMode === opt.value ? '#52c41a' : '#333',
+                background: state.scheduleMode === value ? '#f6ffed' : '#fff',
+                color: state.scheduleMode === value ? '#52c41a' : '#333',
               }}
             >
-              <div style={{ fontSize: 18 }}>{opt.icon}</div>
-              <div style={{ fontSize: 13, marginTop: 4 }}>{opt.label}</div>
-              {state.scheduleMode === opt.value && (
+              <div style={{ fontSize: 18 }}>{SCHEDULE_ICONS[value]}</div>
+              <div style={{ fontSize: 13, marginTop: 4 }}>{t(`campaign.wizard.schedule.${value}`)}</div>
+              {state.scheduleMode === value && (
                 <div style={{ fontSize: 18, color: '#52c41a' }}>✓</div>
               )}
             </div>
@@ -189,7 +191,7 @@ function Step1({
                 value={state.scheduleDayOfWeek}
                 onChange={v => onChange({ scheduleDayOfWeek: v })}
                 options={DAY_LABELS.map((d, i) => ({ value: i, label: d }))}
-                placeholder="星期"
+                placeholder={t('wizard.schedule.dayOfWeek')}
               />
             )}
             <Input
@@ -197,7 +199,7 @@ function Step1({
               style={{ width: 120 }}
               value={state.scheduleTime}
               onChange={e => onChange({ scheduleTime: e.target.value })}
-              placeholder="发送时间"
+              placeholder={t('wizard.schedule.time')}
             />
           </div>
         )}
@@ -205,11 +207,11 @@ function Step1({
 
       <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>👥</span>{t('wizard.step.targets')}</>} style={{ marginBottom: 12 }}>
         <div style={{ marginBottom: 8 }}>
-          <Text style={{ fontSize: 13 }}>选择客户群 (可多选)：</Text>
+          <Text style={{ fontSize: 13 }}>{t('wizard.targets.selectGroup')}</Text>
           <Select
             mode="multiple"
             style={{ width: '100%', marginTop: 4 }}
-            placeholder="从已有客户群中选择"
+            placeholder={t('createGroup.selectExisting')}
             value={state.customerGroupIds}
             onChange={v => onChange({ customerGroupIds: v })}
             options={customerGroups.map(g => ({
@@ -220,7 +222,7 @@ function Step1({
           />
         </div>
         <div>
-          <Text style={{ fontSize: 13 }}>手动补充号码 (可选)：</Text>
+          <Text style={{ fontSize: 13 }}>{t('wizard.targets.extraNumbers')}</Text>
           <TextArea
             style={{ marginTop: 4 }}
             rows={4}
@@ -235,12 +237,12 @@ function Step1({
           <Alert
             type="warning"
             showIcon
-            message="请至少选择一个客户群或填入手动号码，否则无法继续"
+            message={t('wizard.targets.required')}
             style={{ marginTop: 8 }}
           />
         )}
         <Text type="secondary" style={{ fontSize: 11, marginTop: 8, display: 'block' }}>
-          说明：系统会在你的成熟营运号 (完成 14 天养号) 之间均匀分配，按节流档位打散时段。
+          {t('wizard.targets.distributeNote')}
         </Text>
       </Card>
     </div>
@@ -292,25 +294,24 @@ function Step2({
           onChange={e => onChange({ adMode: e.target.value, adTemplateId: undefined, adTemplateIds: [] })}
           style={{ marginBottom: 12 }}
         >
-          <Radio value="single">单一广告</Radio>
-          <Radio value="rotate">多广告轮换</Radio>
+          <Radio value="single">{t('campaign.wizard.adMode.single')}</Radio>
+          <Radio value="rotate">{t('campaign.wizard.adMode.rotate')}</Radio>
         </Radio.Group>
 
         {adTemplates.length === 0 ? (
           <Alert
             type="info"
             showIcon
-            message="还没有广告模板。请先在「广告模板库」添加。"
-            description="新建广告模板后，返回这里就可以选择。"
+            message={t('wizard.ad.noTemplates')}
           />
         ) : (
           <Row gutter={[8, 8]}>
-            {adTemplates.map(t => {
-              const selected = selectedAds.includes(t.id);
+            {adTemplates.map(tpl => {
+              const selected = selectedAds.includes(tpl.id);
               return (
-                <Col span={12} key={t.id}>
+                <Col span={12} key={tpl.id}>
                   <div
-                    onClick={() => toggleAd(t.id)}
+                    onClick={() => toggleAd(tpl.id)}
                     style={{
                       border: `1px solid ${selected ? '#52c41a' : '#d9d9d9'}`,
                       borderRadius: 8, padding: 12, cursor: 'pointer',
@@ -318,17 +319,17 @@ function Step2({
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                      <Checkbox checked={selected} onChange={() => toggleAd(t.id)} />
-                      {t.hasMedia && <Tag color="green" style={{ fontSize: 11 }}>含素材</Tag>}
+                      <Checkbox checked={selected} onChange={() => toggleAd(tpl.id)} />
+                      {tpl.hasMedia && <Tag color="green" style={{ fontSize: 11 }}>{t('adTemplate.hasMedia')}</Tag>}
                     </div>
-                    <Text strong style={{ fontSize: 13 }}>{t.name}</Text>
+                    <Text strong style={{ fontSize: 13 }}>{tpl.name}</Text>
                     <div>
                       <Text type="secondary" style={{ fontSize: 11 }}>
-                        {t.content.slice(0, 60)}{t.content.length > 60 ? '…' : ''}
+                        {tpl.content.slice(0, 60)}{tpl.content.length > 60 ? '…' : ''}
                       </Text>
                     </div>
                     <Text type="secondary" style={{ fontSize: 11 }}>
-                      最近修改: {dayjs(t.updatedAt).format('YYYY/M/D')}
+                      {t('adTemplate.lastModified')}: {dayjs(tpl.updatedAt).format('YYYY/M/D')}
                     </Text>
                   </div>
                 </Col>
@@ -343,12 +344,12 @@ function Step2({
       </Card>
 
       <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>💬</span>{t('wizard.step.greeting')}</>}>
-        <Text style={{ fontSize: 13, fontWeight: 500 }}>步骤 1 · 选择开场模式</Text>
+        <Text style={{ fontSize: 13, fontWeight: 500 }}>{t('wizard.greeting.step1')}</Text>
         <div style={{ display: 'flex', gap: 8, marginTop: 8, marginBottom: 16 }}>
           {([
-            { value: 'fixed' as const, label: '固定开场 (选 1 条)', sub: '每次发送相同的开场白', tag: '' },
-            { value: 'random' as const, label: '随机开场', sub: '从已选文案中随机发送，更自然', tag: '推荐' },
-            { value: 'none' as const, label: '不加开场', sub: '直接发送广告正文', tag: '' },
+            { value: 'fixed' as const,  label: t('wizard.greeting.fixed.label'),  sub: t('wizard.greeting.fixed.sub'),  tag: '' },
+            { value: 'random' as const, label: t('wizard.greeting.random.label'), sub: t('wizard.greeting.random.sub'), tag: t('cs.replyMode.recommended') },
+            { value: 'none' as const,   label: t('wizard.greeting.none.label'),   sub: t('wizard.greeting.none.sub'),   tag: '' },
           ]).map(opt => (
             <div
               key={opt.value}
@@ -371,10 +372,10 @@ function Step2({
         {state.greetingMode !== 'none' && (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <Text style={{ fontSize: 13, fontWeight: 500 }}>步骤 2 · 选择开场文案</Text>
+              <Text style={{ fontSize: 13, fontWeight: 500 }}>{t('wizard.greeting.step2')}</Text>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                已选 {state.greetingTemplateIds.length}/{state.greetingMode === 'fixed' ? '1' : '∞'}
-                {state.greetingMode === 'random' && ' (至少选 2 条)'}
+                {state.greetingTemplateIds.length}/{state.greetingMode === 'fixed' ? '1' : '∞'}
+                {state.greetingMode === 'random' && ` (${t('wizard.greeting.atLeast2')})`}
               </Text>
             </div>
             {greetingTemplates.length === 0 ? (
@@ -416,7 +417,7 @@ function Step2({
               <Alert
                 type="info"
                 showIcon
-                message="随机开场建议选 2 条以上，这样对陌生客户更像真人多样化"
+                message={t('wizard.greeting.atLeast2')}
                 style={{ marginTop: 8 }}
               />
             )}
@@ -451,14 +452,14 @@ function Step3({
         {([
           {
             value: 'auto' as const,
-            label: '系统智能安排',
-            sub: '自动调用成熟营运号 · 自动分配对象 · 自动打散时段 · 自动跳过异常账号',
-            tag: '推荐',
+            label: t('wizard.account.auto.label'),
+            sub: t('wizard.account.auto.sub'),
+            tag: t('cs.replyMode.recommended'),
           },
           {
             value: 'manual' as const,
-            label: '自定义槽位',
-            sub: '自定义不关闭智能调度 · 风险管控和异常保护仍然启用',
+            label: t('wizard.account.manual.label'),
+            sub: t('wizard.account.manual.sub'),
           },
         ]).map(opt => (
           <div
@@ -482,7 +483,7 @@ function Step3({
           <Select
             mode="multiple"
             style={{ width: '100%', marginTop: 8 }}
-            placeholder="选择执行账号"
+            placeholder={t('wizard.account.selectAccount')}
             value={state.adAccountIds}
             onChange={v => onChange({ adAccountIds: v })}
             options={adAccounts.map((a: any) => ({
@@ -511,7 +512,7 @@ function Step3({
               {info.tag && <Tag color="green" style={{ fontSize: 11 }}>{t('cs.replyMode.recommended')}</Tag>}
             </div>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              每号每天 {info.daily} 条 · {info.windows} 时段分发
+              {t('wizard.pace.hint', { daily: info.daily, windows: info.windows })}
             </Text>
           </div>
         ))}
@@ -530,15 +531,15 @@ function Step3({
               style={{ marginBottom: 8 }}
             />
             <div style={{ fontSize: 13, marginBottom: 4 }}>
-              目标人数: <strong>{capacity.targetCount}</strong>
+              {t('wizard.safety.targetCount')}: <strong>{capacity.targetCount}</strong>
             </div>
             <div style={{ fontSize: 13, marginBottom: 4 }}>
-              可用成熟号: <strong>{capacity.matureAccountCount}</strong> / 总 {capacity.totalAccountCount}
+              {t('wizard.safety.matureAccounts')}: <strong>{capacity.matureAccountCount}</strong> / {capacity.totalAccountCount}
             </div>
             <div style={{ fontSize: 13, marginBottom: 8 }}>
-              承载: <strong>{capacity.capacity}</strong>
+              {t('wizard.safety.capacity')}: <strong>{capacity.capacity}</strong>
               <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>
-                (= {capacity.matureAccountCount} × {capacity.dailyLimit} × 1 天)
+                (= {capacity.matureAccountCount} × {capacity.dailyLimit})
               </Text>
             </div>
             {capacity.safetyLevel !== 'safe' && (
@@ -546,9 +547,7 @@ function Step3({
                 type={capacity.safetyLevel === 'warning' ? 'warning' : 'error'}
                 showIcon
                 message={capacity.message}
-                description={capacity.safetyLevel === 'risk'
-                  ? '建议：增加执行账号 / 减少投放数量 / 拉长时间 (改每天或每周)'
-                  : undefined}
+                description={capacity.safetyLevel === 'risk' ? t('wizard.safety.suggestion') : undefined}
                 style={{ fontSize: 12 }}
               />
             )}
@@ -557,7 +556,7 @@ function Step3({
             )}
           </>
         ) : (
-          <Text type="secondary" style={{ fontSize: 12 }}>设置完目标后自动计算</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>{t('campaign.wizard.calculating')}</Text>
         )}
       </Card>
     </div>
@@ -583,6 +582,7 @@ interface DispatchPreview {
 }
 
 function DispatchPreviewCard({ state }: { state: WizardState }) {
+  const t = useT();
   const [preview, setPreview] = useState<DispatchPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -623,7 +623,7 @@ function DispatchPreviewCard({ state }: { state: WizardState }) {
     }).then(res => {
       setPreview(res.data);
     }).catch(() => {
-      setErr('预览加载失败（可确保账号配置正确后重试）');
+      setErr(t('msg.loadFailed'));
     }).finally(() => setLoading(false));
   }, [state.customerGroupIds, state.targets, state.pacePreset, state.accountSourceMode, state.adAccountIds, state.scheduleMode, (state as any).scheduledAt, (state as any).scheduleTime, (state as any).scheduleDayOfWeek]);
 
@@ -640,39 +640,37 @@ function DispatchPreviewCard({ state }: { state: WizardState }) {
       title={
         <Space style={{ fontSize: 13 }}>
           <ScheduleOutlined style={{ color: '#52c41a' }} />
-          <span style={{ fontWeight: 600 }}>调度计划预览</span>
+          <span style={{ fontWeight: 600 }}>{t('wizard.preview.title')}</span>
           {loading && <Spin size="small" />}
         </Space>
       }
     >
       {err && <div style={{ color: '#ff4d4f', fontSize: 12 }}>{err}</div>}
       {!loading && !err && preview && preview.tasksTotal === 0 && (
-        <div style={{ color: '#999', fontSize: 12 }}>无账号可用，无法生成计划</div>
+        <div style={{ color: '#999', fontSize: 12 }}>{t('common.none')}</div>
       )}
       {!loading && !err && preview && preview.tasksTotal > 0 && (
         <>
           <div style={{ fontSize: 12, color: '#555', marginBottom: 8 }}>
-            <Tag color="green">目标 {preview.targetCount} 人</Tag>
-            <Tag color="blue">{preview.accountsUsed} 个账号</Tag>
+            <Tag color="green">{t('wizard.preview.targets')} {preview.targetCount}</Tag>
+            <Tag color="blue">{preview.accountsUsed} {t('common.role')}</Tag>
             {preview.fastPath
-              ? <Tag color="orange" icon={<ThunderboltOutlined />}>立即发送</Tag>
-              : <Tag color="purple">跨 {preview.days} 天</Tag>}
-            <Tag>共 {preview.tasksTotal} 条任务</Tag>
-            {!preview.fastPath && <span style={{ color: '#999' }}>·&nbsp;每号每天最多 {preview.dailyLimit} 条</span>}
-            {preview.fastPath && <span style={{ color: '#fa8c16' }}>·&nbsp;数量小，跳过时段窗口直接发出</span>}
+              ? <Tag color="orange" icon={<ThunderboltOutlined />}>{t('campaign.wizard.schedule.immediate')}</Tag>
+              : <Tag color="purple">{t('wizard.preview.spanDays', { n: preview.days })}</Tag>}
+            <Tag>{t('wizard.preview.totalTasks', { n: preview.tasksTotal })}</Tag>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {preview.schedule.map(day => (
               <div key={day.day} style={{ border: '1px solid #d9f7be', borderRadius: 6, padding: '6px 10px', background: '#fff' }}>
                 <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 4 }}>
-                  {preview.fastPath ? '即将发送' : `第 ${day.day + 1} 天 (${day.date})`}
-                  <span style={{ fontWeight: 400, color: '#999', marginLeft: 8 }}>{day.dayTotal} 条</span>
+                  {preview.fastPath ? t('wizard.preview.upcoming') : `Day ${day.day + 1} (${day.date})`}
+                  <span style={{ fontWeight: 400, color: '#999', marginLeft: 8 }}>{day.dayTotal}</span>
                 </div>
                 {day.windows.map((w, wi) => (
                   <div key={wi} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#555', marginBottom: 2 }}>
                     <span style={{ color: w.label === '立即发送' ? '#fa8c16' : '#1677ff', minWidth: 110 }}>{w.label}</span>
-                    <span>{w.count} 条</span>
-                    <span style={{ color: '#aaa' }}>首发 {fmt(w.firstAt)} · 末发 {fmt(w.lastAt)}</span>
+                    <span>{w.count}</span>
+                    <span style={{ color: '#aaa' }}>{fmt(w.firstAt)} → {fmt(w.lastAt)}</span>
                   </div>
                 ))}
               </div>
@@ -681,7 +679,7 @@ function DispatchPreviewCard({ state }: { state: WizardState }) {
         </>
       )}
       {!loading && !err && !preview && (
-        <div style={{ color: '#aaa', fontSize: 12 }}>请先设置投放对象（上一步）</div>
+        <div style={{ color: '#aaa', fontSize: 12 }}>{t('common.none')}</div>
       )}
     </Card>
   );
@@ -703,19 +701,19 @@ function Step4({
 
   const extraLines = state.targets.trim().split(/\n+/).filter(Boolean);
   const targetDesc = [
-    state.customerGroupIds.length ? `客户群: ${groupNames}` : '',
-    extraLines.length ? `补充号码: ${extraLines.length} 个` : '',
-    capacity?.targetCount != null ? `去重后目标人数: ${capacity.targetCount}` : '',
+    state.customerGroupIds.length ? `${t('drawer.customerGroup')}: ${groupNames}` : '',
+    extraLines.length ? `${t('campaign.wizard.summary.extra')}: ${extraLines.length}` : '',
+    capacity?.targetCount != null ? `${t('wizard.safety.targetCount')}: ${capacity.targetCount}` : '',
   ].filter(Boolean).join('\n');
 
   const adDesc = state.adMode === 'single' && state.adTemplateId
-    ? `单一广告\n· ${adTemplates.find(t => t.id === state.adTemplateId)?.name ?? state.adTemplateId}`
+    ? `${t('campaign.wizard.adMode.single')}\n· ${adTemplates.find(tpl => tpl.id === state.adTemplateId)?.name ?? state.adTemplateId}`
     : state.adTemplateIds.length
-    ? `多广告轮换\n${state.adTemplateIds.map(id => `· ${adTemplates.find(t => t.id === id)?.name ?? id}`).join('\n')}`
+    ? `${t('campaign.wizard.adMode.rotate')}\n${state.adTemplateIds.map(id => `· ${adTemplates.find(tpl => tpl.id === id)?.name ?? id}`).join('\n')}`
     : '—';
 
-  const greetDesc = state.greetingMode === 'none' ? '不加开场'
-    : `${state.greetingMode === 'fixed' ? '固定开场' : '随机开场'}\n${
+  const greetDesc = state.greetingMode === 'none' ? t('campaign.wizard.greetingMode.none')
+    : `${state.greetingMode === 'fixed' ? t('campaign.wizard.greetingMode.fixed') : t('campaign.wizard.greetingMode.random')}\n${
       state.greetingTemplateIds.map(id => {
         const g = greetingTemplates.find(x => x.id === id);
         return g ? `· ${g.text.slice(0, 30)}` : '';
@@ -723,20 +721,20 @@ function Step4({
     }`;
 
   const execDesc = state.accountSourceMode === 'auto'
-    ? '系统智能安排'
-    : `自定义槽位 · 选了 ${state.adAccountIds.length} 个`;
+    ? t('campaign.wizard.account.auto')
+    : `${t('campaign.wizard.account.manual')} (${state.adAccountIds.length})`;
 
   const safetyLevel = capacity?.safetyLevel;
   const safetyNode = safetyLevel === 'safe'
-    ? <Tag color="success">安全</Tag>
+    ? <Tag color="success">{t('campaign.wizard.safety.safe')}</Tag>
     : safetyLevel === 'warning'
-    ? <Tag color="warning">有风险</Tag>
-    : <Tag color="error">承载不足</Tag>;
+    ? <Tag color="warning">{t('campaign.wizard.safety.warning')}</Tag>
+    : <Tag color="error">{t('campaign.wizard.safety.risk')}</Tag>;
 
-  const scheduleText = state.scheduleMode === 'immediate' ? '立即开始'
-    : state.scheduleMode === 'once' ? `定时: ${state.scheduledAt ?? '--'}`
-    : state.scheduleMode === 'daily' ? `每天 ${state.scheduleTime ?? '--'}`
-    : `每周${state.scheduleDayOfWeek != null ? DAY_LABELS[state.scheduleDayOfWeek] : ''} ${state.scheduleTime ?? ''}`;
+  const scheduleText = state.scheduleMode === 'immediate' ? t('campaign.wizard.schedule.immediate')
+    : state.scheduleMode === 'once' ? `${t('campaign.wizard.schedule.once')}: ${state.scheduledAt ?? '--'}`
+    : state.scheduleMode === 'daily' ? `${t('campaign.wizard.schedule.daily')} ${state.scheduleTime ?? '--'}`
+    : `${t('campaign.wizard.schedule.weekly')} ${state.scheduleDayOfWeek != null ? DAY_LABELS[state.scheduleDayOfWeek] : ''} ${state.scheduleTime ?? ''}`;
 
   const rows = [
     { label: t('wizard.step.name'), value: state.name },
@@ -771,10 +769,10 @@ function Step4({
 
       <Card style={{ marginTop: 12, background: '#fafafa' }} bodyStyle={{ padding: '10px 16px' }}>
         <div style={{ fontSize: 12, color: '#52c41a' }}>
-          ✓ 异常账号自动跳过<br />
-          ✓ 风险暂停保护开启<br />
-          ✓ 补位不足提醒开启<br />
-          ✓ 同 IP 组互斥 · 夜间窗口保护 · 接管中自动跳过
+          ✓ {t('wizard.protection.autoSkip')}<br />
+          ✓ {t('wizard.protection.riskPause')}<br />
+          ✓ {t('wizard.protection.refillAlert')}<br />
+          ✓ {t('wizard.protection.ipNightTakeover')}
         </div>
       </Card>
 
@@ -991,18 +989,14 @@ export default function CampaignWizard({ open, editId, onClose, onSuccess }: Pro
   const handleLaunch = () => {
     if (capacity?.safetyLevel === 'risk') {
       Modal.confirm({
-        title: '承载不足，是否仍要强制启动？',
+        title: t('wizard.forceLaunchConfirm.title'),
         content: (
           <div>
             <div style={{ marginBottom: 8 }}>{capacity?.message}</div>
-            <div style={{ fontSize: 12, color: '#999' }}>
-              强制启动后，系统会用现有账号投放，但封号风险较高。<br />
-              测试时可以用此选项验证流程，正式投放前建议养号 14 天以上。
-            </div>
           </div>
         ),
-        okText: '确认强制启动',
-        cancelText: '取消',
+        okText: t('wizard.forceLaunch'),
+        cancelText: t('common.cancel'),
         okButtonProps: { danger: true },
         onOk: doLaunch,
       });
@@ -1018,7 +1012,12 @@ export default function CampaignWizard({ open, editId, onClose, onSuccess }: Pro
     onClose();
   };
 
-  const STEPS = ['投放对象', '广告内容', '执行方式', '确认启动'];
+  const STEPS = [
+    t('wizard.stepTitle.targets'),
+    t('wizard.stepTitle.adContent'),
+    t('wizard.stepTitle.policy'),
+    t('wizard.stepTitle.confirm'),
+  ];
   const STEP_DESCS = [
     t('campaign.wizard.step.targetDesc'),
     t('campaign.wizard.step.adDesc'),
@@ -1074,7 +1073,7 @@ export default function CampaignWizard({ open, editId, onClose, onSuccess }: Pro
       {/* Footer buttons */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Button onClick={step === 0 ? handleClose : () => setStep(s => s - 1)}>
-          {step === 0 ? '取 消' : '上一步'}
+          {step === 0 ? t('common.cancel') : t('common.back')}
         </Button>
         <Space>
           {step < 3 && (
@@ -1084,19 +1083,19 @@ export default function CampaignWizard({ open, editId, onClose, onSuccess }: Pro
               onClick={() => setStep(s => s + 1)}
               style={{ background: '#52c41a', borderColor: '#52c41a' }}
             >
-              继续: {STEPS[step + 1] ? `设置${STEPS[step + 1]}` : '确认启动'} →
+              {t('common.next')} →
             </Button>
           )}
           {step === 3 && (
             <>
-              <Button onClick={handleSaveDraft} loading={submitting}>保存草稿</Button>
+              <Button onClick={handleSaveDraft} loading={submitting}>{t('common.draft')}</Button>
               <Button
                 type="primary"
                 loading={submitting}
                 onClick={handleLaunch}
                 style={{ background: '#52c41a', borderColor: '#52c41a' }}
               >
-                {capacity?.safetyLevel === 'risk' ? '强制启动 (承载不足)' : '开始投放'}
+                {capacity?.safetyLevel === 'risk' ? t('wizard.forceLaunch') : t('wizard.launch')}
               </Button>
             </>
           )}
