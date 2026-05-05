@@ -154,7 +154,7 @@ export default function KnowledgePage() {
         setSelectedKbId(def.id);
       }
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '加载知识库失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.loadFailed'));
     } finally {
       setKbsLoading(false);
     }
@@ -172,7 +172,7 @@ export default function KnowledgePage() {
       setSources(Array.isArray(sourcesRes.data) ? sourcesRes.data : []);
       setProtectedEntities(Array.isArray(protectedRes.data) ? protectedRes.data : []);
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '加载失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.loadFailed'));
     } finally {
       setTabLoading(false);
     }
@@ -213,18 +213,18 @@ export default function KnowledgePage() {
       setKbModal({ open: false, editing: null });
       void loadKbs();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '保存失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.saveFailed'));
     }
   };
 
   const removeKb = async (id: string) => {
     try {
       await knowledgeApi.deleteKb(id);
-      antdMessage.success('已删除');
+      antdMessage.success(t('msg.deleted'));
       if (selectedKbId === id) setSelectedKbId(null);
       void loadKbs();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '删除失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.deleteFailed'));
     }
   };
 
@@ -233,7 +233,7 @@ export default function KnowledgePage() {
       await knowledgeApi.updateKb(kb.id, { isDefault: !kb.isDefault });
       void loadKbs();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '操作失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.opFailed'));
     }
   };
 
@@ -266,7 +266,7 @@ export default function KnowledgePage() {
       setFaqModal({ open: false, editing: null });
       void loadTabData(selectedKbId);
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '保存失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.saveFailed'));
     }
   };
 
@@ -276,7 +276,7 @@ export default function KnowledgePage() {
       await knowledgeApi.deleteFaq(id);
       void loadTabData(selectedKbId);
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '删除失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.deleteFailed'));
     }
   };
 
@@ -312,7 +312,7 @@ export default function KnowledgePage() {
       await knowledgeApi.deleteSource(selectedKbId, srcId);
       void loadTabData(selectedKbId);
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '删除失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.deleteFailed'));
     }
   };
 
@@ -353,7 +353,7 @@ export default function KnowledgePage() {
       await knowledgeApi.deleteProtected(selectedKbId, entId);
       void loadTabData(selectedKbId);
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '删除失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.deleteFailed'));
     }
   };
 

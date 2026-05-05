@@ -91,7 +91,7 @@ function TenantAiModal({
       antdMessage.success('智能回复 AI 配置已保存');
       onSave();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '保存失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.saveFailed'));
     } finally {
       setSaving(false);
     }

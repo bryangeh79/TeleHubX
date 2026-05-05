@@ -272,7 +272,7 @@ export default function SchedulerPage() {
       setTasks(all.filter((t: any) => t.type !== 'campaign_single'));
       setStats(statsRes.data ?? { total: 0, pending: 0, running: 0, failed: 0, done: 0 });
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '加载任务失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -468,7 +468,7 @@ export default function SchedulerPage() {
       setRunNow(true);
       void reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '创建失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.opFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -498,7 +498,7 @@ export default function SchedulerPage() {
       antdMessage.success('已重新排入队列');
       void reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '重试失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.opFailed'));
     }
   };
 
@@ -740,10 +740,10 @@ export default function SchedulerPage() {
       </div>
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}><Card size="small"><Statistic title="总任务" value={stats.total} prefix={<ClockCircleOutlined />} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="运行中" value={stats.running} prefix={<ThunderboltOutlined />} valueStyle={{ color: '#1677ff' }} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="已完成" value={stats.done} prefix={<CheckCircleFilled style={{ color: '#52c41a' }} />} valueStyle={{ color: '#52c41a' }} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="失败" value={stats.failed} prefix={<CloseCircleFilled style={{ color: '#cf1322' }} />} valueStyle={{ color: '#cf1322' }} /></Card></Col>
+        <Col span={6}><Card size="small"><Statistic title={t('campaign.log.summary.total')} value={stats.total} prefix={<ClockCircleOutlined />} /></Card></Col>
+        <Col span={6}><Card size="small"><Statistic title={t('common.running')} value={stats.running} prefix={<ThunderboltOutlined />} valueStyle={{ color: '#1677ff' }} /></Card></Col>
+        <Col span={6}><Card size="small"><Statistic title={t('common.completed')} value={stats.done} prefix={<CheckCircleFilled style={{ color: '#52c41a' }} />} valueStyle={{ color: '#52c41a' }} /></Card></Col>
+        <Col span={6}><Card size="small"><Statistic title={t('common.failed')} value={stats.failed} prefix={<CloseCircleFilled style={{ color: '#cf1322' }} />} valueStyle={{ color: '#cf1322' }} /></Card></Col>
       </Row>
 
       {/* 顶部：运行中的长任务（preset_* 类） */}
@@ -797,7 +797,7 @@ export default function SchedulerPage() {
             value={filterStatus}
             onChange={(v) => setFilterStatus(v)}
             allowClear
-            placeholder="全部状态"
+            placeholder={`${t('common.all')} ${t('common.status')}`}
             style={{ width: 140 }}
             options={Object.entries(STATUS_META).map(([k, m]) => ({ value: k, label: m.label }))}
           />
@@ -805,7 +805,7 @@ export default function SchedulerPage() {
             value={filterType}
             onChange={(v) => setFilterType(v)}
             allowClear
-            placeholder="全部类型"
+            placeholder={`${t('common.all')} ${t('common.type')}`}
             style={{ width: 200 }}
             showSearch
             optionFilterProp="label"
@@ -821,7 +821,7 @@ export default function SchedulerPage() {
           size="small"
           loading={loading}
           pagination={{ pageSize: 20, showSizeChanger: false }}
-          locale={{ emptyText: <Empty description="尚无任务" /> }}
+          locale={{ emptyText: <Empty description={t('common.none')} /> }}
         />
       </Card>
 

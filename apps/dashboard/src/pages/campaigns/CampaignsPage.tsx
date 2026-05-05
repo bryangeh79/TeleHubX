@@ -126,7 +126,7 @@ export default function CampaignsPage() {
       const res = await campaignsApi.list();
       setCampaigns(Array.isArray(res.data) ? res.data : []);
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '加载失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -149,7 +149,7 @@ export default function CampaignsPage() {
       antdMessage.success(`已删除「${c.name}」`);
       await reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '删除失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.deleteFailed'));
     }
   };
 
@@ -161,7 +161,7 @@ export default function CampaignsPage() {
       await reload();
     } catch (err: any) {
       const msg = err?.response?.data?.message;
-      antdMessage.error(Array.isArray(msg) ? msg.join('; ') : msg ?? '发送失败');
+      antdMessage.error(Array.isArray(msg) ? msg.join('; ') : msg ?? t('msg.opFailed'));
     }
   };
 
@@ -211,7 +211,7 @@ export default function CampaignsPage() {
       antdMessage.success(`✓ 已复制「${c.name}」为新草稿`);
       void reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '操作失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.opFailed'));
     }
   };
 
@@ -427,27 +427,27 @@ export default function CampaignsPage() {
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>
           <Card size="small">
-            <Statistic title="全部投放" value={stats.total} prefix={<ClockCircleOutlined />} />
+            <Statistic title={`${t('common.all')} ${t('nav.campaigns')}`} value={stats.total} prefix={<ClockCircleOutlined />} />
           </Card>
         </Col>
         <Col span={6}>
           <Card size="small">
-            <Statistic title="运行中" value={stats.running}
+            <Statistic title={t('common.running')} value={stats.running}
               prefix={<ThunderboltOutlined />}
               valueStyle={{ color: '#1677ff' }} />
           </Card>
         </Col>
         <Col span={6}>
           <Card size="small">
-            <Statistic title="已完成" value={stats.completed}
+            <Statistic title={t('common.completed')} value={stats.completed}
               prefix={<CheckCircleFilled style={{ color: '#52c41a' }} />}
               valueStyle={{ color: '#52c41a' }} />
           </Card>
         </Col>
         <Col span={6}>
           <Card size="small">
-            <Statistic title="累计已发" value={stats.totalSent}
-              suffix={stats.totalReplies > 0 ? <span style={{ fontSize: 12, color: '#8c8c8c' }}> · {stats.totalReplies} 回复</span> : undefined}
+            <Statistic title={t('campaign.totalSent')} value={stats.totalSent}
+              suffix={stats.totalReplies > 0 ? <span style={{ fontSize: 12, color: '#8c8c8c' }}> · {stats.totalReplies} {t('page.campaigns.col.replies')}</span> : undefined}
               valueStyle={{ color: '#fa8c16' }} />
           </Card>
         </Col>
@@ -461,16 +461,16 @@ export default function CampaignsPage() {
             onChange={v => setStatusFilter(v)}
             style={{ width: 130 }}
             options={[
-              { value: 'all',       label: '全部状态' },
-              { value: 'draft',     label: '草稿' },
-              { value: 'running',   label: '运行中' },
-              { value: 'paused',    label: '已暂停' },
-              { value: 'completed', label: '已完成' },
+              { value: 'all',       label: t('common.all') },
+              { value: 'draft',     label: t('page.campaigns.status.draft') },
+              { value: 'running',   label: t('page.campaigns.status.running') },
+              { value: 'paused',    label: t('page.campaigns.status.paused') },
+              { value: 'completed', label: t('page.campaigns.status.completed') },
             ]}
           />
           <Input
             prefix={<SearchOutlined style={{ color: '#999' }} />}
-            placeholder="搜索投放名称 / 客户群 / 备注"
+            placeholder={t('common.search')}
             value={search}
             onChange={e => setSearch(e.target.value)}
             allowClear

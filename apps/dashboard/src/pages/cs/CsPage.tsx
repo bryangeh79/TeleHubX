@@ -126,6 +126,7 @@ function AdvancedSettingsTab({
   tenantId?: string;
   onSaved: () => void;
 }) {
+  const t = useT();
   const [dailyLimit, setDailyLimit] = useState<number>(50);
   const [quietEnabled, setQuietEnabled] = useState<boolean>(false);
   const [quietStart, setQuietStart] = useState<string>('22:00');
@@ -153,7 +154,7 @@ function AdvancedSettingsTab({
       antdMessage.success('已保存，立即生效');
       onSaved();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '保存失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -175,10 +176,7 @@ function AdvancedSettingsTab({
       <Card size="small" style={{ marginBottom: 12 }}>
         <Row gutter={12} align="middle">
           <Col flex="200px">
-            <Text strong>每对话每日上限</Text>
-            <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
-              防刷屏，超过后转人工
-            </div>
+            <Text strong>{t('page.cs.dailyLimit')}</Text>
           </Col>
           <Col flex="auto">
             <InputNumber
@@ -197,7 +195,7 @@ function AdvancedSettingsTab({
       <Card size="small" style={{ marginBottom: 12 }}>
         <Row gutter={12} align="middle" style={{ marginBottom: quietEnabled ? 12 : 0 }}>
           <Col flex="200px">
-            <Text strong>夜间静默时段</Text>
+            <Text strong>{t('page.cs.quietHours')}</Text>
             <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
               此时段 Bot 不回复（防夜间骚扰）
             </div>
@@ -460,7 +458,7 @@ export default function CsPage() {
       setBots(Array.isArray(botsRes.data) ? botsRes.data : []);
       setSettings(settingsRes.data ?? null);
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '加载失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -500,7 +498,7 @@ export default function CsPage() {
       }
       void load();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '操作失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.opFailed'));
     }
   };
 
@@ -518,7 +516,7 @@ export default function CsPage() {
           antdMessage.success('Bot 已删除');
           void load();
         } catch (err: any) {
-          antdMessage.error(err?.response?.data?.message ?? '删除失败');
+          antdMessage.error(err?.response?.data?.message ?? t('msg.deleteFailed'));
         }
       },
     });
@@ -1106,7 +1104,7 @@ export default function CsPage() {
                                                 await knowledgeApi.deleteKb(p.id);
                                                 antdMessage.success('产品已删除');
                                                 void load();
-                                              } catch { antdMessage.error('删除失败'); }
+                                              } catch { antdMessage.error(t('msg.deleteFailed')); }
                                             },
                                           });
                                         } },

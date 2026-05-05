@@ -157,7 +157,7 @@ export default function AccountsPage() {
       const groupList: Array<{ id: string; slotNum: number }> = Array.isArray(groupsRes.data) ? groupsRes.data : [];
       setGroupMap(new Map(groupList.map((g) => [g.id, g.slotNum])));
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '加载槽位失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -173,7 +173,7 @@ export default function AccountsPage() {
       antdMessage.success(`槽位 No.${slot.no} 已重置 — 可绑定新账号`);
       await reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '重置失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.resetFailed'));
     }
   };
 
@@ -186,7 +186,7 @@ export default function AccountsPage() {
       );
       await reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '删除失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.deleteFailed'));
     }
   };
 
@@ -467,7 +467,7 @@ export default function AccountsPage() {
 
       <Space style={{ marginBottom: 16 }}>
         <Input
-          placeholder="搜索手机号..."
+          placeholder={t('common.search')}
           prefix={<SearchOutlined />}
           value={phoneFilter}
           onChange={(e) => setPhoneFilter(e.target.value)}
@@ -475,29 +475,29 @@ export default function AccountsPage() {
           allowClear
         />
         <Select
-          placeholder="角色"
+          placeholder={t('common.role')}
           allowClear
           style={{ width: 120 }}
           value={roleFilter}
           onChange={(v) => setRoleFilter(v)}
           options={[
-            { value: 'cs',     label: '客服 CS' },
-            { value: 'ad',     label: '广告 AD' },
-            { value: 'hybrid', label: '混合 Hybrid' },
+            { value: 'cs',     label: t('page.accounts.role.cs') },
+            { value: 'ad',     label: t('page.accounts.role.ad') },
+            { value: 'hybrid', label: t('page.accounts.role.hybrid') },
           ]}
         />
         <Select
-          placeholder="状态"
+          placeholder={t('common.status')}
           allowClear
           style={{ width: 140 }}
           value={statusFilter}
           onChange={(v) => setStatusFilter(v)}
           options={[
-            { value: 'online',     label: '在线' },
-            { value: 'offline',    label: '离线' },
-            { value: 'connecting', label: '连接中' },
-            { value: 'error',      label: '异常' },
-            { value: 'banned',     label: '已封禁' },
+            { value: 'online',     label: t('page.accounts.status.online') },
+            { value: 'offline',    label: t('page.accounts.status.offline') },
+            { value: 'connecting', label: t('page.accounts.status.connecting') },
+            { value: 'error',      label: t('page.accounts.status.error') },
+            { value: 'banned',     label: t('page.accounts.status.banned') },
           ]}
         />
       </Space>

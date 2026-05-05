@@ -49,9 +49,9 @@ interface WizardState {
 }
 
 const PACE_INFO: Record<PacePreset, { label: string; daily: number; windows: number; tag?: string }> = {
-  conservative: { label: '保守', daily: 20, windows: 3, tag: '推荐' },
-  balanced:     { label: '平衡', daily: 30, windows: 3 },
-  aggressive:   { label: '投放', daily: 40, windows: 2 },
+  conservative: { label: 'Conservative', daily: 20, windows: 3, tag: 'Recommended' },
+  balanced:     { label: 'Balanced',     daily: 30, windows: 3 },
+  aggressive:   { label: 'Aggressive',   daily: 40, windows: 2 },
 };
 
 const SCHEDULE_OPTIONS: { value: ScheduleMode; label: string; icon: React.ReactNode }[] = [
@@ -123,7 +123,7 @@ function SummaryPanel({
         <Descriptions.Item label={t('campaign.wizard.summary.ad')}>{adText}</Descriptions.Item>
         <Descriptions.Item label={t('campaign.wizard.summary.greeting')}>{greetText}</Descriptions.Item>
         <Descriptions.Item label={t('wizard.step.account')}>{state.accountSourceMode === 'auto' ? t('campaign.wizard.account.auto') : `${t('campaign.wizard.account.manual')} (${state.adAccountIds.length})`}</Descriptions.Item>
-        <Descriptions.Item label={t('wizard.step.pace')}>{PACE_INFO[state.pacePreset].label}</Descriptions.Item>
+        <Descriptions.Item label={t('wizard.step.pace')}>{t(`pace.${state.pacePreset}`)}</Descriptions.Item>
       </Descriptions>
     </Card>
   );
@@ -507,8 +507,8 @@ function Step3({
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Radio checked={state.pacePreset === value} onChange={() => {}} />
-              <span style={{ fontWeight: 500 }}>{info.label}</span>
-              {info.tag && <Tag color="green" style={{ fontSize: 11 }}>{info.tag}</Tag>}
+              <span style={{ fontWeight: 500 }}>{t(`pace.${value}`)}</span>
+              {info.tag && <Tag color="green" style={{ fontSize: 11 }}>{t('cs.replyMode.recommended')}</Tag>}
             </div>
             <Text type="secondary" style={{ fontSize: 12 }}>
               每号每天 {info.daily} 条 · {info.windows} 时段分发
@@ -696,6 +696,7 @@ function Step4({
   adTemplates: any[];
   greetingTemplates: any[];
 }) {
+  const t = useT();
   const groupNames = customerGroups
     .filter(g => state.customerGroupIds.includes(g.id))
     .map(g => `${g.name} (${g.memberCount})`).join('、') || '—';
@@ -744,7 +745,7 @@ function Step4({
     { label: '广告内容', value: adDesc },
     { label: '开场方式', value: greetDesc },
     { label: '执行方式', value: execDesc },
-    { label: '节奏',     value: PACE_INFO[state.pacePreset].label },
+    { label: t('wizard.step.pace'), value: t(`pace.${state.pacePreset}`) },
     { label: '安全状态', value: safetyNode, extra: capacity?.message },
   ];
 
