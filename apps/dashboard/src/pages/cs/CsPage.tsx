@@ -151,7 +151,7 @@ function AdvancedSettingsTab({
         quietHoursStart: quietStart,
         quietHoursEnd: quietEnd,
       });
-      antdMessage.success('已保存，立即生效');
+      antdMessage.success(t('cs.adv.saved'));
       onSaved();
     } catch (err: any) {
       antdMessage.error(err?.response?.data?.message ?? t('msg.saveFailed'));
@@ -170,7 +170,7 @@ function AdvancedSettingsTab({
   return (
     <div style={{ padding: '16px 0', maxWidth: 720 }}>
       <Alert type="info" showIcon style={{ marginBottom: 16 }}
-        message="保存后立即生效，无需重启服务" />
+        message={t('cs.adv.saveTakesEffect')} />
 
       {/* 每日回复上限 */}
       <Card size="small" style={{ marginBottom: 12 }}>
@@ -184,7 +184,7 @@ function AdvancedSettingsTab({
               onChange={(v) => setDailyLimit(Number(v) || 50)}
               min={1}
               max={500}
-              addonAfter="条"
+              addonAfter={t('cs.adv.dailyLimitUnit')}
               style={{ width: 160 }}
             />
           </Col>
@@ -197,13 +197,13 @@ function AdvancedSettingsTab({
           <Col flex="200px">
             <Text strong>{t('page.cs.quietHours')}</Text>
             <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
-              此时段 Bot 不回复（防夜间骚扰）
+              {t('cs.adv.quietDesc')}
             </div>
           </Col>
           <Col flex="auto">
             <Switch checked={quietEnabled} onChange={setQuietEnabled} />
             <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
-              {quietEnabled ? '已开启' : '已关闭'}
+              {quietEnabled ? t('cs.adv.quietOn') : t('cs.adv.quietOff')}
             </Text>
           </Col>
         </Row>
@@ -213,12 +213,12 @@ function AdvancedSettingsTab({
             <Col flex="auto">
               <Space>
                 <Select value={quietStart} onChange={setQuietStart} size="small" style={{ width: 100 }}
-                  options={TIME_OPTIONS.map(t => ({ value: t, label: t }))} />
-                <Text type="secondary">至</Text>
+                  options={TIME_OPTIONS.map(opt => ({ value: opt, label: opt }))} />
+                <Text type="secondary">{t('cs.adv.quietTo')}</Text>
                 <Select value={quietEnd} onChange={setQuietEnd} size="small" style={{ width: 100 }}
-                  options={TIME_OPTIONS.map(t => ({ value: t, label: t }))} />
+                  options={TIME_OPTIONS.map(opt => ({ value: opt, label: opt }))} />
                 <Text type="secondary" style={{ fontSize: 11 }}>
-                  （跨天会自动识别，例如 22:00 - 08:00）
+                  {t('cs.adv.quietHint')}
                 </Text>
               </Space>
             </Col>
@@ -230,15 +230,15 @@ function AdvancedSettingsTab({
       <Card size="small" style={{ marginBottom: 12, background: '#fafafa' }}>
         <Row gutter={12} align="middle">
           <Col flex="200px">
-            <Text strong>回复最小间隔</Text>
+            <Text strong>{t('cs.adv.replyInterval')}</Text>
             <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
-              防止 Bot 高频回复
+              {t('cs.adv.replyIntervalDesc')}
             </div>
           </Col>
           <Col flex="auto">
-            <Tag color="default">3 秒（系统默认）</Tag>
+            <Tag color="default">{t('cs.adv.replyIntervalDefault')}</Tag>
             <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
-              如需调整请联系管理员（修改 .env AI_MIN_INTERVAL_MS）
+              {t('cs.adv.replyIntervalAdminHint')}
             </Text>
           </Col>
         </Row>
@@ -247,7 +247,7 @@ function AdvancedSettingsTab({
       <div style={{ marginTop: 20, textAlign: 'right' }}>
         <Button type="primary" icon={<CheckCircleFilled />}
           onClick={handleSave} loading={saving} disabled={!tenantId}>
-          保存设置
+          {t('cs.adv.saveBtn')}
         </Button>
       </div>
     </div>
@@ -257,43 +257,44 @@ function AdvancedSettingsTab({
 // ── 客户消息处理流程图 ────────────────────────────────────────────────
 // 视觉化展示 6 步消息流，FAQ 命中分支用绿/红 label 标注
 function MessageFlowDiagram() {
+  const t = useT();
   const steps = [
     {
       icon: <UserOutlined style={{ fontSize: 22, color: '#1677ff' }} />,
       bg: '#e6f4ff',
-      title: '客户私信 Bot',
-      subtitle: '收到消息',
+      title: t('cs.flow.node.user'),
+      subtitle: t('cs.flow.node.user.sub'),
     },
     {
       icon: <ClockCircleOutlined style={{ fontSize: 22, color: '#fa8c16' }} />,
       bg: '#fff7e6',
-      title: '聚合 3s',
-      subtitle: '等待更多消息',
+      title: t('cs.flow.node.aggregate'),
+      subtitle: t('cs.flow.node.aggregate.sub'),
     },
     {
       icon: <QuestionCircleOutlined style={{ fontSize: 22, color: '#722ed1' }} />,
       bg: '#f9f0ff',
-      title: 'FAQ 命中?',
-      subtitle: '知识库匹配',
+      title: t('cs.flow.node.faq'),
+      subtitle: t('cs.flow.node.faq.sub'),
       isBranch: true,
     },
     {
       icon: <BookOutlined style={{ fontSize: 22, color: '#13c2c2' }} />,
       bg: '#e6fffb',
-      title: 'AI 检索知识库',
-      subtitle: 'AI 生成回复',
+      title: t('cs.flow.node.ai'),
+      subtitle: t('cs.flow.node.ai.sub'),
     },
     {
       icon: <SafetyOutlined style={{ fontSize: 22, color: '#fa8c16' }} />,
       bg: '#fff7e6',
-      title: 'Guardrail 过滤',
-      subtitle: '安全与合规检查',
+      title: t('cs.flow.node.guardrail'),
+      subtitle: t('cs.flow.node.guardrail.sub'),
     },
     {
       icon: <SendOutlined style={{ fontSize: 22, color: '#52c41a' }} />,
       bg: '#f6ffed',
-      title: '发送 / 转人工',
-      subtitle: '回复客户 / 转人工',
+      title: t('cs.flow.node.send'),
+      subtitle: t('cs.flow.node.send.sub'),
     },
   ];
 
@@ -354,7 +355,7 @@ function MessageFlowDiagram() {
                     fontSize: 11, color: '#52c41a', fontWeight: 600,
                     marginBottom: 2,
                   }}>
-                    命中 →
+                    {t('cs.flow.hit')}
                   </span>
                 )}
                 <span style={{
@@ -370,7 +371,7 @@ function MessageFlowDiagram() {
                     fontSize: 11, color: '#cf1322', fontWeight: 600,
                     marginTop: 2,
                   }}>
-                    未命中 ↓
+                    {t('cs.flow.miss')}
                   </span>
                 )}
               </div>
@@ -390,8 +391,8 @@ function MessageFlowDiagram() {
         color: '#595959',
       }}>
         <Space size={16} wrap>
-          <span><Tag color="success" style={{ fontSize: 11, marginRight: 4 }}>命中</Tag>FAQ 直接命中 → 跳过 AI 检索，直接进 Guardrail 过滤后发送</span>
-          <span><Tag color="error" style={{ fontSize: 11, marginRight: 4 }}>未命中</Tag>FAQ 没匹配 → 走 AI 检索知识库生成回复</span>
+          <span><Tag color="success" style={{ fontSize: 11, marginRight: 4 }}>{t('cs.flow.hitTag')}</Tag>{t('cs.flow.hitDesc')}</span>
+          <span><Tag color="error" style={{ fontSize: 11, marginRight: 4 }}>{t('cs.flow.missTag')}</Tag>{t('cs.flow.missDesc')}</span>
         </Space>
       </div>
     </div>
@@ -689,9 +690,9 @@ export default function CsPage() {
 
   const botStatusBadge = activeBot
     ? activeBot.isActive
-      ? <Badge status="processing" text="轮询中" />
-      : <Badge status="default" text="已停止" />
-    : <Badge status="error" text="未配置" />;
+      ? <Badge status="processing" text={t('cs.bot.polling')} />
+      : <Badge status="default" text={t('cs.bot.stopped')} />
+    : <Badge status="error" text={t('cs.bot.notSet')} />;
 
   return (
     <div>
@@ -734,12 +735,12 @@ export default function CsPage() {
 
       {/* Bot 配置 */}
       <Card
-        title={<Space><ApiOutlined />Bot 配置</Space>}
+        title={<Space><ApiOutlined />{t('cs.bot.section')}</Space>}
         style={{ marginBottom: 16 }}
         extra={
           !activeBot && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setRegisterVisible(true)}>
-              添加 Bot Token
+              {t('cs.bot.addToken')}
             </Button>
           )
         }
@@ -759,14 +760,14 @@ export default function CsPage() {
                     @{activeBot.botUsername}
                   </Typography.Link>
                   {activeBot.isActive
-                    ? <Tag color="green" icon={<PlayCircleOutlined />}>轮询中</Tag>
-                    : <Tag color="default" icon={<PauseCircleOutlined />}>已停止</Tag>}
+                    ? <Tag color="green" icon={<PlayCircleOutlined />}>{t('cs.bot.polling')}</Tag>
+                    : <Tag color="default" icon={<PauseCircleOutlined />}>{t('cs.bot.stopped')}</Tag>}
                 </Space>
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  Bot 记录 ID: <Text code copyable={{ text: activeBot.id }} style={{ fontSize: 11 }}>{activeBot.id.slice(0, 8)}…</Text>
-                  {' · '}已接收 {activeBot.pollingOffset} 条 update
+                  {t('cs.bot.recordId')}: <Text code copyable={{ text: activeBot.id }} style={{ fontSize: 11 }}>{activeBot.id.slice(0, 8)}…</Text>
+                  {' · '}{t('cs.bot.received', { count: activeBot.pollingOffset })}
                   {activeBot.lastPollAt && (
-                    <> · 最后活动：{new Date(activeBot.lastPollAt).toLocaleTimeString()}</>
+                    <> · {t('cs.bot.lastActivity')}: {new Date(activeBot.lastPollAt).toLocaleTimeString()}</>
                   )}
                 </Text>
                 {activeBot.lastError && (
@@ -782,16 +783,16 @@ export default function CsPage() {
                   icon={activeBot.isActive ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
                   onClick={() => handleToggle(activeBot)}
                 >
-                  {activeBot.isActive ? '停止轮询' : '启动轮询'}
+                  {activeBot.isActive ? t('cs.bot.stopPolling') : t('cs.bot.startPolling')}
                 </Button>
                 <Tooltip title="检查 webhook 是否被其他系统占用，并可一键清除">
                   <Button icon={<WarningOutlined />} onClick={() => handleDiagnose(activeBot)}>
-                    诊断
+                    {t('cs.bot.diagnose')}
                   </Button>
                 </Tooltip>
                 <Tooltip title="切换到不同的 Bot（删除当前记录，注册新 Bot 的 Token）">
                   <Button icon={<SwapOutlined />} onClick={() => openReplace(activeBot)}>
-                    切换 Bot
+                    {t('cs.bot.switch')}
                   </Button>
                 </Tooltip>
                 <Tooltip title="删除 Bot 记录">
@@ -804,10 +805,10 @@ export default function CsPage() {
           <div style={{ textAlign: 'center', padding: '32px 0', color: '#999' }}>
             <ApiOutlined style={{ fontSize: 40, marginBottom: 12, display: 'block' }} />
             <Paragraph type="secondary">
-              尚未配置 Bot。前往 BotFather 创建 Bot 后，将 Token 填入此处。
+              {t('cs.bot.empty')}
             </Paragraph>
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setRegisterVisible(true)}>
-              添加 Bot Token
+              {t('cs.bot.addToken')}
             </Button>
           </div>
         )}
@@ -865,11 +866,11 @@ export default function CsPage() {
                   </Paragraph>
                   <div style={{ marginTop: 12 }}>
                     {m.key === 'faq' && (
-                      <Tag color="green" style={{ fontSize: 11 }}>无需 AI Key</Tag>
+                      <Tag color="green" style={{ fontSize: 11 }}>{t('cs.tag.noAiKey')}</Tag>
                     )}
                     {m.key === 'smart' && (
                       <Tag color={aiConfigured ? 'blue' : 'orange'} style={{ fontSize: 11 }}>
-                        {aiConfigured ? '已配 AI Key' : '需配 AI Key'}
+                        {aiConfigured ? t('cs.tag.hasAiKey') : t('cs.tag.needAiKey')}
                       </Tag>
                     )}
                   </div>
@@ -883,16 +884,16 @@ export default function CsPage() {
             style={{ marginTop: 12 }}
             type="warning"
             showIcon
-            message="未配置 AI API Key"
-            description="请前往 AI Settings 页面，在服务端 .env 中配置 OPENAI_API_KEY / DEEPSEEK_API_KEY / GEMINI_API_KEY 后重启 telehubx-server，再启用「AI 智能 + FAQ」模式。"
-            action={<Button size="small" type="link" href="/ai">前往 AI Settings</Button>}
+            message={t('cs.alert.noAiKey.title')}
+            description={t('cs.alert.noAiKey.desc')}
+            action={<Button size="small" type="link" href="/ai">{t('cs.alert.noAiKey.action')}</Button>}
           />
         )}
         <Alert
           style={{ marginTop: 12 }}
           type="info"
           showIcon
-          message="模式切换立即生效。进入 Leads 页的对话被人工接管后，AI 永远不会插嘴。"
+          message={t('cs.alert.modeImmediate')}
         />
       </Card>
 
@@ -903,17 +904,17 @@ export default function CsPage() {
           items={[
             {
               key: 'overview',
-              label: '概览',
+              label: t('cs.tab.overview'),
               children: (
                 <div>
                   <Row gutter={16} style={{ marginBottom: 24 }}>
                     <Col span={6}>
-                      <Statistic title="知识库" value={kbCount} suffix="个" />
+                      <Statistic title={t('cs.stat.kb')} value={kbCount} suffix={t('cs.stat.kbUnit')} />
                     </Col>
                     <Col span={6}>
                       <Statistic
-                        title="当前模式"
-                        value={currentMode === 'smart' ? '智能 + FAQ' : currentMode === 'faq' ? 'FAQ Only' : '关闭'}
+                        title={t('cs.stat.currentMode')}
+                        value={currentMode === 'smart' ? t('cs.stat.modeSmart') : currentMode === 'faq' ? t('cs.stat.modeFaq') : t('cs.stat.modeOff')}
                         valueStyle={{
                           color: currentMode === 'smart' ? '#1677ff' : currentMode === 'faq' ? '#52c41a' : '#999',
                           fontSize: 18,
@@ -921,26 +922,26 @@ export default function CsPage() {
                       />
                     </Col>
                     <Col span={6}>
-                      <Statistic title="每日上限" value={settings?.dailyReplyLimit ?? 50} suffix="条/对话" />
+                      <Statistic title={t('cs.stat.dailyLimit')} value={settings?.dailyReplyLimit ?? 50} suffix={t('cs.stat.dailyLimitUnit')} />
                     </Col>
                     <Col span={6}>
-                      <Statistic title="转人工触发词" value="13+" />
+                      <Statistic title={t('cs.stat.handoffTriggers')} value="13+" />
                     </Col>
                   </Row>
 
                   <div style={{ marginTop: 16 }}>
-                    <Text strong style={{ fontSize: 14 }}>客户消息处理流程</Text>
+                    <Text strong style={{ fontSize: 14 }}>{t('cs.flow.title')}</Text>
                   </div>
                   <MessageFlowDiagram />
                   <Paragraph type="secondary" style={{ marginTop: 12, fontSize: 12 }}>
-                    需要人工处理的对话会出现在「Leads」页的待处理列表
+                    {t('cs.flow.handoffNote')}
                   </Paragraph>
                 </div>
               ),
             },
             {
               key: 'knowledge',
-              label: <span>知识库 <Tag color="blue" style={{ marginLeft: 4 }}>{(companyKb ? 1 : 0) + productKbs.length}</Tag></span>,
+              label: <span>{t('cs.tab.knowledge')} <Tag color="blue" style={{ marginLeft: 4 }}>{(companyKb ? 1 : 0) + productKbs.length}</Tag></span>,
               children: (
                 <div style={{ padding: '12px 0' }}>
                   {/* ── 公司资料 ── WAhubX 风格大卡片 */}
@@ -948,13 +949,13 @@ export default function CsPage() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                       <Space>
                         <BankOutlined style={{ color: '#1677ff', fontSize: 16 }} />
-                        <Text strong style={{ fontSize: 14 }}>公司资料</Text>
-                        {companyKb && <Tag color="success" style={{ fontSize: 11 }}>已配置</Tag>}
+                        <Text strong style={{ fontSize: 14 }}>{t('cs.kb.company')}</Text>
+                        {companyKb && <Tag color="success" style={{ fontSize: 11 }}>{t('cs.kb.configured')}</Tag>}
                       </Space>
                       <Button size="small" icon={companyKb ? <EditOutlined /> : <PlusOutlined />}
                         type={companyKb ? 'default' : 'primary'}
                         onClick={() => setCompanyWizardOpen(true)}>
-                        {companyKb ? '编辑' : '设置'}
+                        {companyKb ? t('cs.kb.edit') : t('cs.kb.setup')}
                       </Button>
                     </div>
 
@@ -965,7 +966,7 @@ export default function CsPage() {
                         || (companyKb.name && !companyKb.name.startsWith('undefined')
                           ? companyKb.name.replace(' - 公司资料', '')
                           : '')
-                        || '未命名公司';
+                        || t('cs.kb.unnamedCompany');
                       const contactCount = (info.contacts ?? []).filter((c: any) => c.value).length;
                       return (
                         <Card hoverable style={{ borderColor: '#bae0ff' }}
@@ -983,13 +984,13 @@ export default function CsPage() {
                                 {info.industry && <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>· {info.industry}</Text>}
                               </div>
                               <Paragraph style={{ fontSize: 12, color: '#666', margin: '4px 0 8px', whiteSpace: 'pre-wrap' }}
-                                ellipsis={{ rows: 2, expandable: true, symbol: '展开' }}>
+                                ellipsis={{ rows: 2, expandable: true, symbol: t('cs.kb.expand') }}>
                                 {companyKb.goalPrompt || info.about || '—'}
                               </Paragraph>
                               <Space size={4} wrap>
-                                {contactCount > 0 && <Tag color="green" style={{ fontSize: 10 }}>{contactCount} 个联系方式</Tag>}
+                                {contactCount > 0 && <Tag color="green" style={{ fontSize: 10 }}>{t('cs.kb.contactCount', { count: contactCount })}</Tag>}
                                 {info.email && <Tag color="cyan" style={{ fontSize: 10 }}>📧 {info.email}</Tag>}
-                                {info.website && <Tag color="purple" style={{ fontSize: 10 }}>🌐 官网</Tag>}
+                                {info.website && <Tag color="purple" style={{ fontSize: 10 }}>🌐 {t('cs.kb.website')}</Tag>}
                                 {info.hoursFrom && <Tag style={{ fontSize: 10 }}>⏰ {info.hoursFrom}-{info.hoursTo} {info.timeFrom}-{info.timeTo}</Tag>}
                               </Space>
                             </div>
@@ -1000,7 +1001,7 @@ export default function CsPage() {
                       <Card style={{ background: '#fafafa', borderStyle: 'dashed' }}
                         styles={{ body: { padding: '20px 16px', textAlign: 'center' } }}>
                         <Text type="secondary" style={{ fontSize: 12 }}>
-                          还没有公司资料 — 填写后 Bot 能回答「你们是哪家公司？」「怎么联系？」
+                          {t('cs.kb.companyEmpty')}
                         </Text>
                       </Card>
                     )}
@@ -1013,12 +1014,12 @@ export default function CsPage() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                       <Space>
                         <AppstoreOutlined style={{ color: '#52c41a', fontSize: 16 }} />
-                        <Text strong style={{ fontSize: 14 }}>产品资料</Text>
-                        {productKbs.length > 0 && <Tag color="success" style={{ fontSize: 11 }}>{productKbs.length} 个</Tag>}
+                        <Text strong style={{ fontSize: 14 }}>{t('cs.kb.product')}</Text>
+                        {productKbs.length > 0 && <Tag color="success" style={{ fontSize: 11 }}>{t('cs.kb.productCount', { count: productKbs.length })}</Tag>}
                       </Space>
                       <Button size="small" type="primary" icon={<PlusOutlined />}
                         onClick={() => setProductWizardOpen(true)}>
-                        管理产品
+                        {t('cs.kb.manageProduct')}
                       </Button>
                     </div>
 
@@ -1026,7 +1027,7 @@ export default function CsPage() {
                       <Card style={{ background: '#fafafa', borderStyle: 'dashed' }}
                         styles={{ body: { padding: '20px 16px', textAlign: 'center' } }}>
                         <Text type="secondary" style={{ fontSize: 12 }}>
-                          还没有产品 — 上传介绍书，AI 一键生成 30-50 条 FAQ
+                          {t('cs.kb.productEmpty')}
                         </Text>
                       </Card>
                     ) : (
@@ -1061,7 +1062,7 @@ export default function CsPage() {
                                       )}
                                     </div>
                                     <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>
-                                      1 文档 · {faqCount === undefined ? '...' : `${faqCount} FAQ`}
+                                      {faqCount === undefined ? t('cs.kb.docCountLoading') : t('cs.kb.docCount', { faqCount })}
                                       {goalShort && <span style={{ marginLeft: 10 }}>· 🎯 {goalShort}</span>}
                                     </div>
                                   </div>
@@ -1123,19 +1124,19 @@ export default function CsPage() {
                   </div>
 
                   <div style={{ marginTop: 12, padding: '8px 12px', background: '#fffbe6', borderRadius: 6, fontSize: 11, color: '#666' }}>
-                    💡 完整的 KB / FAQ / 文件管理请前往 <Button type="link" href="/knowledge" style={{ padding: 0, fontSize: 11 }}>知识库页面</Button>
+                    💡 {t('cs.kb.fullManageHint')} <Button type="link" href="/knowledge" style={{ padding: 0, fontSize: 11 }}>{t('cs.kb.knowledgePage')}</Button>
                   </div>
                 </div>
               ),
             },
             {
               key: 'advanced',
-              label: '高级设置',
+              label: t('cs.tab.advanced'),
               children: <AdvancedSettingsTab settings={settings} tenantId={tenant?.id} onSaved={() => void load()} />,
             },
             {
               key: 'human-agents',
-              label: '人工接管',
+              label: t('cs.tab.handoff'),
               children: <HumanAgentsCard tenantId={tenant?.id} />,
             },
           ]}
@@ -1154,13 +1155,12 @@ export default function CsPage() {
           <Alert
             type="warning"
             showIcon
-            message="切换 Bot 会删除旧记录并停止轮询，然后用新 Token 注册不同的 Bot。一个 Telegram Bot ID 只能对应一个 Token，所以这是切换到完全不同的 Bot。"
+            message={t('cs.bot.switchWarning')}
             style={{ marginBottom: 16 }}
           />
         )}
         <Paragraph type="secondary" style={{ fontSize: 13 }}>
-          前往 <Text code>@BotFather</Text> 发送 <Text code>/newbot</Text> 或 <Text code>/token</Text>，
-          复制 Bot Token 后填入下方。系统会自动验证并开始长轮询。
+          {t('cs.bot.tokenHelp')}
         </Paragraph>
         <Form form={form} layout="vertical" onFinish={handleRegister}>
           <Form.Item

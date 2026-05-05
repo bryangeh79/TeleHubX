@@ -132,7 +132,7 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
 
   const handleFetchUrl = async () => {
     const website = form.getFieldValue('website');
-    if (!website?.startsWith('http')) { antdMessage.warning('请先填写正确的官网地址（以 http 开头）'); return; }
+    if (!website?.startsWith('http')) { antdMessage.warning(t('company.fetch.warn')); return; }
     setFetchingUrl(true);
     try {
       // Step 1: 提取网页文字（独立 try，失败明确报网络错误）
@@ -145,9 +145,9 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
         }
         extractedText = res.data.text;
         setExtraText(`[从官网提取]\n${extractedText}`);
-        antdMessage.loading({ content: `已提取 ${res.data.length} 字，AI 正在生成简介...`, key: 'fetch' });
+        antdMessage.loading({ content: t('company.fetch.loading', { count: res.data.length }), key: 'fetch' });
       } catch {
-        antdMessage.error('无法访问该网址，请检查网址是否正确或手动填写');
+        antdMessage.error(t('company.fetch.urlBad'));
         return;
       }
 
@@ -161,13 +161,13 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
         const overview = genRes.data?.overview?.trim();
         if (overview && !form.getFieldValue('about')?.trim()) {
           form.setFieldValue('about', overview);
-          antdMessage.success({ content: '已从官网提取内容，并自动生成公司简介 ✅', key: 'fetch' });
+          antdMessage.success({ content: t('company.fetch.extractedAndAi'), key: 'fetch' });
         } else {
-          antdMessage.success({ content: `已从官网提取 ${extractedText.length} 字内容 ✅`, key: 'fetch' });
+          antdMessage.success({ content: t('company.fetch.extractedOnly', { count: extractedText.length }), key: 'fetch' });
         }
       } catch {
         // AI 失败不阻断主流程，仍保留已提取的内容
-        antdMessage.warning({ content: `已提取网页内容，但 AI 简介生成失败（请检查 AI Key 配置）。提取的内容已保存，点「AI 生成档案预览」时仍会用到。`, key: 'fetch', duration: 5 });
+        antdMessage.warning({ content: t('company.fetch.aiFail'), key: 'fetch', duration: 5 });
       }
     } finally {
       setFetchingUrl(false);
@@ -203,7 +203,7 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
     try { await form.validateFields(['companyName', 'industry', 'about']); } catch { return; }
     // Re-merge 一次（validateFields 触发后 form 状态更新）
     values = { ...formMirror, ...form.getFieldsValue() };
-    if (!values.about?.trim()) { antdMessage.warning('请填写公司简介'); return; }
+    if (!values.about?.trim()) { antdMessage.warning(t('company.gen.aboutRequired')); return; }
 
     setGenerating(true);
     try {
@@ -224,7 +224,7 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
       setGeneratedProfile(profile);
       setStep(1);
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? 'AI 生成失败，请重试');
+      antdMessage.error(err?.response?.data?.message ?? t('company.gen.fail'));
     } finally {
       setGenerating(false);
     }
@@ -235,7 +235,7 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
     const values: any = { ...formMirror, ...form.getFieldsValue() };
 
     if (!values.companyName?.trim()) {
-      antdMessage.warning('公司名称不能为空，请回到第 1 步填写');
+      antdMessage.warning(t('company.save.nameRequired'));
       setStep(0);
       return;
     }
@@ -275,10 +275,10 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
         const res = await knowledgeApi.createKb(dto);
         setExistingKbId(res.data.id);
       }
-      antdMessage.success('公司资讯已保存，Bot 立即可用 ✅');
+      antdMessage.success(t('company.save.ok'));
       onClose();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '保存失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -329,7 +329,7 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
           onValuesChange={(_, all) => setFormMirror(prev => ({ ...prev, ...all }))}
         >
           <Alert type="info" showIcon style={{ marginBottom: 16 }}
-            message="填写后 AI 会自动整理成结构化档案，Bot 用来回答「你们是哪家公司？」「怎么联系？」等问题" />
+            message={t('company.alert.intro')} />
 
           {/* 公司名 + 行业 */}
           <Row gutter={12}>
@@ -348,15 +348,15 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
           {/* Email + 官网 */}
           <Row gutter={12}>
             <Col span={12}>
-              <Form.Item name="email" label="Email">
+              <Form.Item name="email" label={t('company.field.email')}>
                 <Input prefix="📧" placeholder="hello@company.com" />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="website" label="官网" extra={
+              <Form.Item name="website" label={t('company.field.website')} extra={
                 <Button size="small" type="link" icon={<GlobalOutlined />}
                   onClick={handleFetchUrl} loading={fetchingUrl} style={{ padding: 0 }}>
-                  从网站自动提取资讯
+                  {t('company.fetch.fromSite')}
                 </Button>
               }>
                 <Input prefix="🌐" placeholder="https://yoursite.com" />
@@ -365,17 +365,17 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
           </Row>
 
           {/* 公司简介 */}
-          <Form.Item name="about" label="公司简介" rules={[{ required: true, message: '必填' }]}
-            extra="2-3 句话：做什么 / 服务谁 / 核心优势">
+          <Form.Item name="about" label={t('company.field.about')} rules={[{ required: true, message: t('form.required') }]}
+            extra={t('company.field.aboutHint')}>
             <TextArea autoSize={{ minRows: 3, maxRows: 5 }}
-              placeholder="例如：我们是一家专注于 SaaS 自动化的科技公司，为中小企业提供 Telegram 客服 + 广告投放一体化解决方案，帮助团队减少人工、提升转化率。" />
+              placeholder={t('company.field.aboutPlaceholder')} />
           </Form.Item>
 
           {/* 联系方式 */}
           <Form.Item label={
             <Space>
-              <span>联系方式</span>
-              <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>（填越多越好）</Text>
+              <span>{t('company.field.contacts')}</span>
+              <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>{t('company.field.contactsHint')}</Text>
             </Space>
           }>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -407,15 +407,15 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
                 </Row>
               ))}
               {contacts.length < CONTACT_TYPES.length && (
-                <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={addContact} style={{ width: 140 }}>
-                  添加联系方式
+                <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={addContact} style={{ width: 160 }}>
+                  {t('company.field.contactsAdd')}
                 </Button>
               )}
             </div>
           </Form.Item>
 
           {/* 营业时间 */}
-          <Form.Item label="营业时间">
+          <Form.Item label={t('company.field.hours')}>
             <Row gutter={8} align="middle">
               <Col flex="auto">
                 <Select value={hoursFrom} onChange={setHoursFrom} size="small" style={{ width: '100%' }}>
@@ -423,7 +423,7 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
                 </Select>
               </Col>
               <Col flex="20px" style={{ textAlign: 'center' }}>
-                <Text type="secondary" style={{ fontSize: 12 }}>至</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>{t('company.field.hoursTo')}</Text>
               </Col>
               <Col flex="auto">
                 <Select value={hoursTo} onChange={setHoursTo} size="small" style={{ width: '100%' }}>
@@ -454,10 +454,10 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
           <Form.Item label={
             <Space>
               <UploadOutlined />
-              <span>公司介绍书（可选）</span>
-              <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>支持 PDF / Word / TXT</Text>
+              <span>{t('company.field.brochure')}</span>
+              <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>{t('company.field.brochureFormat')}</Text>
             </Space>
-          } extra="上传后 AI 会从介绍书里额外提取资讯，让通用 FAQ 更准确">
+          } extra={t('company.field.brochureHint')}>
             <Upload.Dragger
               accept=".pdf,.doc,.docx,.txt"
               multiple={false}
@@ -473,32 +473,32 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
                     enabled: false,
                   });
                   const tmpId = kbRes.data.id;
-                  antdMessage.loading({ content: '正在解析文件...', key: 'up' });
+                  antdMessage.loading({ content: t('company.upload.parsing'), key: 'up' });
                   const srcRes = await knowledgeApi.uploadSource(tmpId, file);
                   const txt = srcRes.data?.rawText ?? '';
                   if (txt) {
                     setExtraText(`[从介绍书提取]\n${txt}`);
                     setUploadedFileName(file.name);
-                    antdMessage.success({ content: `已从「${file.name}」提取 ${txt.length} 字`, key: 'up' });
+                    antdMessage.success({ content: t('company.upload.extracted', { name: file.name, count: txt.length }), key: 'up' });
                   }
                   await knowledgeApi.deleteKb(tmpId);
                 } catch {
-                  antdMessage.error({ content: '文件解析失败', key: 'up' });
+                  antdMessage.error({ content: t('company.upload.fail'), key: 'up' });
                 }
                 return false;
               }}
             >
               {uploadedFileName ? (
-                <p style={{ color: '#52c41a' }}>✅ 已上传：{uploadedFileName}</p>
+                <p style={{ color: '#52c41a' }}>{t('company.upload.uploaded', { name: uploadedFileName })}</p>
               ) : (
-                <p>点击或拖拽介绍书至此处</p>
+                <p>{t('company.upload.click')}</p>
               )}
             </Upload.Dragger>
           </Form.Item>
 
           {generating && (
             <div style={{ textAlign: 'center', padding: '12px 0', color: '#1677ff' }}>
-              <Spin /> <span style={{ marginLeft: 8 }}>AI 正在整理公司档案...</span>
+              <Spin /> <span style={{ marginLeft: 8 }}>{t('company.gen.spinning')}</span>
             </div>
           )}
         </Form>
@@ -507,9 +507,9 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
       {step === 1 && (
         <>
           <Alert type="success" showIcon style={{ marginBottom: 16 }}
-            message="AI 已生成公司档案。你可以直接编辑内容，满意后点「确认保存」。" />
+            message={t('company.review.alert')} />
           <div style={{ marginBottom: 8 }}>
-            <Text strong><EditOutlined style={{ marginRight: 4 }} />公司档案（Bot 用于回答公司相关问题）</Text>
+            <Text strong><EditOutlined style={{ marginRight: 4 }} />{t('company.review.label')}</Text>
           </div>
           <TextArea
             value={generatedProfile}
@@ -518,7 +518,7 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
             style={{ fontFamily: 'inherit' }}
           />
           <div style={{ marginTop: 10, fontSize: 12, color: '#999' }}>
-            💡 Bot 收到「你们是哪家公司？」「怎么联系？」「几点营业？」时，会基于此档案自然回答
+            {t('company.review.hint')}
           </div>
         </>
       )}

@@ -108,6 +108,7 @@ const CATEGORY_OPTIONS = [
 
 // ── 产品列表卡 ─────────────────────────────────────────────────────────
 function ProductCard({ kb, onEdit, onDelete }: { kb: any; onEdit: () => void; onDelete: () => void }) {
+  const t = useT();
   let info: any = {};
   try { info = JSON.parse(kb.description ?? '{}'); } catch {}
   return (
@@ -126,8 +127,8 @@ function ProductCard({ kb, onEdit, onDelete }: { kb: any; onEdit: () => void; on
           )}
         </div>
         <Space size={4}>
-          <Button size="small" icon={<EditOutlined />} onClick={onEdit}>编辑</Button>
-          <Popconfirm title="确认删除此产品？" onConfirm={onDelete} okText="删除" okButtonProps={{ danger: true }} cancelText="取消">
+          <Button size="small" icon={<EditOutlined />} onClick={onEdit}>{t('product.editBtn')}</Button>
+          <Popconfirm title={t('product.deleteConfirm')} onConfirm={onDelete} okText={t('common.delete')} okButtonProps={{ danger: true }} cancelText={t('common.cancel')}>
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
         </Space>
@@ -217,9 +218,9 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
   const handleDeleteProduct = async (kbId: string) => {
     try {
       await knowledgeApi.deleteKb(kbId);
-      antdMessage.success('产品已删除');
+      antdMessage.success(t('product.deleteOk'));
       void loadProducts();
-    } catch { antdMessage.error('删除失败'); }
+    } catch { antdMessage.error(t('msg.deleteFailed')); }
   };
 
   const handleGenerate = async () => {
@@ -227,11 +228,11 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
     const productName = (formMirror.productName ?? form.getFieldValue('productName') ?? '').trim();
     const price = formMirror.price ?? form.getFieldValue('price');
     if (!productName) {
-      antdMessage.warning('请回到第 2 步填写产品名称');
+      antdMessage.warning(t('product.gen.nameRequired'));
       setStep(1);
       return;
     }
-    if (!rawText.trim()) { antdMessage.warning('请先填写产品描述或上传介绍书'); return; }
+    if (!rawText.trim()) { antdMessage.warning(t('product.gen.descRequired')); return; }
 
     setGenerating(true);
     try {
@@ -245,7 +246,7 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
       setFaq(res.data.faq ?? []);
       setStep(4); // → 确认页
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? 'AI 生成失败，请重试');
+      antdMessage.error(err?.response?.data?.message ?? t('product.gen.fail'));
     } finally { setGenerating(false); }
   };
 
@@ -253,7 +254,7 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
     // 合并 form 实时值 + formMirror（跨步骤备份）
     const fv = { ...formMirror, ...form.getFieldsValue() } as ProductForm;
     if (!fv.productName?.trim()) {
-      antdMessage.warning('请回第 2 步填写产品名称');
+      antdMessage.warning(t('product.save.nameRequired'));
       setStep(1);
       return;
     }
@@ -291,11 +292,11 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
       if (faq.length > 0) {
         await knowledgeApi.bulkImport(kbId, faq.map(f => ({ question: f.question, answer: f.answer, tags: f.tags })));
       }
-      antdMessage.success(`产品已保存，含 ${faq.length} 条 FAQ ✅`);
+      antdMessage.success(t('product.save.ok', { count: faq.length }));
       setShowEditor(false);
       void loadProducts();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '保存失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.saveFailed'));
     } finally { setSaving(false); }
   };
 
@@ -312,21 +313,21 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
     <Drawer
       open={open}
       onClose={onClose}
-      title={<Space><AppstoreOutlined style={{ color: '#1677ff' }} /><span>产品管理</span></Space>}
+      title={<Space><AppstoreOutlined style={{ color: '#1677ff' }} /><span>{t('product.title')}</span></Space>}
       width={showEditor ? 880 : 480}
       extra={!showEditor ? (
-        <Button type="primary" icon={<PlusOutlined />} onClick={openNewProduct}>添加产品</Button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={openNewProduct}>{t('product.add')}</Button>
       ) : null}
     >
       {!showEditor ? (
         <div>
           <Alert type="info" showIcon style={{ marginBottom: 16 }}
-            message="每个产品都有独立的 FAQ 和 Bot 销售目标。Bot 会根据客户咨询自动匹配对应产品知识库回答。" />
+            message={t('product.intro')} />
           {loadingProducts ? (
             <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
           ) : products.length === 0 ? (
-            <Empty description="还没有产品 — 点右上角「添加产品」开始">
-              <Button type="primary" icon={<PlusOutlined />} onClick={openNewProduct}>添加第一个产品</Button>
+            <Empty description={t('product.empty')}>
+              <Button type="primary" icon={<PlusOutlined />} onClick={openNewProduct}>{t('product.addFirst')}</Button>
             </Empty>
           ) : (
             products.map((kb) => (
@@ -399,12 +400,12 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
                   <Select placeholder={t('form.placeholder.optional')} allowClear
                     options={CATEGORY_OPTIONS.map(v => ({ value: v, label: v }))} />
                 </Form.Item>
-                <Form.Item name="customerType" label="客户类型（影响 Bot 语气）"
-                  extra="To B 偏专业正式 / To C 偏亲切轻松 / 混合则中性">
+                <Form.Item name="customerType" label={t('product.field.customerType')}
+                  extra={t('product.field.customerTypeHint')}>
                   <Radio.Group>
-                    <Radio.Button value="b2b">🏢 To B 企业</Radio.Button>
-                    <Radio.Button value="mixed">⚖️ 混合（推荐）</Radio.Button>
-                    <Radio.Button value="b2c">👤 To C 个人</Radio.Button>
+                    <Radio.Button value="b2b">{t('product.field.customerType.b2b')}</Radio.Button>
+                    <Radio.Button value="mixed">{t('product.field.customerType.mixed')}</Radio.Button>
+                    <Radio.Button value="b2c">{t('product.field.customerType.b2c')}</Radio.Button>
                   </Radio.Group>
                 </Form.Item>
               </>
@@ -414,19 +415,19 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
             {step === 2 && (
               <>
                 <Alert type="info" showIcon style={{ marginBottom: 16 }}
-                  message="Bot 和客户聊到最后，要引导客户做什么？"
-                  description="选一个最贴近你业务的目标。Bot 会自然地朝这个目标推进对话。" />
+                  message={t('product.goal.alert.title')}
+                  description={t('product.goal.alert.desc')} />
 
-                <Form.Item name="goalKey" label="销售目标">
-                  <Select size="large" placeholder="选择推荐目标"
+                <Form.Item name="goalKey" label={t('product.goal.label')}>
+                  <Select size="large" placeholder={t('product.goal.placeholder')}
                     optionLabelProp="label">
                     {GOAL_OPTIONS.map(opt => (
                       <Select.Option key={opt.value} value={opt.value}
-                        label={<span>{opt.icon} {opt.label}{opt.recommended && ' ⭐ 推荐'}</span>}>
+                        label={<span>{opt.icon} {opt.label}{opt.recommended && ` ⭐ ${t('product.goal.recommended')}`}</span>}>
                         <div style={{ padding: '4px 0' }}>
                           <div style={{ fontSize: 13, fontWeight: 500 }}>
                             {opt.icon} {opt.label}
-                            {opt.recommended && <Tag color="green" style={{ marginLeft: 6, fontSize: 10 }}>推荐</Tag>}
+                            {opt.recommended && <Tag color="green" style={{ marginLeft: 6, fontSize: 10 }}>{t('product.goal.recommended')}</Tag>}
                           </div>
                           <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{opt.desc}</div>
                         </div>
@@ -438,9 +439,9 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
                 <Card size="small" style={{ marginTop: 16, background: '#f0f7ff', border: '1px solid #91caff' }}>
                   <Form.Item name="useCompanyFallback" valuePropName="checked" style={{ marginBottom: 0 }}>
                     <Checkbox>
-                      <strong>用「公司通用 FAQ」兜底</strong>
+                      <strong>{t('product.goal.fallback.title')}</strong>
                       <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>
-                        当客户问的问题不在产品 FAQ 里，自动用公司通用 FAQ 回答（推荐开启）
+                        {t('product.goal.fallback.desc')}
                       </div>
                     </Checkbox>
                   </Form.Item>
@@ -452,14 +453,14 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
             {step === 3 && (
               <>
                 <Alert type="info" showIcon style={{ marginBottom: 16 }}
-                  message="上传产品介绍书 → AI 一键生成 FAQ"
-                  description="资料越详细，AI 生成的 FAQ 越准确（建议 300 字以上）。" />
+                  message={t('product.upload.alert.title')}
+                  description={t('product.upload.alert.desc')} />
 
                 <Tabs activeKey={inputMode} onChange={(k) => setInputMode(k as any)}
                   items={[
                     {
                       key: 'upload',
-                      label: <span>📄 上传介绍书 (PDF/Word)</span>,
+                      label: <span>{t('product.upload.tabFile')}</span>,
                       children: (
                         <div>
                           <Upload.Dragger
@@ -469,7 +470,7 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
                             beforeUpload={async (file) => {
                               const pn = formMirror.productName ?? form.getFieldValue('productName');
                               if (!pn?.trim()) {
-                                antdMessage.warning('请先回上一步填写产品名称');
+                                antdMessage.warning(t('product.upload.nameRequired'));
                                 return false;
                               }
                               try {
@@ -480,17 +481,17 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
                                   enabled: false,
                                 });
                                 const tmpId = kbRes.data.id;
-                                antdMessage.loading({ content: '正在解析文件...', key: 'up' });
+                                antdMessage.loading({ content: t('product.upload.parsing'), key: 'up' });
                                 const srcRes = await knowledgeApi.uploadSource(tmpId, file);
                                 const txt = srcRes.data?.rawText ?? '';
                                 if (txt) {
                                   setRawText(txt);
                                   setUploadedFileName(file.name);
-                                  antdMessage.success({ content: `已从「${file.name}」提取 ${txt.length} 字`, key: 'up' });
+                                  antdMessage.success({ content: t('product.upload.extracted', { name: file.name, count: txt.length }), key: 'up' });
                                 }
                                 await knowledgeApi.deleteKb(tmpId);
                               } catch {
-                                antdMessage.error({ content: '文件解析失败', key: 'up' });
+                                antdMessage.error({ content: t('product.upload.parseFail'), key: 'up' });
                               }
                               return false;
                             }}
@@ -498,14 +499,14 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
                             {uploadedFileName ? (
                               <>
                                 <p style={{ fontSize: 32, color: '#52c41a' }}>✅</p>
-                                <p style={{ fontWeight: 600 }}>已上传：{uploadedFileName}</p>
-                                <p style={{ color: '#999', fontSize: 12 }}>已提取 {rawText.length} 字内容</p>
+                                <p style={{ fontWeight: 600 }}>{t('product.upload.uploaded', { name: uploadedFileName })}</p>
+                                <p style={{ color: '#999', fontSize: 12 }}>{t('product.upload.extractedSize', { count: rawText.length })}</p>
                               </>
                             ) : (
                               <>
                                 <p><UploadOutlined style={{ fontSize: 32, color: '#1677ff' }} /></p>
-                                <p>点击或拖拽文件至此处</p>
-                                <p style={{ color: '#999', fontSize: 12 }}>支持 PDF / Word / TXT，最大 20MB</p>
+                                <p>{t('product.upload.click')}</p>
+                                <p style={{ color: '#999', fontSize: 12 }}>{t('product.upload.formatHint')}</p>
                               </>
                             )}
                           </Upload.Dragger>
@@ -514,13 +515,13 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
                     },
                     {
                       key: 'text',
-                      label: <span>✍️ 手动粘贴</span>,
+                      label: <span>{t('product.upload.tabText')}</span>,
                       children: (
                         <TextArea
                           value={rawText}
                           onChange={(e) => setRawText(e.target.value)}
                           autoSize={{ minRows: 10, maxRows: 20 }}
-                          placeholder="把产品介绍、功能说明、价格、常见问题等资讯粘贴在这里。&#10;&#10;越详细越好，AI 会自动从中生成 30-50 条 FAQ。"
+                          placeholder={t('product.upload.placeholder')}
                           style={{ fontFamily: 'inherit' }}
                         />
                       ),
@@ -534,24 +535,24 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
             {step === 4 && (
               <>
                 {faq.length === 0 && !generating ? (
-                  <Empty description="还没有生成 FAQ" image={Empty.PRESENTED_IMAGE_SIMPLE}>
+                  <Empty description={t('product.review.empty')} image={Empty.PRESENTED_IMAGE_SIMPLE}>
                     <Button type="primary" icon={<RobotOutlined />} onClick={() => setStep(3)}>
-                      返回上传资料
+                      {t('product.review.backToUpload')}
                     </Button>
                   </Empty>
                 ) : (
                   <>
                     <Alert type="success" showIcon style={{ marginBottom: 16 }}
-                      message={`AI 已生成 ${faq.length} 条 FAQ ✅`}
-                      description="可逐条编辑、删除或添加更多。满意后点「保存产品」。" />
+                      message={t('product.review.alert.title', { count: faq.length })}
+                      description={t('product.review.alert.desc')} />
 
-                    <Card size="small" style={{ marginBottom: 12 }} title={<Text strong>📋 产品简介</Text>}>
+                    <Card size="small" style={{ marginBottom: 12 }} title={<Text strong>{t('product.review.overview')}</Text>}>
                       <TextArea value={overview} onChange={(e) => setOverview(e.target.value)}
                         autoSize={{ minRows: 2, maxRows: 5 }} style={{ fontFamily: 'inherit' }} />
                     </Card>
 
                     {features.length > 0 && (
-                      <Card size="small" style={{ marginBottom: 12 }} title={<Text strong>⭐ 核心卖点</Text>}>
+                      <Card size="small" style={{ marginBottom: 12 }} title={<Text strong>{t('product.review.features')}</Text>}>
                         {features.map((f, i) => (
                           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                             <Badge color="blue" />
@@ -567,11 +568,11 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
                     )}
 
                     <Card size="small"
-                      title={<Text strong>📋 FAQ 列表（{faq.length} 条）</Text>}
+                      title={<Text strong>{t('product.review.faqList', { count: faq.length })}</Text>}
                       extra={
                         <Button size="small" icon={<PlusOutlined />} type="dashed"
                           onClick={() => setFaq([...faq, { question: '', answer: '', tags: [] }])}>
-                          添加
+                          {t('product.review.faqAdd')}
                         </Button>
                       }
                     >
@@ -595,11 +596,11 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
                                 <Input size="small" value={item.question} style={{ marginBottom: 4 }}
                                   onChange={(e) => {
                                     const next = [...faq]; next[i] = { ...next[i], question: e.target.value }; setFaq(next);
-                                  }} placeholder="问题" />
+                                  }} placeholder={t('product.review.faqQ')} />
                                 <TextArea size="small" value={item.answer} autoSize={{ minRows: 2 }}
                                   onChange={(e) => {
                                     const next = [...faq]; next[i] = { ...next[i], answer: e.target.value }; setFaq(next);
-                                  }} placeholder="回答" />
+                                  }} placeholder={t('product.review.faqA')} />
                               </>
                             ) : (
                               <>
@@ -621,34 +622,34 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, paddingTop: 12, borderTop: '1px solid #f0f0f0' }}>
             <div>
               {step > 0 && step !== 4 && (
-                <Button icon={<ArrowLeftOutlined />} onClick={goBack}>上一步</Button>
+                <Button icon={<ArrowLeftOutlined />} onClick={goBack}>{t('product.nav.prev')}</Button>
               )}
               {step === 4 && (
-                <Button icon={<ArrowLeftOutlined />} onClick={() => setStep(3)}>返回修改</Button>
+                <Button icon={<ArrowLeftOutlined />} onClick={() => setStep(3)}>{t('product.review.editGuide')}</Button>
               )}
             </div>
             <div>
               {step === 0 && (
                 <Button type="primary" size="large" icon={<ArrowRightOutlined />} onClick={() => setStep(1)}>
-                  开始
+                  {t('product.nav.start')}
                 </Button>
               )}
               {(step === 1 || step === 2) && (
-                <Button type="primary" icon={<ArrowRightOutlined />} onClick={goNext}>下一步</Button>
+                <Button type="primary" icon={<ArrowRightOutlined />} onClick={goNext}>{t('product.nav.next')}</Button>
               )}
               {step === 3 && (
-                <Tooltip title={!rawText.trim() ? '请先上传介绍书或粘贴产品描述' : ''}>
+                <Tooltip title={!rawText.trim() ? t('product.gen.tooltip') : ''}>
                   <Button type="primary" icon={<RobotOutlined />}
                     onClick={handleGenerate} loading={generating}
                     disabled={!rawText.trim()}>
-                    {generating ? `AI 生成中 (30-50条)...` : '✨ AI 一键生成'}
+                    {generating ? t('product.gen.btnLoading') : t('product.gen.btn')}
                   </Button>
                 </Tooltip>
               )}
               {step === 4 && (
                 <Button type="primary" icon={<CheckCircleOutlined />}
                   onClick={handleSave} loading={saving}>
-                  ✓ 保存产品 ({faq.length} 条 FAQ)
+                  {t('product.save.btn', { count: faq.length })}
                 </Button>
               )}
             </div>
@@ -656,7 +657,7 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
 
           {generating && (
             <Alert type="info" showIcon style={{ marginTop: 16 }}
-              message="AI 正在分析产品资料并生成 30-50 条 FAQ" description="约 15-30 秒，请稍候..." />
+              message={t('product.gen.spinAlert.title')} description={t('product.gen.spinAlert.desc')} />
           )}
         </div>
       )}

@@ -82,7 +82,7 @@ export default function HumanAgentsCard({ tenantId }: Props) {
     const chatId = v.chatId.trim();
     const name = v.name?.trim() || undefined;
     if (!/^-?\d+$/.test(chatId)) {
-      antdMessage.warning('chatId 必须是纯数字（@userinfobot 给的那串）');
+      antdMessage.warning(t('cs.handoff.chatIdMustBeNumber'));
       return;
     }
     let next: HumanAgent[];
@@ -91,7 +91,7 @@ export default function HumanAgentsCard({ tenantId }: Props) {
     } else {
       // 去重
       if (agents.some(a => a.chatId === chatId)) {
-        antdMessage.warning('该 chatId 已在列表里');
+        antdMessage.warning(t('cs.handoff.chatIdExists'));
         return;
       }
       next = [...agents, { chatId, name, enabled: true }];
@@ -116,12 +116,12 @@ export default function HumanAgentsCard({ tenantId }: Props) {
     try {
       const res = await tenantsApi.testNotifyAgent(tenantId, a.chatId, a.name);
       if (res.data?.ok) {
-        antdMessage.success(res.data.message || '推送成功，请检查 Telegram');
+        antdMessage.success(res.data.message || t('cs.handoff.testSuccess'));
       } else {
-        antdMessage.error(res.data?.message || '推送失败');
+        antdMessage.error(res.data?.message || t('cs.handoff.testFailed'));
       }
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '推送失败');
+      antdMessage.error(err?.response?.data?.message ?? t('cs.handoff.testFailed'));
     } finally {
       setTestingChatId(null);
     }
@@ -144,12 +144,12 @@ export default function HumanAgentsCard({ tenantId }: Props) {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="客户触发『真人客服』『投诉』等关键字时 Bot 会怎么做？"
+        message={t('cs.handoff.alert.title')}
         description={
           <div style={{ fontSize: 13 }}>
-            ① 立刻给客户回「已为你转接」话术（在 Admin → Prompt 配置 → 转接话术 编辑）<br />
-            ② 同时把客户名/Telegram ID/最近 5 条对话推送给下面所有<strong>启用</strong>的 operator 的 Telegram<br />
-            ③ Operator 在 Telegram 看到通知 → 点 <Text code>tg://user?id=...</Text> 直接跳到客户私聊窗口
+            ① {t('cs.handoff.alert.step1')}<br />
+            ② {t('cs.handoff.alert.step2')}<br />
+            ③ {t('cs.handoff.alert.step3')}
           </div>
         }
       />
@@ -158,13 +158,13 @@ export default function HumanAgentsCard({ tenantId }: Props) {
         type="warning"
         showIcon
         style={{ marginBottom: 16 }}
-        message="⚠️ 重要前置：每位客服必须先在 Telegram 主动给 Bot 发一次 /start"
-        description="否则 Telegram 不允许 Bot 反向推送消息（这是 TG 平台限制，所有 Bot 都一样）。配置后请用「测试」按钮验证。"
+        message={t('cs.handoff.warn.title')}
+        description={t('cs.handoff.warn.desc')}
       />
 
       {agents.length === 0 ? (
         <div style={{ padding: '40px 16px', textAlign: 'center', color: '#999' }}>
-          还没有配置人工客服。点右上角「+ 新增客服」开始添加（建议不超过 10 人）
+          {t('cs.handoff.empty')}
         </div>
       ) : (
         <Table
@@ -217,8 +217,8 @@ export default function HumanAgentsCard({ tenantId }: Props) {
 
       {agents.length >= 1 && (
         <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
-          共 {agents.length} 人 · 启用 {agents.filter(a => a.enabled).length} 人
-          {agents.length >= 10 && <Tag color="orange" style={{ marginLeft: 8 }}>已超过建议人数</Tag>}
+          {t('cs.handoff.summary', { total: agents.length, enabled: agents.filter(a => a.enabled).length })}
+          {agents.length >= 10 && <Tag color="orange" style={{ marginLeft: 8 }}>{t('cs.handoff.tooManyHint')}</Tag>}
         </div>
       )}
 
@@ -239,12 +239,7 @@ export default function HumanAgentsCard({ tenantId }: Props) {
             name="chatId"
             label={t('form.chatId')}
             rules={[{ required: true, message: t('form.required') }, { pattern: /^-?\d+$/, message: t('form.invalid') }]}
-            extra={
-              <span>
-                让客服在 Telegram 搜 <Text code>@userinfobot</Text> 发 <Text code>/start</Text>，
-                Bot 会回复一串数字 ID，复制粘贴到这里。
-              </span>
-            }
+            extra={<span>{t('cs.handoff.chatIdHelp')}</span>}
           >
             <Input placeholder="例如：123456789" />
           </Form.Item>

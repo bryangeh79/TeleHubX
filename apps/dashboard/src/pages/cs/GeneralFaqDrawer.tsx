@@ -64,18 +64,18 @@ export default function GeneralFaqDrawer({ open, onClose, tenantId }: Props) {
   const handleGenerate = async () => {
     if (!tenantId) return;
     Modal.confirm({
-      title: 'AI 一键生成 12 条闲聊 FAQ？',
-      content: '将基于「客户与 Bot 闲聊场景」生成常见问答（如「你是真人吗」「工作时间外能找到人吗」），自动入库。已有的 FAQ 不会被覆盖。',
-      okText: '开始生成',
-      cancelText: '取消',
+      title: t('faq.general.aiConfirm.title'),
+      content: t('faq.general.aiConfirm.desc'),
+      okText: t('faq.general.aiStart'),
+      cancelText: t('common.cancel'),
       onOk: async () => {
         setGenerating(true);
         try {
           const res = await knowledgeApi.generateGeneralChatFaqs(tenantId, 12);
-          antdMessage.success(`已生成 ${res.data?.generated ?? 0} 条闲聊 FAQ`);
+          antdMessage.success(t('faq.general.aiOk', { count: res.data?.generated ?? 0 }));
           await load();
         } catch (err: any) {
-          antdMessage.error(err?.response?.data?.message ?? 'AI 生成失败，请检查平台 AI Key');
+          antdMessage.error(err?.response?.data?.message ?? t('faq.general.aiFail'));
         } finally {
           setGenerating(false);
         }
@@ -161,21 +161,15 @@ export default function GeneralFaqDrawer({ open, onClose, tenantId }: Props) {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="通用 FAQ 是什么？"
-        description={
-          <span>
-            客户和 Bot 闲聊场景的常见问答，例如「你是真人吗」「你能干嘛」「你们 24 小时在吗」「早上好」等。
-            这些 FAQ 挂在「公司通用资料」KB 下，当客户问的问题不在产品 FAQ 中时优先匹配。
-            建议覆盖：身份疑问 / 能力试探 / 工作时间 / 礼貌寒暄 / 表达情绪 / 离开告别。
-          </span>
-        }
+        message={t('faq.general.info.title')}
+        description={t('faq.general.info.desc')}
       />
 
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
         <Space>
-          <Tag color="default">共 {faqs.length} 条</Tag>
+          <Tag color="default">{t('faq.general.totalCount', { count: faqs.length })}</Tag>
           <Tag color={faqs.filter(f => f.enabled).length > 0 ? 'green' : 'default'}>
-            启用 {faqs.filter(f => f.enabled).length} 条
+            {t('faq.general.enabledCount', { count: faqs.filter(f => f.enabled).length })}
           </Tag>
         </Space>
         <Space>
@@ -189,13 +183,13 @@ export default function GeneralFaqDrawer({ open, onClose, tenantId }: Props) {
             loading={generating}
             disabled={!tenantId}
           >
-            ✨ AI 一键生成 12 条
+            {t('faq.general.aiGenerate')}
           </Button>
         </Space>
       </div>
 
       {faqs.length === 0 && !loading ? (
-        <Empty description="还没有通用 FAQ。点击右上角「AI 一键生成」快速创建一组示例。" style={{ padding: 60 }} />
+        <Empty description={t('faq.general.empty')} style={{ padding: 60 }} />
       ) : (
         <Table
           rowKey="id"

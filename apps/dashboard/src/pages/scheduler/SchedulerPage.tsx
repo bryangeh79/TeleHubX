@@ -1006,7 +1006,7 @@ export default function SchedulerPage() {
       </Modal>
 
       <Modal
-        title="新建任务"
+        title={t('taskModal.create')}
         open={createOpen}
         onCancel={() => setCreateOpen(false)}
         onOk={() => form.submit()}
@@ -1015,12 +1015,12 @@ export default function SchedulerPage() {
         width={760}
       >
         <Form form={form} layout="vertical" onFinish={handleCreate} initialValues={{ scheduledAt: dayjs().add(5, 'minute') }}>
-          <Form.Item name="name" label="任务名称" rules={[{ required: true }]}>
-            <Input placeholder="如：产品 A 群发 (P3 阶段)" />
+          <Form.Item name="name" label={t('taskModal.name')} rules={[{ required: true }]}>
+            <Input placeholder={t('taskModal.namePlaceholder')} />
           </Form.Item>
-          <Form.Item name="type" label="任务类型" rules={[{ required: true }]}>
+          <Form.Item name="type" label={t('taskModal.type')} rules={[{ required: true }]}>
             <Select
-              placeholder="选择类型"
+              placeholder={t('taskModal.typePlaceholder')}
               showSearch
               optionFilterProp="label"
               options={buildGroupedTaskOptions()}
@@ -1055,10 +1055,10 @@ export default function SchedulerPage() {
               if (!isChatScript) {
                 return (
                   <>
-                    <Form.Item name="accountId" label="执行账号" rules={[{ required: true, message: '请选择执行账号' }]}
+                    <Form.Item name="accountId" label={t('taskModal.account')} rules={[{ required: true, message: t('form.required') }]}
                       extra={accountOptions.length === 0 ? '尚未添加任何账号 — 请先到「账号」页绑定一个号' : undefined}>
                       <Select
-                        placeholder={accountOptions.length === 0 ? '没有可用账号' : '选择账号'}
+                        placeholder={accountOptions.length === 0 ? t('taskModal.accountEmpty') : t('taskModal.accountPlaceholder')}
                         showSearch
                         optionFilterProp="phone"
                         filterOption={(input, option) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
@@ -1201,14 +1201,14 @@ export default function SchedulerPage() {
             }}
           </Form.Item>
 
-          <Form.Item label="执行时间">
+          <Form.Item label={t('taskModal.runTime')}>
             <Radio.Group value={runNow ? 'now' : 'later'} onChange={(e) => setRunNow(e.target.value === 'now')}>
-              <Radio value="now"><ThunderboltOutlined /> 立即执行</Radio>
-              <Radio value="later"><ClockCircleOutlined /> 定时执行</Radio>
+              <Radio value="now"><ThunderboltOutlined /> {t('taskModal.runNow')}</Radio>
+              <Radio value="later"><ClockCircleOutlined /> {t('taskModal.runLater')}</Radio>
             </Radio.Group>
           </Form.Item>
           {!runNow && (
-            <Form.Item name="scheduledAt" label="计划时间" rules={[{ required: !runNow, message: '请选择计划时间' }]}>
+            <Form.Item name="scheduledAt" label={t('taskModal.scheduledAt')} rules={[{ required: !runNow, message: t('form.required') }]}>
               <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: '100%' }} />
             </Form.Item>
           )}
