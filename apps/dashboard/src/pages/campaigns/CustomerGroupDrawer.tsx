@@ -9,14 +9,13 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import 'dayjs/locale/zh-cn';
+// Note: not loading zh-cn locale globally — fromNow() falls back to English which renders OK in all UI languages
 import { customerGroupsApi, tenantsApi } from '../../services/api';
 import { useT } from '../../i18n';
 import CreateGroupModal from './CreateGroupModal';
 import GroupDetailDrawer from './GroupDetailDrawer';
 
 dayjs.extend(relativeTime);
-dayjs.locale('zh-cn');
 
 const { Title, Text } = Typography;
 
@@ -91,8 +90,8 @@ export default function CustomerGroupDrawer({ open, onClose, tenantId: tenantIdP
     candidates: 'purple',
   };
   const SOURCE_LABELS: Record<string, string> = {
-    manual: '手动',
-    candidates: '引流',
+    manual: t('customerGroup.source.manual'),
+    candidates: t('customerGroup.source.candidates'),
   };
 
   const renderCard = (g: CustomerGroup) => {

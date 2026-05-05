@@ -34,15 +34,15 @@ export default function GroupSettingsModal({ open, onClose, onChange }: Props) {
     setLoading(true);
     (async () => {
       try {
-        const t = await tenantsApi.getDefault();
-        const tid = t.data?.id;
+        const tenant = await tenantsApi.getDefault();
+        const tid = tenant.data?.id;
         setTenantId(tid);
         const s = await tenantsApi.getSettings(tid);
         const cnt = s.data?.groupCount ?? 0;
         setCurrentCount(cnt);
         setSelectedCount(cnt > 0 ? cnt : 2);
       } catch (err: any) {
-        antdMessage.error(err?.response?.data?.message ?? '加载设置失败');
+        antdMessage.error(err?.response?.data?.message ?? t('msg.loadFailed'));
       } finally {
         setLoading(false);
       }
@@ -58,24 +58,17 @@ export default function GroupSettingsModal({ open, onClose, onChange }: Props) {
     setSubmitting(true);
     try {
       // Step 1: reconcile groups (create/remove)
-      const r1 = await executionGroupsApi.reconcile(selectedCount);
+      await executionGroupsApi.reconcile(selectedCount);
       // Step 2: persist count to tenant settings
       await tenantsApi.updateSettings(tenantId, { groupCount: selectedCount });
       // Step 3: auto-schedule baseline tasks
-      const r2 = await executionGroupsApi.autoSchedule();
+      await executionGroupsApi.autoSchedule();
 
-      const created = r1.data?.created ?? 0;
-      const removed = r1.data?.removed ?? 0;
-      const scheduled = r2.data?.scheduled ?? 0;
-      const purged = r2.data?.purgedStale ?? 0;
-
-      antdMessage.success(
-        `已配置 ${selectedCount} 组（新建 ${created}/移除 ${removed}）· 清理旧排期 ${purged} 条 · 重新生成 ${scheduled} 条`,
-      );
+      antdMessage.success(t('groups.settings.savedSummary', { count: selectedCount }));
       onChange?.();
       onClose();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '保存失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.saveFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -101,13 +94,13 @@ export default function GroupSettingsModal({ open, onClose, onChange }: Props) {
           <Alert
             type="info"
             showIcon
-            message="选择执行组别数量后，系统会自动错开所有组的任务时间，避免账号扎堆触发风控"
+            message={t('groups.settings.intro')}
           />
 
           <div>
-            <Text strong>组别数量（2 - 9）：</Text>
+            <Text strong>{t('groups.settings.countLabel')}</Text>
             <Paragraph type="secondary" style={{ fontSize: 12, margin: '4px 0 12px' }}>
-              当前已配置：<Text code>{currentCount === 0 ? '未启用' : `${currentCount} 组`}</Text>
+              {t('groups.settings.current')}: <Text code>{currentCount === 0 ? t('common.none') : `${currentCount}`}</Text>
             </Paragraph>
             <Radio.Group
               value={selectedCount}
@@ -116,7 +109,7 @@ export default function GroupSettingsModal({ open, onClose, onChange }: Props) {
             >
               {[2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
                 <Radio.Button key={n} value={n} style={{ flex: '1 0 auto', textAlign: 'center', minWidth: 56 }}>
-                  {n} 组
+                  {n}
                 </Radio.Button>
               ))}
             </Radio.Group>
@@ -124,18 +117,17 @@ export default function GroupSettingsModal({ open, onClose, onChange }: Props) {
 
           <Space size={32}>
             <Statistic
-              title="每组容量"
+              title={t('groups.settings.capacityPerGroup')}
               value={6}
-              suffix="账号"
               prefix={<ClockCircleOutlined />}
             />
             <Statistic
-              title="组间任务间隔"
+              title={t('groups.settings.cycleInterval')}
               value={cycleHours}
-              suffix="小时"
+              suffix="h"
             />
             <Statistic
-              title="可容纳总账号数"
+              title={t('groups.settings.totalCapacity')}
               value={selectedCount * 6}
             />
           </Space>
@@ -144,7 +136,7 @@ export default function GroupSettingsModal({ open, onClose, onChange }: Props) {
             <Alert
               type="warning"
               showIcon
-              message={`减少到 ${selectedCount} 组：高于 ${selectedCount} 的组别会被删除，其成员会变为「未分组」，但任务历史不删`}
+              message={t('groups.settings.warnReduce', { n: selectedCount })}
             />
           )}
 
@@ -152,7 +144,7 @@ export default function GroupSettingsModal({ open, onClose, onChange }: Props) {
             <Alert
               type="success"
               showIcon
-              message="确认后系统会立即重排所有组的 keepalive 基线任务，等距错开 24 小时周期"
+              message={t('groups.settings.confirmReschedule')}
             />
           )}
         </Space>

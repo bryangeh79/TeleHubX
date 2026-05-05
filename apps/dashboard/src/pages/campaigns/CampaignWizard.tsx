@@ -739,14 +739,14 @@ function Step4({
     : `每周${state.scheduleDayOfWeek != null ? DAY_LABELS[state.scheduleDayOfWeek] : ''} ${state.scheduleTime ?? ''}`;
 
   const rows = [
-    { label: '投放名称', value: state.name },
-    { label: '投放时间', value: scheduleText },
-    { label: '投放对象', value: targetDesc },
-    { label: '广告内容', value: adDesc },
-    { label: '开场方式', value: greetDesc },
-    { label: '执行方式', value: execDesc },
+    { label: t('wizard.step.name'), value: state.name },
+    { label: t('wizard.step.schedule'), value: scheduleText },
+    { label: t('wizard.step.targets'), value: targetDesc },
+    { label: t('wizard.step.adContent'), value: adDesc },
+    { label: t('wizard.step.greeting'), value: greetDesc },
+    { label: t('wizard.step.account'), value: execDesc },
     { label: t('wizard.step.pace'), value: t(`pace.${state.pacePreset}`) },
-    { label: '安全状态', value: safetyNode, extra: capacity?.message },
+    { label: t('wizard.step.safety'), value: safetyNode, extra: capacity?.message },
   ];
 
   return (

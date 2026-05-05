@@ -492,7 +492,7 @@ export default function SchedulerPage() {
       await tasksApi.pause(id);
       void reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '暂停失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.opFailed'));
     }
   };
 
@@ -501,7 +501,7 @@ export default function SchedulerPage() {
       await tasksApi.resume(id);
       void reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '恢复失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.opFailed'));
     }
   };
 
@@ -521,7 +521,7 @@ export default function SchedulerPage() {
       antdMessage.success('已克隆任务并立即排队执行');
       void reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '执行失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.opFailed'));
     }
   };
 
@@ -536,7 +536,7 @@ export default function SchedulerPage() {
       } catch {}
       void reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '重新激活失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.opFailed'));
     }
   };
 
@@ -546,7 +546,7 @@ export default function SchedulerPage() {
       antdMessage.success('任务已强制停止');
       void reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '停止失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.opFailed'));
     }
   };
 
@@ -556,7 +556,7 @@ export default function SchedulerPage() {
       antdMessage.success(`已强制停止 ${res.data?.cancelled ?? 0} 个任务`);
       void reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '操作失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.opFailed'));
     }
   };
 

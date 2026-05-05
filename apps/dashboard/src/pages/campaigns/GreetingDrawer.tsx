@@ -86,15 +86,15 @@ function GreetingModal({
       if (variants.length > 0) payload.variants = variants;
       if (currentId) {
         await greetingTemplatesApi.update(currentId, payload);
-        antdMessage.success('已更新');
+        antdMessage.success(t('msg.updated'));
       } else {
         payload.tenantId = tenantId;
         await greetingTemplatesApi.create(payload);
-        antdMessage.success('已保存');
+        antdMessage.success(t('msg.saved'));
       }
       onSave();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '保存失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -127,7 +127,7 @@ function GreetingModal({
         targetId = res.data.id;
         setAutoCreatedId(targetId);
       } catch (err: any) {
-        antdMessage.error(err?.response?.data?.message ?? '保存失败');
+        antdMessage.error(err?.response?.data?.message ?? t('msg.saveFailed'));
         setSaving(false);
         setShowConfirm(false);
         return;
@@ -177,7 +177,7 @@ function GreetingModal({
 
         <Form.Item name="category" label={t('campaign.greeting.category')}>
           <Select placeholder={t('form.placeholder.optional')} allowClear
-            options={CATEGORIES.map(c => ({ value: c, label: c }))} />
+            options={CATEGORIES.map(c => ({ value: c, label: t(`greeting.category.${c}`) || c }))} />
         </Form.Item>
 
         {/* AI 评分 */}
@@ -186,20 +186,19 @@ function GreetingModal({
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         }}>
           <div>
-            <Text strong style={{ fontSize: 13 }}>AI 质量评分</Text>
-            <div><Text type="secondary" style={{ fontSize: 11 }}>1-10 分，用平台 AI 评估</Text></div>
+            <Text strong style={{ fontSize: 13 }}>{t('greeting.aiScore')}</Text>
           </div>
           <Space>
             {score !== undefined && score !== null && (
               <Tag color={scoreColor} style={{ fontSize: 14, padding: '2px 8px' }}>{score} / 10</Tag>
             )}
             <Button icon={<StarOutlined />} loading={scoring} onClick={handleScore} disabled={!isEdit} size="small">
-              AI 打分
+              {t('greeting.aiScoreBtn')}
             </Button>
           </Space>
         </div>
 
-        {/* AI 变体池 */}
+        {/* AI variant pool */}
         <div style={{
           border: '1px solid #e8e8e8', borderRadius: 8, padding: 12,
           background: aiEnabled ? '#f6ffed' : '#fafafa',
@@ -207,8 +206,8 @@ function GreetingModal({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: aiEnabled ? 12 : 0 }}>
             <Space>
               <ThunderboltOutlined style={{ color: '#52c41a' }} />
-              <Text strong>AI 变体池</Text>
-              <Tag color="green" style={{ fontSize: 11 }}>多样化·防封号</Tag>
+              <Text strong>{t('adTemplate.aiVariantPool')}</Text>
+              <Tag color="green" style={{ fontSize: 11 }}>{t('cs.replyMode.recommended')}</Tag>
             </Space>
             <Switch checked={aiEnabled} onChange={v => setAiEnabled(v)}
               style={{ background: aiEnabled ? '#52c41a' : undefined }} />
@@ -219,15 +218,15 @@ function GreetingModal({
                 <Button type="primary" icon={<ThunderboltOutlined />} loading={generating}
                   onClick={() => setShowConfirm(true)}
                   style={{ background: '#52c41a', borderColor: '#52c41a' }}>
-                  AI 生成 8 条变体
+                  {t('greeting.aiGenerate')}
                 </Button>
                 <Button icon={<PlusCircleOutlined />} onClick={() => setVariants(v => [...v, { text: '' }])}>
-                  手动增加
+                  {t('common.add')}
                 </Button>
               </Space>
               {variants.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '12px 0', color: '#999', fontSize: 12 }}>
-                  还没有变体 · 点上方按钮生成
+                  {t('common.none')}
                 </div>
               ) : (
                 <div style={{ maxHeight: 180, overflowY: 'auto' }}>
@@ -260,14 +259,14 @@ function GreetingModal({
       >
         <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
           <div style={{ fontSize: 28, marginBottom: 8 }}>⚠️</div>
-          <Text strong>现在生成 8 条 AI 变体？</Text>
-          <div><Text type="secondary" style={{ fontSize: 12 }}>会先自动保存，然后用 AI 生成 · 约 5-10 秒</Text></div>
+          <Text strong>{t('greeting.aiGenerateConfirm.title')}</Text>
+          <div><Text type="secondary" style={{ fontSize: 12 }}>{t('greeting.aiGenerateConfirm.desc')}</Text></div>
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-          <Button onClick={() => setShowConfirm(false)}>先不生成</Button>
+          <Button onClick={() => setShowConfirm(false)}>{t('common.cancel')}</Button>
           <Button type="primary" loading={generating} onClick={handleGenerateVariants}
             style={{ background: '#52c41a', borderColor: '#52c41a' }}>
-            开始生成
+            {t('common.confirm')}
           </Button>
         </div>
       </Modal>
@@ -310,13 +309,13 @@ export default function GreetingDrawer({ open, onClose, tenantId: tenantIdProp }
 
   useEffect(() => { if (open && tenantId) void load(); }, [open, tenantId, load]);
 
-  const handleDelete = async (t: GreetingTemplate) => {
+  const handleDelete = async (tpl: GreetingTemplate) => {
     try {
-      await greetingTemplatesApi.delete(t.id);
-      antdMessage.success('已删除');
+      await greetingTemplatesApi.delete(tpl.id);
+      antdMessage.success(t('msg.deleted'));
       void load();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '删除失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.deleteFailed'));
     }
   };
 
@@ -338,14 +337,14 @@ export default function GreetingDrawer({ open, onClose, tenantId: tenantIdProp }
   const scoreColor = (s?: number) => !s ? '#d9d9d9'
     : s >= 8 ? '#52c41a' : s >= 5 ? '#faad14' : '#ff4d4f';
 
-  // 按 category 分组
+  // group by category (uncategorized goes to '_other')
   const grouped: Record<string, GreetingTemplate[]> = {};
-  for (const t of templates) {
-    const cat = t.category || '未分类';
+  for (const tpl of templates) {
+    const cat = tpl.category || '_other';
     if (!grouped[cat]) grouped[cat] = [];
-    grouped[cat].push(t);
+    grouped[cat].push(tpl);
   }
-  const sortedCats = ['礼貌', '好奇', '优惠', '热情', '专业', '幽默', '未分类']
+  const sortedCats = ['礼貌', '好奇', '优惠', '热情', '专业', '幽默', '_other']
     .filter(c => grouped[c]?.length);
 
   return (
@@ -372,21 +371,18 @@ export default function GreetingDrawer({ open, onClose, tenantId: tenantIdProp }
         bodyStyle={{ padding: '12px 16px' }}
       >
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>加载中…</div>
+          <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>{t('common.loading')}</div>
         ) : templates.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>💬</div>
-            <div>还没有开场白</div>
-            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-              建议先「一键导入示例」获得 18 条不同语气的样本
-            </Text>
+            <div>{t('common.none')}</div>
             <Space style={{ marginTop: 12 }}>
               <Button icon={<ImportOutlined />} onClick={handleSeedDefaults} loading={seeding}>
-                一键导入示例
+                {t('common.import')}
               </Button>
               <Button type="primary" onClick={() => { setEditing(null); setModalOpen(true); }}
                 style={{ background: '#52c41a', borderColor: '#52c41a' }}>
-                自己写一条
+                {t('common.create')}
               </Button>
             </Space>
           </div>
@@ -395,34 +391,34 @@ export default function GreetingDrawer({ open, onClose, tenantId: tenantIdProp }
             {sortedCats.map(cat => (
               <div key={cat} style={{ marginBottom: 16 }}>
                 <Text strong style={{ fontSize: 13, color: '#52c41a', display: 'block', marginBottom: 6 }}>
-                  {cat} <Text type="secondary" style={{ fontSize: 11, fontWeight: 400 }}>({grouped[cat].length})</Text>
+                  {t(`greeting.category.${cat}`) || cat} <Text type="secondary" style={{ fontSize: 11, fontWeight: 400 }}>({grouped[cat].length})</Text>
                 </Text>
-                {grouped[cat].map(t => (
-                  <div key={t.id} style={{
+                {grouped[cat].map(tpl => (
+                  <div key={tpl.id} style={{
                     border: '1px solid #e8e8e8', borderRadius: 8, padding: 10,
                     marginBottom: 6, background: '#fff',
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div style={{ flex: 1, marginRight: 8 }}>
                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 4 }}>
-                          {t.aiScore !== undefined && t.aiScore !== null && (
-                            <Tag color={scoreColor(t.aiScore)} icon={<StarOutlined />} style={{ fontSize: 10 }}>
-                              AI · {t.aiScore}
+                          {tpl.aiScore !== undefined && tpl.aiScore !== null && (
+                            <Tag color={scoreColor(tpl.aiScore)} icon={<StarOutlined />} style={{ fontSize: 10 }}>
+                              AI · {tpl.aiScore}
                             </Tag>
                           )}
-                          {(t.variants?.length ?? 0) > 0 && (
+                          {(tpl.variants?.length ?? 0) > 0 && (
                             <Tag color="purple" icon={<ThunderboltOutlined />} style={{ fontSize: 10 }}>
-                              {t.variants!.length} 变体
+                              {tpl.variants!.length}
                             </Tag>
                           )}
                         </div>
-                        <Text style={{ fontSize: 13 }}>{t.text}</Text>
+                        <Text style={{ fontSize: 13 }}>{tpl.text}</Text>
                       </div>
                       <Space size={2}>
                         <Button size="small" type="link" icon={<EditOutlined />}
-                          onClick={() => { setEditing(t); setModalOpen(true); }} />
-                        <Popconfirm title="确认删除？" onConfirm={() => handleDelete(t)}
-                          okText="删除" cancelText="取消" okButtonProps={{ danger: true }}>
+                          onClick={() => { setEditing(tpl); setModalOpen(true); }} />
+                        <Popconfirm title={t('common.confirmDelete')} onConfirm={() => handleDelete(tpl)}
+                          okText={t('common.delete')} cancelText={t('common.cancel')} okButtonProps={{ danger: true }}>
                           <Button size="small" type="link" danger icon={<DeleteOutlined />} />
                         </Popconfirm>
                       </Space>
