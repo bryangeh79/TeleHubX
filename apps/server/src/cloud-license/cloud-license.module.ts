@@ -4,6 +4,8 @@ import { Account } from '../accounts/account.entity';
 import { Task } from '../tasks/task.entity';
 import { CloudLicenseController } from './cloud-license.controller';
 import { CloudLicenseService } from './cloud-license.service';
+import { CloudLicenseAdminController } from './cloud-license-admin.controller';
+import { CloudLicenseAdminService } from './cloud-license-admin.service';
 
 /**
  * Global so AccountsService and TasksService can inject CloudLicenseService
@@ -12,8 +14,8 @@ import { CloudLicenseService } from './cloud-license.service';
 @Global()
 @Module({
   imports: [TypeOrmModule.forFeature([Account, Task])],
-  controllers: [CloudLicenseController],
-  providers: [CloudLicenseService],
+  controllers: [CloudLicenseController, CloudLicenseAdminController],
+  providers: [CloudLicenseService, CloudLicenseAdminService],
   exports: [CloudLicenseService],
 })
 export class CloudLicenseModule {}

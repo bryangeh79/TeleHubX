@@ -531,6 +531,36 @@ export const cloudLicenseApi = {
   refresh: () => api.post('/cloud-license/refresh'),
 };
 
+/** SUPER_ADMIN-only proxy to the Cloudflare License Worker admin routes.
+ *  ADMIN_TOKEN never leaves the local server. */
+export const cloudLicenseAdminApi = {
+  availability: () => api.get('/cloud-license/admin/availability'),
+  // Tenants & Licenses
+  createTenant: (body: {
+    tenantName: string; contact?: string | null;
+    plan: 'basic' | 'pro' | 'enterprise';
+    expiresAt?: string | null;
+    email: string; initialPassword: string; role?: 'admin' | 'operator' | 'viewer';
+  }) => api.post('/cloud-license/admin/tenants', body),
+  listLicenses: () => api.get('/cloud-license/admin/licenses'),
+  listUsers: () => api.get('/cloud-license/admin/users'),
+
+  // License ops
+  revokeLicense: (id: string) => api.post(`/cloud-license/admin/licenses/${id}/revoke`),
+  extendLicense: (id: string, expiresAt: string) =>
+    api.post(`/cloud-license/admin/licenses/${id}/extend`, { expiresAt }),
+  unbindLicense: (id: string) => api.post(`/cloud-license/admin/licenses/${id}/unbind`),
+  changePlan: (id: string, plan: 'basic' | 'pro' | 'enterprise') =>
+    api.post(`/cloud-license/admin/licenses/${id}/change-plan`, { plan }),
+
+  // Users
+  attachUser: (tenantId: string, body: { email: string; password: string; role?: string }) =>
+    api.post(`/cloud-license/admin/tenants/${tenantId}/users`, body),
+  resetUserPassword: (id: string) => api.post(`/cloud-license/admin/users/${id}/reset-password`),
+  disableUser: (id: string) => api.post(`/cloud-license/admin/users/${id}/disable`),
+  enableUser: (id: string) => api.post(`/cloud-license/admin/users/${id}/enable`),
+};
+
 export const statsApi = {
   get: () => api.get('/accounts/health-stats').catch(() => ({
     data: FALLBACK_OVERVIEW,

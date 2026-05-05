@@ -36,6 +36,8 @@ import { useT } from '../../i18n';
 import dayjs from 'dayjs';
 import PlatformAiProvidersTab from './PlatformAiProvidersTab';
 import UsersTab from './UsersTab';
+import CloudTenantsTab from './CloudTenantsTab';
+import { CloudOutlined } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -829,8 +831,13 @@ export default function AdminPage() {
 
       <Card>
         <Tabs
-          defaultActiveKey="tenants"
+          defaultActiveKey="cloud-tenants"
           items={[
+            {
+              key: 'cloud-tenants',
+              label: <span><CloudOutlined /> Cloud Tenants</span>,
+              children: <CloudTenantsTab />,
+            },
             {
               key: 'tenants',
               label: <span><TeamOutlined /> {t('page.admin.tab.tenants')}</span>,
