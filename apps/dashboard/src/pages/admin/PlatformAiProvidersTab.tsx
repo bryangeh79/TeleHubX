@@ -8,6 +8,7 @@ import {
   PlusOutlined, ReloadOutlined, SaveOutlined,
 } from '@ant-design/icons';
 import { platformConfigApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { Text } = Typography;
 
@@ -28,6 +29,7 @@ const PROVIDER_COLORS: Record<string, string> = {
  * 不再混杂 admin-only 控件。
  */
 export default function PlatformAiProvidersTab() {
+  const t = useT();
   const [providers, setProviders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -39,27 +41,27 @@ export default function PlatformAiProvidersTab() {
       const res = await platformConfigApi.listAiProviders();
       setProviders(Array.isArray(res.data) ? res.data : []);
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '加载失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { void reload(); }, [reload]);
 
   const handleDelete = async (id: string) => {
     try {
       await platformConfigApi.deleteAiProvider(id);
-      antdMessage.success('已删除');
+      antdMessage.success(t('plat.ai.delOk'));
       void reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '删除失败');
+      antdMessage.error(err?.response?.data?.message ?? t('plat.ai.delFail'));
     }
   };
 
   const columns = [
     {
-      title: '类型',
+      title: t('plat.ai.col.type'),
       dataIndex: 'provider',
       width: 110,
       render: (p: string) => (
@@ -67,39 +69,39 @@ export default function PlatformAiProvidersTab() {
       ),
     },
     {
-      title: '名称 / 模型',
+      title: t('plat.ai.col.nameModel'),
       render: (_: any, row: any) => (
         <Space>
           <Text>{row.name ?? row.provider}</Text>
           {row.model && <Tag style={{ fontSize: 11 }}>{row.model}</Tag>}
-          {row.isDefault && <Tag color="blue" style={{ fontSize: 10 }}>默认</Tag>}
+          {row.isDefault && <Tag color="blue" style={{ fontSize: 10 }}>{t('plat.ai.tag.default')}</Tag>}
         </Space>
       ),
     },
     {
-      title: 'Base URL',
+      title: t('plat.ai.col.baseUrl'),
       dataIndex: 'baseUrl',
       render: (v: string) => v
         ? <Text code style={{ fontSize: 11 }}>{v}</Text>
-        : <Text type="secondary" style={{ fontSize: 11 }}>默认</Text>,
+        : <Text type="secondary" style={{ fontSize: 11 }}>{t('plat.ai.tag.default')}</Text>,
     },
     {
-      title: 'API Key',
+      title: t('plat.ai.col.apiKey'),
       width: 90,
       render: () => <Text type="secondary" style={{ fontSize: 11 }}>••••••••</Text>,
     },
     {
-      title: '最近测试',
+      title: t('plat.ai.col.lastTest'),
       width: 110,
       render: (_: any, row: any) => {
-        if (!row.lastTestedAt) return <Text type="secondary" style={{ fontSize: 11 }}>未测试</Text>;
+        if (!row.lastTestedAt) return <Text type="secondary" style={{ fontSize: 11 }}>{t('plat.ai.tag.notTested')}</Text>;
         return row.lastTestStatus === 'ok'
-          ? <Tag color="success" icon={<CheckCircleOutlined />}>✓ OK</Tag>
-          : <Tag color="error" icon={<CloseCircleOutlined />}>失败</Tag>;
+          ? <Tag color="success" icon={<CheckCircleOutlined />}>{t('plat.ai.tag.ok')}</Tag>
+          : <Tag color="error" icon={<CloseCircleOutlined />}>{t('plat.ai.tag.fail')}</Tag>;
       },
     },
     {
-      title: '启用',
+      title: t('plat.ai.col.enable'),
       dataIndex: 'isActive',
       width: 70,
       render: (v: boolean, row: any) => (
@@ -115,13 +117,13 @@ export default function PlatformAiProvidersTab() {
       ),
     },
     {
-      title: '操作',
+      title: t('plat.ai.col.actions'),
       width: 130,
       render: (_: any, row: any) => (
         <Space size={4}>
-          <Button size="small" onClick={() => { setEditing(row); setModalOpen(true); }}>编辑</Button>
-          <Popconfirm title="确认删除？" onConfirm={() => handleDelete(row.id)} okText="删除" cancelText="取消" okButtonProps={{ danger: true }}>
-            <Button size="small" danger>删</Button>
+          <Button size="small" onClick={() => { setEditing(row); setModalOpen(true); }}>{t('plat.ai.btn.edit')}</Button>
+          <Popconfirm title={t('plat.ai.btn.delConfirm')} onConfirm={() => handleDelete(row.id)} okText={t('common.delete')} cancelText={t('common.cancel')} okButtonProps={{ danger: true }}>
+            <Button size="small" danger>{t('plat.ai.btn.del')}</Button>
           </Popconfirm>
         </Space>
       ),
@@ -133,19 +135,19 @@ export default function PlatformAiProvidersTab() {
       title={
         <Space>
           <KeyOutlined />
-          <span>平台 AI Providers ({providers.length})</span>
+          <span>{t('plat.ai.title')} ({providers.length})</span>
         </Space>
       }
       extra={
         <Space>
-          <Button icon={<ReloadOutlined />} size="small" onClick={() => void reload()} loading={loading}>刷新</Button>
+          <Button icon={<ReloadOutlined />} size="small" onClick={() => void reload()} loading={loading}>{t('plat.ai.refresh')}</Button>
           <Button
             type="primary"
             icon={<PlusOutlined />}
             size="small"
             onClick={() => { setEditing(null); setModalOpen(true); }}
           >
-            新增
+            {t('plat.ai.add')}
           </Button>
         </Space>
       }
@@ -154,18 +156,18 @@ export default function PlatformAiProvidersTab() {
         type="info"
         showIcon
         style={{ marginBottom: 12 }}
-        message="平台兜底 Key — 广告变体生成 / 开场白评分 / FAQ 生成等内部任务用，费用由平台承担。配置后无需重启服务，立即生效。"
+        message={t('plat.ai.intro')}
       />
       {providers.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '24px 0', color: '#999' }}>
           <div style={{ fontSize: 24, marginBottom: 8 }}>🔑</div>
-          <div>还没有配置平台 API Key</div>
+          <div>{t('plat.ai.empty.title')}</div>
           <Button
             type="primary"
             style={{ marginTop: 12 }}
             onClick={() => { setEditing(null); setModalOpen(true); }}
           >
-            立即添加
+            {t('plat.ai.empty.btn')}
           </Button>
         </div>
       ) : (
@@ -198,6 +200,7 @@ function PlatformProviderModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const t = useT();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -237,31 +240,31 @@ function PlatformProviderModal({
       if (values.apiKey?.trim()) payload.apiKey = values.apiKey.trim();
       if (isEdit) {
         await platformConfigApi.updateAiProvider(editRecord.id, payload);
-        antdMessage.success('已更新，可点「测试连接」验证');
+        antdMessage.success(t('plat.ai.savedHintEdit'));
         onSuccess();
       } else {
-        if (!payload.apiKey) { antdMessage.error('首次添加必须填写 API Key'); setSaving(false); return; }
+        if (!payload.apiKey) { antdMessage.error(t('plat.ai.firstAddRequiresKey')); setSaving(false); return; }
         const res = await platformConfigApi.createAiProvider(payload);
         setSavedId(res.data?.id ?? null);
-        antdMessage.success('已保存，点「测试连接」验证是否正常');
+        antdMessage.success(t('plat.ai.savedHintNew'));
         onSuccess();
       }
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '保存失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.saveFailed'));
     } finally {
       setSaving(false);
     }
   };
 
   const handleTest = async () => {
-    if (!testableId) { antdMessage.warning('请先保存后再测试'); return; }
+    if (!testableId) { antdMessage.warning(t('plat.ai.testFirst')); return; }
     setTesting(true);
     setTestResult(null);
     try {
       const res = await platformConfigApi.testAiProvider(testableId);
       setTestResult({ ok: res.data.ok, msg: res.data.message });
     } catch (err: any) {
-      setTestResult({ ok: false, msg: err?.response?.data?.message ?? '测试失败' });
+      setTestResult({ ok: false, msg: err?.response?.data?.message ?? t('plat.ai.testFail') });
     } finally {
       setTesting(false);
     }
@@ -270,16 +273,16 @@ function PlatformProviderModal({
   return (
     <Modal
       open={open}
-      title={isEdit ? '编辑平台 AI Provider' : '新增平台 AI Provider'}
+      title={isEdit ? t('plat.ai.modal.edit') : t('plat.ai.modal.add')}
       onCancel={onClose}
       width={560}
       footer={
         <Space style={{ justifyContent: 'flex-end', width: '100%' }}>
           <Button loading={testing} onClick={handleTest} disabled={!testableId}>
-            {testableId ? '测试连接' : '保存后可测试'}
+            {testableId ? t('plat.ai.btnTest') : t('plat.ai.btnTestDisabled')}
           </Button>
-          <Button onClick={onClose}>取消</Button>
-          <Button type="primary" loading={saving} onClick={handleSave} icon={<SaveOutlined />}>保存</Button>
+          <Button onClick={onClose}>{t('common.cancel')}</Button>
+          <Button type="primary" loading={saving} onClick={handleSave} icon={<SaveOutlined />}>{t('plat.ai.btnSave')}</Button>
         </Space>
       }
     >
@@ -287,48 +290,48 @@ function PlatformProviderModal({
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="平台兜底 Key — 用于广告变体生成、开场白评分等内部 AI 任务，费用由平台承担。"
+        message={t('plat.ai.modal.intro')}
       />
       <Form form={form} layout="vertical">
         <Row gutter={12}>
           <Col span={12}>
-            <Form.Item name="provider" label="提供商" rules={[{ required: true }]}>
+            <Form.Item name="provider" label={t('plat.ai.field.provider')} rules={[{ required: true }]}>
               <Select options={[
                 { value: 'openai',   label: 'OpenAI' },
                 { value: 'deepseek', label: 'DeepSeek' },
                 { value: 'gemini',   label: 'Google Gemini' },
-                { value: 'custom',   label: '自定义 (OpenAI 兼容)' },
+                { value: 'custom',   label: t('plat.ai.field.providerCustom') },
               ]} />
             </Form.Item>
           </Col>
           <Col span={12}>
-            <Form.Item name="name" label="名称 (备注)">
-              <Input placeholder="例: DeepSeek 主力 Key" />
+            <Form.Item name="name" label={t('plat.ai.field.name')}>
+              <Input placeholder={t('plat.ai.field.namePlaceholder')} />
             </Form.Item>
           </Col>
         </Row>
         <Form.Item
           name="apiKey"
-          label="API Key"
-          extra={isEdit ? '留空则保留现有 Key（不会显示明文）' : '必填'}
-          rules={isEdit ? [] : [{ required: true, message: '必填' }]}
+          label={t('form.apiKey')}
+          extra={isEdit ? t('plat.ai.field.apiKeyExtraEdit') : t('plat.ai.field.apiKeyExtraNew')}
+          rules={isEdit ? [] : [{ required: true, message: t('form.required') }]}
         >
-          <Input.Password placeholder={isEdit ? '••••••••（保留现有）' : 'sk-...'} autoComplete="off" />
+          <Input.Password placeholder={isEdit ? t('plat.ai.field.apiKeyPlaceholderEdit') : 'sk-...'} autoComplete="off" />
         </Form.Item>
         <Row gutter={12}>
           <Col span={12}>
-            <Form.Item name="model" label="模型 (可选)">
+            <Form.Item name="model" label={t('plat.ai.field.modelOptional')}>
               <Input placeholder="deepseek-chat / gpt-4o-mini" />
             </Form.Item>
           </Col>
           <Col span={12}>
-            <Form.Item name="baseUrl" label="Base URL (自定义时填)">
+            <Form.Item name="baseUrl" label={t('plat.ai.field.baseUrlOptional')}>
               <Input placeholder="https://api.deepseek.com/v1" />
             </Form.Item>
           </Col>
         </Row>
-        <Form.Item name="isDefault" valuePropName="checked" label="设为默认平台 Key"
-          extra="打开后，广告变体生成 / 开场白评分等内部任务会优先使用这个 Key">
+        <Form.Item name="isDefault" valuePropName="checked" label={t('plat.ai.field.isDefault')}
+          extra={t('plat.ai.field.isDefaultExtra')}>
           <Switch />
         </Form.Item>
       </Form>

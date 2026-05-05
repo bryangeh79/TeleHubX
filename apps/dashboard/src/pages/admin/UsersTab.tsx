@@ -8,22 +8,22 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { adminApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { Text } = Typography;
 
-const ROLE_OPTIONS = [
-  { value: 'super_admin', label: 'Super Admin (平台)', color: 'red' },
-  { value: 'admin',       label: 'Admin (租户管理员)', color: 'gold' },
-  { value: 'operator',    label: 'Operator (运营)',   color: 'blue' },
-  { value: 'viewer',      label: 'Viewer (只读)',     color: 'default' },
-];
-
-const ROLE_COLOR: Record<string, string> = Object.fromEntries(
-  ROLE_OPTIONS.map((o) => [o.value, o.color]),
-);
-const ROLE_LABEL: Record<string, string> = Object.fromEntries(
-  ROLE_OPTIONS.map((o) => [o.value, o.label]),
-);
+const ROLE_VALUES = ['super_admin', 'admin', 'operator', 'viewer'] as const;
+const ROLE_COLOR: Record<string, string> = {
+  super_admin: 'red', admin: 'gold', operator: 'blue', viewer: 'default',
+};
+function buildRoleOptions(t: (k: string) => string) {
+  return [
+    { value: 'super_admin', label: t('usrs.role.superAdmin'), color: 'red' },
+    { value: 'admin',       label: t('usrs.role.admin'),      color: 'gold' },
+    { value: 'operator',    label: t('usrs.role.operator'),   color: 'blue' },
+    { value: 'viewer',      label: t('usrs.role.viewer'),     color: 'default' },
+  ];
+}
 
 interface UserRow {
   id: string;
@@ -49,6 +49,11 @@ function currentUserSub(): string | null {
 }
 
 export default function UsersTab() {
+  const t = useT();
+  const ROLE_OPTIONS = buildRoleOptions(t);
+  const ROLE_LABEL: Record<string, string> = Object.fromEntries(
+    ROLE_OPTIONS.map((o) => [o.value, o.label]),
+  );
   const [users, setUsers] = useState<UserRow[]>([]);
   const [tenants, setTenants] = useState<TenantRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -68,19 +73,13 @@ export default function UsersTab() {
       setUsers(Array.isArray(uRes.data) ? uRes.data : []);
       setTenants(Array.isArray(tRes.data) ? tRes.data : []);
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '加载失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, [filterTenant]);
+  }, [filterTenant, t]);
 
   useEffect(() => { void reload(); }, [reload]);
-
-  const tenantName = (id: string | null) => {
-    if (!id) return <Text type="secondary">-</Text>;
-    const t = tenants.find((x) => x.id === id);
-    return t?.name ?? <Text type="secondary" style={{ fontSize: 11 }}>{id.slice(0, 8)}…</Text>;
-  };
 
   const handleCreate = async () => {
     let values: any;
@@ -94,12 +93,12 @@ export default function UsersTab() {
         tenantId: values.tenantId ?? null,
         enabled: true,
       });
-      antdMessage.success(`用户 ${values.username} 已创建`);
+      antdMessage.success(t('usrs.createOk', { name: values.username }));
       setCreateOpen(false);
       createForm.resetFields();
       void reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '创建失败');
+      antdMessage.error(err?.response?.data?.message ?? t('usrs.createFail'));
     } finally {
       setSubmitting(false);
     }
@@ -110,10 +109,10 @@ export default function UsersTab() {
       const res = await adminApi.resetUserPassword(id);
       const temp: string = res.data?.tempPassword ?? '';
       Modal.success({
-        title: `用户 ${username} 密码已重置`,
+        title: t('usrs.resetPwdOk.title', { name: username }),
         content: (
           <div>
-            <p>临时密码（请立即告知用户并要求其登录后修改）：</p>
+            <p>{t('usrs.resetPwdOk.desc')}</p>
             <Input.Password
               value={temp}
               readOnly
@@ -124,71 +123,71 @@ export default function UsersTab() {
               type="warning"
               showIcon
               style={{ marginTop: 12 }}
-              message="此密码只显示一次，关闭后无法再次查看"
+              message={t('usrs.resetPwdOk.warn')}
             />
           </div>
         ),
         width: 480,
       });
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '重置失败');
+      antdMessage.error(err?.response?.data?.message ?? t('usrs.resetPwdFail'));
     }
   };
 
   const handleToggleEnabled = async (row: UserRow, val: boolean) => {
     try {
       await adminApi.updateUser(row.id, { enabled: val });
-      antdMessage.success(val ? '已启用' : '已禁用');
+      antdMessage.success(val ? t('usrs.toggleEnabledOn') : t('usrs.toggleEnabledOff'));
       void reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '操作失败');
+      antdMessage.error(err?.response?.data?.message ?? t('usrs.toggleFail'));
     }
   };
 
   const handleChangeRole = async (row: UserRow, role: string) => {
     try {
       await adminApi.updateUser(row.id, { role });
-      antdMessage.success(`已改为 ${ROLE_LABEL[role] ?? role}`);
+      antdMessage.success(t('usrs.changeRoleOk', { label: ROLE_LABEL[role] ?? role }));
       void reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '改 role 失败');
+      antdMessage.error(err?.response?.data?.message ?? t('usrs.changeRoleFail'));
     }
   };
 
   const handleChangeTenant = async (row: UserRow, tenantId: string | null) => {
     try {
       await adminApi.updateUser(row.id, { tenantId });
-      antdMessage.success('已改租户');
+      antdMessage.success(t('usrs.changeTenantOk'));
       void reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '改租户失败');
+      antdMessage.error(err?.response?.data?.message ?? t('usrs.changeTenantFail'));
     }
   };
 
   const handleDelete = async (id: string) => {
     try {
       await adminApi.deleteUser(id);
-      antdMessage.success('已删除');
+      antdMessage.success(t('usrs.delOk'));
       void reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '删除失败');
+      antdMessage.error(err?.response?.data?.message ?? t('usrs.delFail'));
     }
   };
 
   const columns = [
     {
-      title: '用户名',
+      title: t('usrs.col.username'),
       dataIndex: 'username',
       render: (v: string, row: UserRow) => (
         <Space>
           <UserOutlined />
           <Text strong>{v}</Text>
-          {row.id === mySub && <Tag color="cyan">当前登录</Tag>}
+          {row.id === mySub && <Tag color="cyan">{t('usrs.tag.currentLogin')}</Tag>}
         </Space>
       ),
     },
     {
-      title: '角色',
+      title: t('usrs.col.role'),
       dataIndex: 'role',
       width: 200,
       render: (r: string, row: UserRow) => (
@@ -206,7 +205,7 @@ export default function UsersTab() {
       ),
     },
     {
-      title: '租户',
+      title: t('usrs.col.tenant'),
       dataIndex: 'tenantId',
       width: 180,
       render: (tid: string | null, row: UserRow) => (
@@ -216,14 +215,14 @@ export default function UsersTab() {
           style={{ width: 160 }}
           onChange={(v) => handleChangeTenant(row, v === '__none__' ? null : v)}
           options={[
-            { value: '__none__', label: <Text type="secondary">— 无 —</Text> },
-            ...tenants.map((t) => ({ value: t.id, label: t.name })),
+            { value: '__none__', label: <Text type="secondary">{t('usrs.tenant.none')}</Text> },
+            ...tenants.map((x) => ({ value: x.id, label: x.name })),
           ]}
         />
       ),
     },
     {
-      title: '启用',
+      title: t('usrs.col.enabled'),
       dataIndex: 'enabled',
       width: 70,
       render: (v: boolean, row: UserRow) => (
@@ -237,43 +236,43 @@ export default function UsersTab() {
       ),
     },
     {
-      title: '最后登录',
+      title: t('usrs.col.lastLogin'),
       dataIndex: 'lastLoginAt',
       width: 140,
       render: (v: string | null) =>
         v ? <Text style={{ fontSize: 11 }}>{dayjs(v).format('MM-DD HH:mm')}</Text>
-          : <Text type="secondary" style={{ fontSize: 11 }}>从未登录</Text>,
+          : <Text type="secondary" style={{ fontSize: 11 }}>{t('usrs.lastLogin.never')}</Text>,
     },
     {
-      title: '创建时间',
+      title: t('usrs.col.created'),
       dataIndex: 'createdAt',
       width: 110,
       render: (v: string) => <Text type="secondary" style={{ fontSize: 11 }}>{dayjs(v).format('MM-DD')}</Text>,
     },
     {
-      title: '操作',
+      title: t('usrs.col.actions'),
       width: 180,
       render: (_: any, row: UserRow) => (
         <Space size={4}>
           <Popconfirm
-            title="重置密码"
-            description="生成新的临时密码并显示。当前用户的旧密码立即失效。"
-            okText="重置"
-            cancelText="取消"
+            title={t('usrs.resetPwdConfirm.title')}
+            description={t('usrs.resetPwdConfirm.desc')}
+            okText={t('usrs.resetPwdConfirm.ok')}
+            cancelText={t('common.cancel')}
             onConfirm={() => handleResetPassword(row.id, row.username)}
           >
-            <Button size="small" icon={<KeyOutlined />}>重置密码</Button>
+            <Button size="small" icon={<KeyOutlined />}>{t('usrs.btn.resetPwd')}</Button>
           </Popconfirm>
           <Popconfirm
-            title="删除用户"
-            description={row.id === mySub ? '不能删除自己当前登录的账号' : `确认删除 ${row.username}？`}
-            okText="删除"
-            cancelText="取消"
+            title={t('usrs.delConfirm.title')}
+            description={row.id === mySub ? t('usrs.delConfirm.descSelf') : t('usrs.delConfirm.desc', { name: row.username })}
+            okText={t('common.delete')}
+            cancelText={t('common.cancel')}
             okButtonProps={{ danger: true, disabled: row.id === mySub }}
             onConfirm={() => handleDelete(row.id)}
             disabled={row.id === mySub}
           >
-            <Button size="small" danger disabled={row.id === mySub}>删</Button>
+            <Button size="small" danger disabled={row.id === mySub}>{t('usrs.btn.del')}</Button>
           </Popconfirm>
         </Space>
       ),
@@ -282,21 +281,21 @@ export default function UsersTab() {
 
   return (
     <Card
-      title={<Space><TeamOutlined /> 用户管理 ({users.length})</Space>}
+      title={<Space><TeamOutlined /> {t('usrs.title')} ({users.length})</Space>}
       extra={
         <Space>
           <Select
             allowClear
             size="small"
-            placeholder="筛选租户"
+            placeholder={t('usrs.filterTenant')}
             style={{ width: 180 }}
             value={filterTenant}
             onChange={(v) => setFilterTenant(v)}
-            options={tenants.map((t) => ({ value: t.id, label: t.name }))}
+            options={tenants.map((x) => ({ value: x.id, label: x.name }))}
           />
-          <Button icon={<ReloadOutlined />} size="small" onClick={() => void reload()} loading={loading}>刷新</Button>
+          <Button icon={<ReloadOutlined />} size="small" onClick={() => void reload()} loading={loading}>{t('usrs.refresh')}</Button>
           <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-            新增用户
+            {t('usrs.btnNew')}
           </Button>
         </Space>
       }
@@ -305,7 +304,7 @@ export default function UsersTab() {
         type="info"
         showIcon
         style={{ marginBottom: 12 }}
-        message="平台所有用户，包括各租户内的子账号。super_admin 不绑租户（跨租户）；其他角色必须绑到一个租户。"
+        message={t('usrs.intro')}
       />
       <Table
         dataSource={users}
@@ -318,21 +317,21 @@ export default function UsersTab() {
 
       <Modal
         open={createOpen}
-        title="新增用户"
+        title={t('usrs.modal.new')}
         onCancel={() => { setCreateOpen(false); createForm.resetFields(); }}
         onOk={handleCreate}
-        okText="创建"
-        cancelText="取消"
+        okText={t('usrs.create')}
+        cancelText={t('common.cancel')}
         confirmLoading={submitting}
       >
         <Form form={createForm} layout="vertical" initialValues={{ role: 'operator' }}>
-          <Form.Item name="username" label="用户名" rules={[{ required: true, min: 3 }]}>
-            <Input placeholder="例: alice" autoComplete="off" />
+          <Form.Item name="username" label={t('usrs.field.username')} rules={[{ required: true, min: 3 }]}>
+            <Input placeholder={t('usrs.field.usernamePlaceholder')} autoComplete="off" />
           </Form.Item>
-          <Form.Item name="password" label="初始密码" rules={[{ required: true, min: 6 }]}>
-            <Input.Password placeholder="至少 6 位" autoComplete="new-password" />
+          <Form.Item name="password" label={t('usrs.field.password')} rules={[{ required: true, min: 6 }]}>
+            <Input.Password placeholder={t('usrs.field.passwordPlaceholder')} autoComplete="new-password" />
           </Form.Item>
-          <Form.Item name="role" label="角色" rules={[{ required: true }]}>
+          <Form.Item name="role" label={t('usrs.field.role')} rules={[{ required: true }]}>
             <Select options={ROLE_OPTIONS.map((o) => ({
               value: o.value,
               label: <Space><Tag color={o.color} style={{ marginRight: 0 }}>{o.label}</Tag></Space>,
@@ -340,13 +339,13 @@ export default function UsersTab() {
           </Form.Item>
           <Form.Item
             name="tenantId"
-            label="所属租户"
-            extra="super_admin 可不选；其他角色必须选一个"
+            label={t('usrs.field.tenant')}
+            extra={t('usrs.field.tenantExtra')}
           >
             <Select
               allowClear
-              placeholder="— 无（跨租户 super_admin）—"
-              options={tenants.map((t) => ({ value: t.id, label: t.name }))}
+              placeholder={t('usrs.field.tenantPlaceholder')}
+              options={tenants.map((x) => ({ value: x.id, label: x.name }))}
             />
           </Form.Item>
         </Form>

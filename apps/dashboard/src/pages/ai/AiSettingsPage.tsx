@@ -88,7 +88,7 @@ function TenantAiModal({
         payload.tenantAiApiKey = values.tenantAiApiKey.trim();
       }
       await tenantsApi.updateSettings(tenantId, payload);
-      antdMessage.success('智能回复 AI 配置已保存');
+      antdMessage.success(t('aiset.tenant.modal.saveOk'));
       onSave();
     } catch (err: any) {
       antdMessage.error(err?.response?.data?.message ?? t('msg.saveFailed'));
@@ -107,10 +107,10 @@ function TenantAiModal({
         tenantAiModel: null,
         tenantAiBaseUrl: null,
       });
-      antdMessage.success('已清空，将回落到平台兜底');
+      antdMessage.success(t('aiset.tenant.modal.clearOk'));
       onSave();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '清空失败');
+      antdMessage.error(err?.response?.data?.message ?? t('aiset.tenant.modal.clearFail'));
     } finally {
       setSaving(false);
     }
@@ -119,14 +119,14 @@ function TenantAiModal({
   return (
     <Modal
       open={open}
-      title={<Space><KeyOutlined />智能回复 AI 配置</Space>}
+      title={<Space><KeyOutlined />{t('aiset.tenant.modal.title')}</Space>}
       onCancel={onClose}
       width={560}
       footer={
         <Space style={{ justifyContent: 'flex-end', width: '100%' }}>
           {currentProvider && (
             <Popconfirm
-              title="清空后将回落到平台兜底 Key，确认？"
+              title={t('aiset.tenant.modal.clearConfirm')}
               onConfirm={handleClear}
               okText={t('common.confirm')} cancelText={t('common.cancel')} okButtonProps={{ danger: true }}
             >
@@ -142,7 +142,7 @@ function TenantAiModal({
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="此 API Key 用于客户与机器人聊天的 AI 回复，Token 费用由你自己承担。留空则回落到平台兜底 Key。"
+        message={t('aiset.tenant.modal.intro')}
       />
       <Form form={form} layout="vertical">
         <Row gutter={12}>
@@ -152,13 +152,13 @@ function TenantAiModal({
                 { value: 'openai',   label: 'OpenAI' },
                 { value: 'deepseek', label: 'DeepSeek' },
                 { value: 'gemini',   label: 'Google Gemini' },
-                { value: 'custom',   label: '自定义 (OpenAI 兼容)' },
+                { value: 'custom',   label: t('aiset.tenant.modal.providerCustom') },
               ]} />
             </Form.Item>
           </Col>
           <Col span={12}>
             <Form.Item name="tenantAiModel" label={t('form.modelOptional')}>
-              <Input placeholder="gpt-4o-mini / deepseek-chat" />
+              <Input placeholder={t('aiset.tenant.modal.modelPlaceholder')} />
             </Form.Item>
           </Col>
         </Row>
@@ -195,12 +195,13 @@ function MarketingPromptModal({
     setPrompt(saved ?? DEFAULT_MARKETING_PROMPT);
   }, [open]);
 
+  const t = useT();
   const handleSave = async () => {
     setSaving(true);
     try {
       localStorage.setItem('telehubx:marketingPrompt', prompt);
       await new Promise(r => setTimeout(r, 300)); // simulate save
-      antdMessage.success('AI 营销人设已保存');
+      antdMessage.success(t('aiset.mkt.saveOk'));
       onClose();
     } finally {
       setSaving(false);
@@ -213,9 +214,9 @@ function MarketingPromptModal({
       title={
         <Space>
           <ThunderboltOutlined style={{ color: '#52c41a' }} />
-          AI 营销人设
+          {t('aiset.mkt.title')}
           <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
-            · 广告 / 开场白 AI 生成变体时注入 system prompt
+            {t('aiset.mkt.subtitle')}
           </Text>
         </Space>
       }
@@ -223,9 +224,9 @@ function MarketingPromptModal({
       width={680}
       footer={
         <Space style={{ justifyContent: 'flex-end', width: '100%' }}>
-          <Button onClick={() => setPrompt(DEFAULT_MARKETING_PROMPT)}>恢复默认</Button>
-          <Button onClick={onClose}>取消</Button>
-          <Button type="primary" loading={saving} onClick={handleSave} icon={<SaveOutlined />}>保存</Button>
+          <Button onClick={() => setPrompt(DEFAULT_MARKETING_PROMPT)}>{t('aiset.mkt.restore')}</Button>
+          <Button onClick={onClose}>{t('common.cancel')}</Button>
+          <Button type="primary" loading={saving} onClick={handleSave} icon={<SaveOutlined />}>{t('common.save')}</Button>
         </Space>
       }
     >
@@ -233,7 +234,7 @@ function MarketingPromptModal({
         type="info"
         showIcon
         style={{ marginBottom: 12 }}
-        message="在这里定义 AI 生成广告 / 开场白变体时的角色、风格、规则。修改立即生效，下次生成变体就用新人设。"
+        message={t('aiset.mkt.alert')}
       />
       <TextArea
         value={prompt}
@@ -258,21 +259,21 @@ function TenantAiCard({ tenantId, tenantAi, onEdit }: {
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const PROVIDER_LABELS: Record<string, string> = {
-    openai: 'OpenAI', deepseek: 'DeepSeek', gemini: 'Google Gemini', custom: '自定义',
+    openai: 'OpenAI', deepseek: 'DeepSeek', gemini: 'Google Gemini', custom: t('aiset.tenant.modal.providerCustom'),
   };
   const PROVIDER_COLORS: Record<string, string> = {
     openai: 'blue', deepseek: 'purple', gemini: 'orange', custom: 'default',
   };
 
   const handleTest = async () => {
-    if (!tenantId) { antdMessage.warning('租户 ID 未加载，请刷新'); return; }
+    if (!tenantId) { antdMessage.warning(t('aiset.tenant.tenantIdMissing')); return; }
     setTesting(true);
     setTestResult(null);
     try {
       const res = await tenantsApi.testAi(tenantId);
       setTestResult({ ok: res.data.ok, msg: res.data.message });
     } catch (err: any) {
-      setTestResult({ ok: false, msg: err?.response?.data?.message ?? '测试失败' });
+      setTestResult({ ok: false, msg: err?.response?.data?.message ?? t('aiset.tenant.testFail') });
     } finally {
       setTesting(false);
     }
@@ -281,7 +282,7 @@ function TenantAiCard({ tenantId, tenantAi, onEdit }: {
   return (
     <Card
       style={{ marginBottom: 16 }}
-      title={<Space><KeyOutlined />智能回复 AI Key</Space>}
+      title={<Space><KeyOutlined />{t('aiset.tenant.title')}</Space>}
       extra={
         <Space>
           {tenantAi?.tenantAiProvider && (
@@ -294,20 +295,19 @@ function TenantAiCard({ tenantId, tenantAi, onEdit }: {
       }
     >
       <Text type="secondary" style={{ fontSize: 13 }}>
-        用于客户与机器人聊天时的 AI 智能回复，Token 费用由你自己承担。
-        留空则自动回落到平台兜底 Key。
+        {t('aiset.tenant.desc')}
       </Text>
       <div style={{ marginTop: 10 }}>
         {tenantAi?.tenantAiProvider ? (
           <Space>
-            <Tag color="success" icon={<CheckCircleOutlined />}>已配置</Tag>
+            <Tag color="success" icon={<CheckCircleOutlined />}>{t('aiset.tenant.configured')}</Tag>
             <Tag color={PROVIDER_COLORS[tenantAi.tenantAiProvider] ?? 'default'}>
               {PROVIDER_LABELS[tenantAi.tenantAiProvider] ?? tenantAi.tenantAiProvider}
             </Tag>
             {tenantAi.tenantAiModel && <Tag>{tenantAi.tenantAiModel}</Tag>}
           </Space>
         ) : (
-          <Tag color="warning" icon={<CloseCircleOutlined />}>未配置 · 回落到平台兜底 Key</Tag>
+          <Tag color="warning" icon={<CloseCircleOutlined />}>{t('aiset.tenant.fallback')}</Tag>
         )}
       </div>
       {testResult && (
@@ -360,18 +360,18 @@ export default function AiSettingsPage() {
       setInfo(infoRes.data ?? null);
       setTenantAi(settingsRes.data);
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '加载失败');
+      antdMessage.error(err?.response?.data?.message ?? t('msg.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { void loadInfo(); }, [loadInfo]);
 
   const toggleAi = (v: boolean) => {
     setAiEnabled(v);
     localStorage.setItem('telehubx:aiEnabled', String(v));
-    antdMessage.success(v ? 'AI 文本改写已开启' : 'AI 文本改写已关闭');
+    antdMessage.success(v ? t('aiset.master.toggleOn') : t('aiset.master.toggleOff'));
   };
 
   return (
@@ -381,7 +381,7 @@ export default function AiSettingsPage() {
         <div>
           <Title level={4} style={{ margin: 0 }}>{t('page.cs.aiProvider')}</Title>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            配置 DeepSeek / Gemini / OpenAI / Claude 的 API Key
+            {t('aiset.subtitle')}
           </Text>
         </div>
         <Space size={8}>
@@ -391,7 +391,7 @@ export default function AiSettingsPage() {
             onClick={() => setCompanyWizardOpen(true)}
             style={{ fontWeight: 500 }}
           >
-            设置公司资讯
+            {t('aiset.btnCompany')}
           </Button>
           <Button
             size="large"
@@ -400,9 +400,9 @@ export default function AiSettingsPage() {
             onClick={() => setProductWizardOpen(true)}
             style={{ fontWeight: 500 }}
           >
-            设置产品
+            {t('aiset.btnProduct')}
           </Button>
-          <Button icon={<ReloadOutlined />} onClick={() => void loadInfo()} loading={loading}>刷新</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => void loadInfo()} loading={loading}>{t('common.refresh')}</Button>
         </Space>
       </div>
 
@@ -411,16 +411,14 @@ export default function AiSettingsPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <Space>
-              <Text strong style={{ fontSize: 15 }}>AI 文本改写 · 总开关</Text>
-              <Tooltip title="开启后系统会用 AI 为聊天 / 广告文案自动生成多样化变体，降低封号风险">
-                <Text type="secondary" style={{ fontSize: 12, cursor: 'help' }}>ⓘ 关于 API Key</Text>
+              <Text strong style={{ fontSize: 15 }}>{t('aiset.master.title')}</Text>
+              <Tooltip title={t('aiset.master.tip')}>
+                <Text type="secondary" style={{ fontSize: 12, cursor: 'help' }}>{t('aiset.master.about')}</Text>
               </Tooltip>
             </Space>
             <div>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                {aiEnabled
-                  ? '已开启 · 系统会用 AI 为聊天 / 广告文案自动生成多样化变体 · 降低封号风险'
-                  : '已关闭 · AI 改写功能停用'}
+                {aiEnabled ? t('aiset.master.descOn') : t('aiset.master.descOff')}
               </Text>
             </div>
           </div>
