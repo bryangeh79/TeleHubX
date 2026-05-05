@@ -1029,20 +1029,20 @@ export default function SchedulerPage() {
 
           <Form.Item shouldUpdate={(p, c) => p.type !== c.type} noStyle>
             {({ getFieldValue }) => {
-              const t = getFieldValue('type');
-              const isAB = t === 'chat_script_ab';
-              const is4P = t === 'chat_script_4p';
-              const is6P = t === 'chat_script_6p';
+              const selectedType = getFieldValue('type');
+              const isAB = selectedType === 'chat_script_ab';
+              const is4P = selectedType === 'chat_script_4p';
+              const is6P = selectedType === 'chat_script_6p';
               const isChatScript = isAB || is4P || is6P;
-              const isMedia = t === 'media_photo' || t === 'media_video' || t === 'media_voice' || t === 'post_channel';
-              const mediaCategory = t === 'media_photo' ? 'photo'
-                : t === 'media_video' ? 'video'
-                : t === 'media_voice' ? 'voice'
+              const isMedia = selectedType === 'media_photo' || selectedType === 'media_video' || selectedType === 'media_voice' || selectedType === 'post_channel';
+              const mediaCategory = selectedType === 'media_photo' ? 'photo'
+                : selectedType === 'media_video' ? 'video'
+                : selectedType === 'media_voice' ? 'voice'
                 : 'photo';  // post_channel 默认 photo
 
               if (isMedia) {
                 return <MediaTaskFields
-                  taskType={t}
+                  taskType={selectedType}
                   category={mediaCategory}
                   accountOptions={accountOptions}
                   assetPools={assetPools}
@@ -1066,7 +1066,7 @@ export default function SchedulerPage() {
                         disabled={accountOptions.length === 0}
                       />
                     </Form.Item>
-                    <TaskTypeFields taskType={t} accountOptions={accountOptions} />
+                    <TaskTypeFields taskType={selectedType} accountOptions={accountOptions} />
                   </>
                 );
               }
