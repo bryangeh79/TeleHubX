@@ -11,6 +11,7 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import 'dayjs/locale/zh-cn';
 import { customerGroupsApi, tenantsApi } from '../../services/api';
+import { useT } from '../../i18n';
 import CreateGroupModal from './CreateGroupModal';
 import GroupDetailDrawer from './GroupDetailDrawer';
 
@@ -40,6 +41,7 @@ interface Props {
 }
 
 export default function CustomerGroupDrawer({ open, onClose, tenantId: tenantIdProp }: Props) {
+  const t = useT();
   const [tenantId, setTenantId] = useState<string>(tenantIdProp ?? '');
   const [groups, setGroups] = useState<CustomerGroup[]>([]);
   const [loading, setLoading] = useState(false);
@@ -150,12 +152,12 @@ export default function CustomerGroupDrawer({ open, onClose, tenantId: tenantIdP
         onClose={onClose}
         title={
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>客户群管理</span>
+            <span>{t('drawer.customerGroup')}</span>
             <Space>
               <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading} size="small" />
               <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}
                 style={{ background: '#52c41a', borderColor: '#52c41a' }}>
-                新建客户群
+                {t('common.create')}
               </Button>
             </Space>
           </div>

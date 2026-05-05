@@ -54,6 +54,7 @@ function TenantAiModal({
   onSave: () => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [currentProvider, setCurrentProvider] = useState<string | null>(null);
@@ -146,7 +147,7 @@ function TenantAiModal({
       <Form form={form} layout="vertical">
         <Row gutter={12}>
           <Col span={12}>
-            <Form.Item name="tenantAiProvider" label="AI 提供商" rules={[{ required: true }]}>
+            <Form.Item name="tenantAiProvider" label={t('form.provider')} rules={[{ required: true, message: t('form.required') }]}>
               <Select options={[
                 { value: 'openai',   label: 'OpenAI' },
                 { value: 'deepseek', label: 'DeepSeek' },
@@ -156,19 +157,18 @@ function TenantAiModal({
             </Form.Item>
           </Col>
           <Col span={12}>
-            <Form.Item name="tenantAiModel" label="模型 (可选)">
+            <Form.Item name="tenantAiModel" label={t('form.modelOptional')}>
               <Input placeholder="gpt-4o-mini / deepseek-chat" />
             </Form.Item>
           </Col>
         </Row>
-        <Form.Item name="tenantAiApiKey" label="API Key"
-          extra={currentProvider ? '留空则保留现有 Key（不会显示明文）' : '首次配置请填写'}>
+        <Form.Item name="tenantAiApiKey" label={t('form.apiKey')}>
           <Input.Password
-            placeholder={currentProvider ? '••••••••（保留现有）' : 'sk-...'}
+            placeholder={currentProvider ? '••••••••' : 'sk-...'}
             autoComplete="off"
           />
         </Form.Item>
-        <Form.Item name="tenantAiBaseUrl" label="Base URL（自定义时填）">
+        <Form.Item name="tenantAiBaseUrl" label={t('form.baseUrlOptional')}>
           <Input placeholder="https://api.openai.com/v1" />
         </Form.Item>
       </Form>

@@ -13,6 +13,7 @@ import {
   adTemplatesApi, campaignsApi, customerGroupsApi,
   greetingTemplatesApi, slotsApi, tenantsApi,
 } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -136,10 +137,11 @@ function Step1({
   onChange: (patch: Partial<WizardState>) => void;
   customerGroups: any[];
 }) {
+  const t = useT();
   const hasTarget = state.customerGroupIds.length > 0 || state.targets.trim().length > 0;
   return (
     <div>
-      <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>Aa</span>投放名称</>} style={{ marginBottom: 12 }}>
+      <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>Aa</span>{t('wizard.step.name')}</>} style={{ marginBottom: 12 }}>
         <Input
           value={state.name}
           onChange={e => onChange({ name: e.target.value })}
@@ -149,7 +151,7 @@ function Step1({
         />
       </Card>
 
-      <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>⏱</span>发送时间</>} style={{ marginBottom: 12 }}>
+      <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>⏱</span>{t('wizard.step.schedule')}</>} style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {SCHEDULE_OPTIONS.map(opt => (
             <div
@@ -200,7 +202,7 @@ function Step1({
         )}
       </Card>
 
-      <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>👥</span>目标号码</>} style={{ marginBottom: 12 }}>
+      <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>👥</span>{t('wizard.step.targets')}</>} style={{ marginBottom: 12 }}>
         <div style={{ marginBottom: 8 }}>
           <Text style={{ fontSize: 13 }}>选择客户群 (可多选)：</Text>
           <Select
@@ -254,6 +256,7 @@ function Step2({
   adTemplates: any[];
   greetingTemplates: any[];
 }) {
+  const t = useT();
   const selectedAds = state.adMode === 'single'
     ? (state.adTemplateId ? [state.adTemplateId] : [])
     : state.adTemplateIds;
@@ -282,7 +285,7 @@ function Step2({
 
   return (
     <div>
-      <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>📣</span>广告文案</>} style={{ marginBottom: 12 }}>
+      <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>📣</span>{t('wizard.step.adContent')}</>} style={{ marginBottom: 12 }}>
         <Radio.Group
           value={state.adMode}
           onChange={e => onChange({ adMode: e.target.value, adTemplateId: undefined, adTemplateIds: [] })}
@@ -338,7 +341,7 @@ function Step2({
         )}
       </Card>
 
-      <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>💬</span>开场白</>}>
+      <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>💬</span>{t('wizard.step.greeting')}</>}>
         <Text style={{ fontSize: 13, fontWeight: 500 }}>步骤 1 · 选择开场模式</Text>
         <div style={{ display: 'flex', gap: 8, marginTop: 8, marginBottom: 16 }}>
           {([
@@ -434,6 +437,7 @@ function Step3({
   capacity: any;
   capacityLoading: boolean;
 }) {
+  const t = useT();
   const safeColor = capacity?.safetyLevel === 'safe' ? '#52c41a'
     : capacity?.safetyLevel === 'warning' ? '#faad14' : '#ff4d4f';
   const capacityPct = capacity
@@ -442,7 +446,7 @@ function Step3({
 
   return (
     <div>
-      <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>👤</span>账号来源</>} style={{ marginBottom: 12 }}>
+      <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>👤</span>{t('wizard.step.account')}</>} style={{ marginBottom: 12 }}>
         {([
           {
             value: 'auto' as const,
@@ -488,7 +492,7 @@ function Step3({
         )}
       </Card>
 
-      <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>⚡</span>节奏档位</>} style={{ marginBottom: 12 }}>
+      <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>⚡</span>{t('wizard.step.pace')}</>} style={{ marginBottom: 12 }}>
         {(Object.entries(PACE_INFO) as [PacePreset, typeof PACE_INFO[PacePreset]][]).map(([value, info]) => (
           <div
             key={value}
@@ -512,7 +516,7 @@ function Step3({
         ))}
       </Card>
 
-      <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>🛡</span>安全承载</>}>
+      <Card title={<><span style={{ background: '#52c41a', color: '#fff', borderRadius: 4, padding: '1px 6px', marginRight: 8, fontSize: 12 }}>🛡</span>{t('wizard.step.safety')}</>}>
         {capacityLoading ? (
           <Text type="secondary">计算中…</Text>
         ) : capacity ? (

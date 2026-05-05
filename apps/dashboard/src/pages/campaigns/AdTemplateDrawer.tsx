@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { adTemplatesApi, assetsApi, tenantsApi as tenantsApiSvc } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -377,6 +378,7 @@ function AdTemplateModal({
 // ── Main Drawer ─────────────────────────────────────────────────────────
 
 export default function AdTemplateDrawer({ open, onClose, tenantId: tenantIdProp }: Props) {
+  const t = useT();
   const [tenantId, setTenantId] = useState<string>(tenantIdProp ?? '');
   const [templates, setTemplates] = useState<AdTemplate[]>([]);
   const [loading, setLoading] = useState(false);
@@ -427,10 +429,10 @@ export default function AdTemplateDrawer({ open, onClose, tenantId: tenantIdProp
         onClose={onClose}
         title={
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>广告文案库</span>
+            <span>{t('drawer.adTemplate')}</span>
             <Button type="primary" icon={<PlusOutlined />} onClick={openNew}
               style={{ background: '#52c41a', borderColor: '#52c41a' }}>
-              新建广告
+              {t('common.add')}
             </Button>
           </div>
         }

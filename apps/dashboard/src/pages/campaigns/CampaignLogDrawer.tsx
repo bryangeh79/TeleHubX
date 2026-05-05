@@ -8,6 +8,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { campaignsApi, tasksApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { Text } = Typography;
 
@@ -195,6 +196,7 @@ function DistributionTab({ tasks }: { tasks: TaskRow[] }) {
 
 // ── Main Modal ─────────────────────────────────────────────────────────────
 export default function CampaignLogDrawer({ open, campaignId, campaignName, onClose }: Props) {
+  const t = useT();
   const [data, setData] = useState<{
     summary: SummaryShape;
     tasks: TaskRow[];
@@ -341,7 +343,7 @@ export default function CampaignLogDrawer({ open, campaignId, campaignName, onCl
       title={
         <Space>
           <HistoryOutlined style={{ color: '#1677ff' }} />
-          <span>执行日志 · {campaignName ?? '...'}</span>
+          <span>{t('drawer.campaignLog')} · {campaignName ?? '...'}</span>
         </Space>
       }
       width={1100}

@@ -1143,7 +1143,7 @@ export default function CsPage() {
 
       {/* 注册 / 更换 Bot Token Modal */}
       <Modal
-        title={replaceTarget ? `切换 Bot（当前：@${replaceTarget.botUsername}）` : '添加 Bot Token'}
+        title={replaceTarget ? `${t('modal.bot.update')} (@${replaceTarget.botUsername})` : t('modal.bot.register')}
         open={registerVisible}
         onCancel={() => { setRegisterVisible(false); setReplaceTarget(null); form.resetFields(); }}
         footer={null}
@@ -1164,10 +1164,10 @@ export default function CsPage() {
         <Form form={form} layout="vertical" onFinish={handleRegister}>
           <Form.Item
             name="token"
-            label="Bot Token"
+            label={t('form.botToken')}
             rules={[
-              { required: true, message: '请输入 Bot Token' },
-              { pattern: /^\d+:[A-Za-z0-9_-]{35,}$/, message: 'Token 格式不正确（格式：数字:字母数字串）' },
+              { required: true, message: t('form.required') },
+              { pattern: /^\d+:[A-Za-z0-9_-]{35,}$/, message: t('form.invalid') },
             ]}
           >
             <Input.Password
@@ -1178,10 +1178,10 @@ export default function CsPage() {
           <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
             <Space>
               <Button onClick={() => { setRegisterVisible(false); setReplaceTarget(null); form.resetFields(); }}>
-                取消
+                {t('common.cancel')}
               </Button>
               <Button type="primary" htmlType="submit" loading={submitting}>
-                {replaceTarget ? '切换并启动' : '注册并启动'}
+                {replaceTarget ? t('modal.bot.update') : t('modal.bot.register')}
               </Button>
             </Space>
           </Form.Item>

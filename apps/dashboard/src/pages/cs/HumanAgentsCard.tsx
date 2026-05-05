@@ -8,6 +8,7 @@ import {
   TeamOutlined,
 } from '@ant-design/icons';
 import { tenantsApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { Text } = Typography;
 
@@ -22,6 +23,7 @@ interface Props {
 }
 
 export default function HumanAgentsCard({ tenantId }: Props) {
+  const t = useT();
   const [agents, setAgents] = useState<HumanAgent[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -127,13 +129,13 @@ export default function HumanAgentsCard({ tenantId }: Props) {
 
   return (
     <Card
-      title={<Space><TeamOutlined /> 人工接管</Space>}
+      title={<Space><TeamOutlined /> {t('cs.handoff')}</Space>}
       style={{ marginBottom: 16 }}
       extra={
         <Space>
-          <Button icon={<ReloadOutlined />} size="small" onClick={() => void load()} loading={loading}>刷新</Button>
+          <Button icon={<ReloadOutlined />} size="small" onClick={() => void load()} loading={loading}>{t('common.refresh')}</Button>
           <Button type="primary" icon={<PlusOutlined />} size="small" onClick={startCreate} disabled={!tenantId}>
-            新增客服
+            {t('common.add')}
           </Button>
         </Space>
       }
@@ -173,18 +175,18 @@ export default function HumanAgentsCard({ tenantId }: Props) {
           pagination={false}
           columns={[
             {
-              title: '名称',
+              title: t('common.name'),
               dataIndex: 'name',
               width: 160,
-              render: (n: string) => n || <Text type="secondary">未命名</Text>,
+              render: (n: string) => n || <Text type="secondary">—</Text>,
             },
             {
-              title: 'Telegram chat_id',
+              title: t('form.chatId'),
               dataIndex: 'chatId',
               render: (id: string) => <Text code copyable>{id}</Text>,
             },
             {
-              title: '启用',
+              title: t('common.enable'),
               dataIndex: 'enabled',
               width: 70,
               align: 'center' as const,
@@ -193,17 +195,17 @@ export default function HumanAgentsCard({ tenantId }: Props) {
               ),
             },
             {
-              title: '操作',
+              title: t('common.actions'),
               width: 200,
               render: (_, r: HumanAgent, idx) => (
                 <Space size={4}>
                   <Button size="small" icon={<ExperimentOutlined />} loading={testingChatId === r.chatId}
                     onClick={() => handleTest(r)}>
-                    测试
+                    {t('common.test')}
                   </Button>
                   <Button size="small" type="text" icon={<EditOutlined />} onClick={() => startEdit(r, idx)} />
-                  <Popconfirm title={`删除「${r.name || r.chatId}」？`} onConfirm={() => handleDelete(idx)}
-                    okText="删除" cancelText="取消">
+                  <Popconfirm title={`${t('common.delete')}「${r.name || r.chatId}」?`} onConfirm={() => handleDelete(idx)}
+                    okText={t('common.delete')} cancelText={t('common.cancel')}>
                     <Button size="small" type="text" danger icon={<DeleteOutlined />} />
                   </Popconfirm>
                 </Space>
@@ -221,22 +223,22 @@ export default function HumanAgentsCard({ tenantId }: Props) {
       )}
 
       <Modal
-        title={editing ? '编辑人工客服' : '新增人工客服'}
+        title={editing ? t('modal.humanAgent.edit') : t('modal.humanAgent.add')}
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
         onOk={handleSubmit}
-        okText="保存"
-        cancelText="取消"
+        okText={t('common.save')}
+        cancelText={t('common.cancel')}
         destroyOnClose
       >
         <Form form={form} layout="vertical" preserve={false}>
-          <Form.Item name="name" label="名称（可选）" rules={[{ max: 64 }]}>
-            <Input placeholder="例如：售前-小李" />
+          <Form.Item name="name" label={t('form.nameOptional')} rules={[{ max: 64, message: t('form.tooLong') }]}>
+            <Input placeholder={t('form.placeholder.optional')} />
           </Form.Item>
           <Form.Item
             name="chatId"
-            label="Telegram chat_id"
-            rules={[{ required: true, message: '必填' }, { pattern: /^-?\d+$/, message: '必须是纯数字' }]}
+            label={t('form.chatId')}
+            rules={[{ required: true, message: t('form.required') }, { pattern: /^-?\d+$/, message: t('form.invalid') }]}
             extra={
               <span>
                 让客服在 Telegram 搜 <Text code>@userinfobot</Text> 发 <Text code>/start</Text>，

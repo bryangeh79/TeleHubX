@@ -8,6 +8,7 @@ import {
   ThunderboltOutlined, PlusCircleOutlined, ImportOutlined,
 } from '@ant-design/icons';
 import { greetingTemplatesApi, tenantsApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -276,6 +277,7 @@ function GreetingModal({
 // ── Main Drawer ─────────────────────────────────────────────────────────
 
 export default function GreetingDrawer({ open, onClose, tenantId: tenantIdProp }: Props) {
+  const t = useT();
   const [tenantId, setTenantId] = useState<string>(tenantIdProp ?? '');
   const [templates, setTemplates] = useState<GreetingTemplate[]>([]);
   const [loading, setLoading] = useState(false);
@@ -352,15 +354,15 @@ export default function GreetingDrawer({ open, onClose, tenantId: tenantIdProp }
         onClose={onClose}
         title={
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>开场白库 ({templates.length})</span>
+            <span>{t('drawer.greeting')} ({templates.length})</span>
             <Space>
               <Button icon={<ImportOutlined />} onClick={handleSeedDefaults} loading={seeding}>
-                一键导入示例
+                {t('common.import')}
               </Button>
               <Button type="primary" icon={<PlusOutlined />}
                 onClick={() => { setEditing(null); setModalOpen(true); }}
                 style={{ background: '#52c41a', borderColor: '#52c41a' }}>
-                新建
+                {t('common.create')}
               </Button>
             </Space>
           </div>

@@ -18,6 +18,7 @@ import {
 } from 'antd';
 import { GlobalOutlined } from '@ant-design/icons';
 import { accountsApi, proxiesApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { Title, Text } = Typography;
 
@@ -59,6 +60,7 @@ interface BoundUser {
 }
 
 export default function BindWizard() {
+  const t = useT();
   const navigate = useNavigate();
 
   const [current, setCurrent] = useState(0);
@@ -210,7 +212,7 @@ export default function BindWizard() {
 
   return (
     <div style={{ maxWidth: 640, margin: '0 auto' }}>
-      <Title level={4} style={{ marginBottom: 24 }}>绑定 Telegram 账号</Title>
+      <Title level={4} style={{ marginBottom: 24 }}>{t('page.accounts.bind')}</Title>
 
       <Steps
         current={current}

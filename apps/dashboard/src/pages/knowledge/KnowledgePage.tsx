@@ -39,6 +39,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { knowledgeApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -120,6 +121,7 @@ const fmtBytes = (n: number) => {
 };
 
 export default function KnowledgePage() {
+  const t = useT();
   const [kbs, setKbs] = useState<Kb[]>([]);
   const [selectedKbId, setSelectedKbId] = useState<string | null>(null);
   const [faqs, setFaqs] = useState<Faq[]>([]);
@@ -628,31 +630,33 @@ export default function KnowledgePage() {
 
       {/* KB Modal */}
       <Modal
-        title={kbModal.editing ? `编辑「${kbModal.editing.name}」` : '新建知识库'}
+        title={kbModal.editing ? t('modal.kb.edit') : t('modal.kb.add')}
         open={kbModal.open}
         onCancel={() => setKbModal({ open: false, editing: null })}
         onOk={() => kbForm.submit()}
+        okText={t('common.save')}
+        cancelText={t('common.cancel')}
         destroyOnClose
         width={600}
       >
         <Form form={kbForm} layout="vertical" onFinish={submitKb}>
-          <Form.Item name="name" label="名称" rules={[{ required: true }]}>
-            <Input placeholder="如：产品 X / 公司通用" />
+          <Form.Item name="name" label={t('common.name')} rules={[{ required: true, message: t('form.required') }]}>
+            <Input placeholder={t('form.placeholder.required')} />
           </Form.Item>
-          <Form.Item name="type" label="类型" rules={[{ required: true }]}>
+          <Form.Item name="type" label={t('common.type')} rules={[{ required: true, message: t('form.required') }]}>
             <Select options={Object.entries(KB_TYPE_META).map(([k, v]) => ({ value: k, label: v.label }))} />
           </Form.Item>
-          <Form.Item name="description" label="描述（可选）">
-            <Input placeholder="一行简介" />
+          <Form.Item name="description" label={t('form.description')}>
+            <Input placeholder={t('form.placeholder.optional')} />
           </Form.Item>
-          <Form.Item name="goalPrompt" label="业务目标（AI 回复的终极目的）" extra="例：让客户了解本公司服务和联系方式，引导咨询或预约">
-            <TextArea rows={3} placeholder="留空则使用默认 prompt" />
+          <Form.Item name="goalPrompt" label="Goal Prompt">
+            <TextArea rows={3} placeholder={t('form.placeholder.optional')} />
           </Form.Item>
-          <Form.Item name="isDefault" label="设为默认（公司通用）" valuePropName="checked" extra="默认 KB 用于产品名未匹配时的兜底回复">
+          <Form.Item name="isDefault" label={t('common.default') || 'Default'} valuePropName="checked">
             <Select
               options={[
-                { value: false, label: '不是默认' },
-                { value: true,  label: '设为默认 (替换现有默认)' },
+                { value: false, label: t('common.no') },
+                { value: true,  label: t('common.yes') },
               ]}
             />
           </Form.Item>
@@ -661,25 +665,27 @@ export default function KnowledgePage() {
 
       {/* FAQ Modal */}
       <Modal
-        title={faqModal.editing ? '编辑 FAQ' : '添加 FAQ'}
+        title={faqModal.editing ? t('modal.faq.edit') : t('modal.faq.add')}
         open={faqModal.open}
         onCancel={() => setFaqModal({ open: false, editing: null })}
         onOk={() => faqForm.submit()}
+        okText={t('common.save')}
+        cancelText={t('common.cancel')}
         destroyOnClose
         width={640}
       >
         <Form form={faqForm} layout="vertical" onFinish={submitFaq}>
-          <Form.Item name="question" label="问题" rules={[{ required: true }]}>
-            <Input placeholder="客户口吻：你们……" />
+          <Form.Item name="question" label={t('form.question')} rules={[{ required: true, message: t('form.required') }]}>
+            <Input placeholder={t('form.placeholder.required')} />
           </Form.Item>
-          <Form.Item name="answer" label="答案" rules={[{ required: true }]}>
-            <TextArea rows={4} placeholder="保留电话/邮箱等具体信息" />
+          <Form.Item name="answer" label={t('form.answer')} rules={[{ required: true, message: t('form.required') }]}>
+            <TextArea rows={4} placeholder={t('form.placeholder.required')} />
           </Form.Item>
-          <Form.Item name="tags" label="Tags">
-            <Select mode="tags" tokenSeparators={[',']} placeholder="如：pricing, contact" />
+          <Form.Item name="tags" label={t('form.tags')}>
+            <Select mode="tags" tokenSeparators={[',']} placeholder={t('form.placeholder.optional')} />
           </Form.Item>
-          <Form.Item name="enabled" label="启用" valuePropName="checked">
-            <Select options={[{ value: true, label: '启用' }, { value: false, label: '停用' }]} />
+          <Form.Item name="enabled" label={t('common.enable')} valuePropName="checked">
+            <Select options={[{ value: true, label: t('common.enabled') }, { value: false, label: t('common.disabled') }]} />
           </Form.Item>
         </Form>
       </Modal>

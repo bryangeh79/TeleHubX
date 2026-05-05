@@ -5,6 +5,7 @@ import {
 } from 'antd';
 import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { knowledgeApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { TextArea } = Input;
 
@@ -26,6 +27,7 @@ interface Props {
 }
 
 export default function GeneralFaqDrawer({ open, onClose, tenantId }: Props) {
+  const t = useT();
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [faqs, setFaqs] = useState<Faq[]>([]);
@@ -149,7 +151,7 @@ export default function GeneralFaqDrawer({ open, onClose, tenantId }: Props) {
 
   return (
     <Drawer
-      title={<Space>📋 通用 FAQ 管理 <Tag color="blue">客户闲聊场景</Tag></Space>}
+      title={<Space>📋 {t('drawer.generalFaq')}</Space>}
       open={open}
       onClose={onClose}
       width={840}
@@ -177,8 +179,8 @@ export default function GeneralFaqDrawer({ open, onClose, tenantId }: Props) {
           </Tag>
         </Space>
         <Space>
-          <Button icon={<ReloadOutlined />} size="small" onClick={() => void load()} loading={loading}>刷新</Button>
-          <Button icon={<PlusOutlined />} size="small" onClick={startCreate} disabled={!tenantId}>新增 FAQ</Button>
+          <Button icon={<ReloadOutlined />} size="small" onClick={() => void load()} loading={loading}>{t('common.refresh')}</Button>
+          <Button icon={<PlusOutlined />} size="small" onClick={startCreate} disabled={!tenantId}>{t('modal.faq.add')}</Button>
           <Button
             icon={<ThunderboltOutlined />}
             type="primary"
@@ -203,19 +205,19 @@ export default function GeneralFaqDrawer({ open, onClose, tenantId }: Props) {
           pagination={{ pageSize: 20, showSizeChanger: false }}
           columns={[
             {
-              title: '问题',
+              title: t('form.question'),
               dataIndex: 'question',
               width: 240,
               render: (q: string) => <span style={{ fontWeight: 500 }}>{q}</span>,
             },
             {
-              title: '答案',
+              title: t('form.answer'),
               dataIndex: 'answer',
               ellipsis: true,
               render: (a: string) => <span style={{ color: '#666', fontSize: 12 }}>{a}</span>,
             },
             {
-              title: '启用',
+              title: t('common.enable'),
               dataIndex: 'enabled',
               width: 70,
               align: 'center',
@@ -224,12 +226,12 @@ export default function GeneralFaqDrawer({ open, onClose, tenantId }: Props) {
               ),
             },
             {
-              title: '操作',
+              title: t('common.actions'),
               width: 110,
               render: (_, r: Faq) => (
                 <Space size={4}>
                   <Button size="small" type="text" icon={<EditOutlined />} onClick={() => startEdit(r)} />
-                  <Popconfirm title="删除该 FAQ？" onConfirm={() => handleDelete(r)} okText="删除" cancelText="取消">
+                  <Popconfirm title={t('common.confirmDelete')} onConfirm={() => handleDelete(r)} okText={t('common.delete')} cancelText={t('common.cancel')}>
                     <Button size="small" type="text" danger icon={<DeleteOutlined />} />
                   </Popconfirm>
                 </Space>
@@ -240,35 +242,34 @@ export default function GeneralFaqDrawer({ open, onClose, tenantId }: Props) {
       )}
 
       <Modal
-        title={editing ? '编辑通用 FAQ' : '新增通用 FAQ'}
+        title={editing ? t('modal.faq.edit') : t('modal.faq.add')}
         open={creating}
         onCancel={() => setCreating(false)}
         onOk={handleSubmit}
-        okText="保存"
-        cancelText="取消"
+        okText={t('common.save')}
+        cancelText={t('common.cancel')}
         destroyOnClose
       >
         <Form form={form} layout="vertical" preserve={false}>
           <Form.Item
             name="question"
-            label="客户问题"
-            rules={[{ required: true, message: '必填' }, { max: 200 }]}
+            label={t('form.question')}
+            rules={[{ required: true, message: t('form.required') }, { max: 200, message: t('form.tooLong') }]}
           >
-            <Input placeholder="例如：你是真人吗？" />
+            <Input placeholder={t('form.placeholder.required')} />
           </Form.Item>
           <Form.Item
             name="answer"
-            label="Bot 回答"
-            rules={[{ required: true, message: '必填' }, { max: 500 }]}
-            extra="建议 50 字内，保持人设但不假装是真人，自然引导回主题"
+            label={t('form.answer')}
+            rules={[{ required: true, message: t('form.required') }, { max: 500, message: t('form.tooLong') }]}
           >
-            <TextArea rows={4} placeholder="我是 AI 客服，可以帮你回答产品和公司相关问题 😊 你想了解什么？" />
+            <TextArea rows={4} placeholder={t('form.placeholder.required')} />
           </Form.Item>
           <Form.Item
             name="tagsCsv"
-            label="标签（可选，逗号分隔）"
+            label={t('form.tagsOptional')}
           >
-            <Input placeholder="例如：identity, chitchat" />
+            <Input placeholder={t('form.placeholder.optional')} />
           </Form.Item>
         </Form>
       </Modal>

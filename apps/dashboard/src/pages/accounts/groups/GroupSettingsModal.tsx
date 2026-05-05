@@ -11,6 +11,7 @@ import {
 } from 'antd';
 import { ClockCircleOutlined, SettingOutlined } from '@ant-design/icons';
 import { executionGroupsApi, tenantsApi } from '../../../services/api';
+import { useT } from '../../../i18n';
 
 const { Text, Paragraph } = Typography;
 
@@ -21,6 +22,7 @@ interface Props {
 }
 
 export default function GroupSettingsModal({ open, onClose, onChange }: Props) {
+  const t = useT();
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [currentCount, setCurrentCount] = useState<number>(0);
   const [selectedCount, setSelectedCount] = useState<number>(2);
@@ -83,12 +85,12 @@ export default function GroupSettingsModal({ open, onClose, onChange }: Props) {
 
   return (
     <Modal
-      title={<Space><SettingOutlined />分组设置</Space>}
+      title={<Space><SettingOutlined />{t('common.edit')}</Space>}
       open={open}
       onCancel={onClose}
       onOk={handleConfirm}
-      okText={selectedCount === currentCount ? '关闭' : '确认并自动排期'}
-      cancelText="取消"
+      okText={selectedCount === currentCount ? t('common.close') : t('common.confirm')}
+      cancelText={t('common.cancel')}
       confirmLoading={submitting}
       width={560}
     >

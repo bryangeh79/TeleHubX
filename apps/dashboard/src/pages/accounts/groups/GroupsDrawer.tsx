@@ -23,6 +23,7 @@ import {
   TeamOutlined,
 } from '@ant-design/icons';
 import { executionGroupsApi } from '../../../services/api';
+import { useT } from '../../../i18n';
 
 const { Text, Paragraph } = Typography;
 
@@ -56,6 +57,7 @@ interface GroupsDrawerProps {
 }
 
 export default function GroupsDrawer({ open, onClose, onChange }: GroupsDrawerProps) {
+  const t = useT();
   const [groups, setGroups] = useState<Group[]>([]);
   const [ungrouped, setUngrouped] = useState<AccountSummary[]>([]);
   const [loading, setLoading] = useState(false);
@@ -107,7 +109,7 @@ export default function GroupsDrawer({ open, onClose, onChange }: GroupsDrawerPr
   return (
     <>
       <Drawer
-        title={<Space><TeamOutlined />执行组别 · 成员管理</Space>}
+        title={<Space><TeamOutlined />{t('drawer.groups')}</Space>}
         placement="right"
         width={Math.min(900, window.innerWidth - 80)}
         open={open}
