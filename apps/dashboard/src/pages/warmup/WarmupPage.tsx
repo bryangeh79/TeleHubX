@@ -6,12 +6,14 @@ import {
   Progress,
   Space,
   Typography,
-  Badge,
   Tooltip,
   Empty,
   Popconfirm,
   Modal,
   Descriptions,
+  Row,
+  Col,
+  Card,
   message as antdMessage,
 } from 'antd';
 import {
@@ -24,6 +26,13 @@ import {
   UnorderedListOutlined,
   LoadingOutlined,
   ScheduleOutlined,
+  CopyOutlined,
+  TeamOutlined,
+  ThunderboltOutlined,
+  ClockCircleOutlined,
+  CheckCircleOutlined,
+  CheckCircleFilled,
+  BulbOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -96,6 +105,32 @@ function healthColor(score: number): string {
   if (score >= 60) return '#faad14';
   if (score >= 30) return '#fa8c16';
   return '#f5222d';
+}
+
+interface PhaseCardMeta {
+  num: number;
+  label: string;
+  days: string;
+  desc: string;
+  color: string;
+}
+
+function buildPhaseCards(t: (k: string) => string): PhaseCardMeta[] {
+  return [
+    { num: 0, label: t('wu.phase.0'), days: t('wu.phaseCard.0.days'), desc: t('wu.phaseCard.0.desc'), color: '#bfbfbf' },
+    { num: 1, label: t('wu.phase.1'), days: t('wu.phaseCard.1.days'), desc: t('wu.phaseCard.1.desc'), color: '#722ed1' },
+    { num: 2, label: t('wu.phase.2'), days: t('wu.phaseCard.2.days'), desc: t('wu.phaseCard.2.desc'), color: '#13c2c2' },
+    { num: 3, label: t('wu.phase.3'), days: t('wu.phaseCard.3.days'), desc: t('wu.phaseCard.3.desc'), color: '#fa8c16' },
+    { num: 4, label: t('wu.phase.4'), days: t('wu.phaseCard.4.days'), desc: t('wu.phaseCard.4.desc'), color: '#52c41a' },
+  ];
+}
+
+function dayOfWeek(startedAt: string | null | undefined): number {
+  if (!startedAt) return 0;
+  const start = new Date(startedAt).getTime();
+  const now = Date.now();
+  const days = Math.floor((now - start) / (24 * 3600 * 1000)) + 1;
+  return Math.max(1, Math.min(7, days));
 }
 
 export default function WarmupPage() {
@@ -317,10 +352,29 @@ export default function WarmupPage() {
     {
       title: t('wu.col.phone'),
       key: 'phone',
-      width: 160,
-      render: (_, r) => (
-        <Text code>{r.slot.account?.phoneNumber ?? '—'}</Text>
-      ),
+      width: 180,
+      render: (_, r) => {
+        const phone = r.slot.account?.phoneNumber;
+        if (!phone) return <Text type="secondary">—</Text>;
+        return (
+          <Space size={4}>
+            <Text code style={{ fontSize: 12 }}>{phone}</Text>
+            <Tooltip title={t('common.copy')}>
+              <Button
+                size="small"
+                type="text"
+                icon={<CopyOutlined />}
+                onClick={() => {
+                  navigator.clipboard.writeText(phone).then(
+                    () => antdMessage.success(t('common.copied') || 'Copied'),
+                    () => antdMessage.error('Copy failed'),
+                  );
+                }}
+              />
+            </Tooltip>
+          </Space>
+        );
+      },
     },
     {
       title: t('wu.col.role'),
@@ -344,26 +398,47 @@ export default function WarmupPage() {
         const a = r.slot.account;
         if (!a) return null;
         const ok = a.status === 'online';
-        return <Badge status={ok ? 'success' : 'default'} text={a.status} />;
+        const isDone = r.plan?.completed || r.presetTask?.status === 'done';
+        return (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: ok ? '#52c41a' : '#bfbfbf' }} />
+              <Text style={{ fontSize: 12 }}>{a.status}</Text>
+            </div>
+            {isDone && (
+              <Tag color="success" style={{ marginTop: 2, fontSize: 10, lineHeight: '14px', padding: '0 4px' }}>
+                {t('wu.tagDone')}
+              </Tag>
+            )}
+          </div>
+        );
       },
     },
     {
       title: t('wu.col.phaseProgress'),
       key: 'phase',
-      width: 240,
+      width: 280,
       render: (_, r) => {
         if (r.plan) {
           const phase = (r.plan.currentPhase as WarmupPhase) ?? 0;
           const meta = PHASE_META[phase] ?? PHASE_META[0];
+          const start = r.plan.phaseStartedAt?.['0'];
+          const day = dayOfWeek(start);
           return (
-            <div style={{ minWidth: 200 }}>
+            <div style={{ minWidth: 240 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <Text style={{ fontSize: 12 }}>{meta.label}</Text>
+                <Text style={{ fontSize: 12 }}>🌱 {meta.label} · Day {day}/7</Text>
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  {meta.percent}%{r.plan.completed ? t('wu.completed') : r.plan.paused ? t('wu.paused') : ''}
+                  {meta.percent}%
                 </Text>
               </div>
               <Progress percent={meta.percent} strokeColor={meta.color} showInfo={false} size="small" />
+              {start && (
+                <Text type="secondary" style={{ fontSize: 10 }}>
+                  {t('wu.startedAt', { time: dayjs(start).format('MM-DD HH:mm') })}
+                  {r.plan.completed ? ` · ${t('wu.completed')}` : r.plan.paused ? ` · ${t('wu.paused')}` : ''}
+                </Text>
+              )}
             </div>
           );
         }
@@ -376,30 +451,59 @@ export default function WarmupPage() {
             preset_mature_ops: 'wu.preset.mature_ops',
           };
           const tkLabel = presetKey[tk.type] ? t(presetKey[tk.type]) : tk.type;
+          const day = dayOfWeek(tk.startedAt);
+          const totalDays = tk.type === 'preset_full_14d' ? 14 : 7;
+          // 颜色根据 progress 推断阶段
+          const phaseIdx = tk.progress >= 90 ? 4 : tk.progress >= 70 ? 3 : tk.progress >= 40 ? 2 : tk.progress >= 15 ? 1 : 0;
+          const phaseColor = (PHASE_META[phaseIdx as WarmupPhase] ?? PHASE_META[0]).color;
           return (
-            <div style={{ minWidth: 200 }}>
+            <div style={{ minWidth: 240 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <Text style={{ fontSize: 12 }}>{tkLabel} · #{tk.seq}</Text>
+                <Text style={{ fontSize: 12 }}>🌱 {tkLabel} · Day {day}/{totalDays}</Text>
                 <Text type="secondary" style={{ fontSize: 12 }}>{tk.progress}%</Text>
               </div>
-              <Progress percent={tk.progress} strokeColor="#1677ff" showInfo={false} size="small" />
+              <Progress percent={tk.progress} strokeColor={phaseColor} showInfo={false} size="small" />
               {tk.startedAt && (
-                <Text type="secondary" style={{ fontSize: 10 }}>{t('wu.startedAt', { time: dayjs(tk.startedAt).format('MM-DD HH:mm') })}</Text>
+                <Text type="secondary" style={{ fontSize: 10 }}>
+                  {t('wu.startedAt', { time: dayjs(tk.startedAt).format('MM-DD HH:mm') })}
+                  {tk.status === 'done' ? ` · ${t('wu.completed')}` : tk.status === 'paused' ? ` · ${t('wu.paused')}` : ''}
+                </Text>
               )}
             </div>
           );
         }
-        return <Text type="secondary">{t('wu.notStarted')}</Text>;
+        return (
+          <div style={{ minWidth: 240 }}>
+            <div style={{ marginBottom: 4 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>{t('wu.notStarted')}</Text>
+            </div>
+            <Progress percent={0} showInfo={false} size="small" />
+            <Text type="secondary" style={{ fontSize: 10 }}>{t('wu.readyToStart')}</Text>
+          </div>
+        );
       },
     },
     {
       title: t('wu.col.health'),
       key: 'health',
-      width: 80,
+      width: 90,
       align: 'center',
       render: (_, r) => {
         const score = r.slot.account?.healthScore ?? 0;
-        return <Text style={{ color: healthColor(score), fontWeight: 600 }}>{score}</Text>;
+        const c = healthColor(score);
+        return (
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 40, height: 40,
+            borderRadius: '50%',
+            border: `2px solid ${c}`,
+            color: c,
+            fontWeight: 600,
+            fontSize: 13,
+          }}>{score}</div>
+        );
       },
     },
     {
@@ -407,8 +511,8 @@ export default function WarmupPage() {
       key: 'started',
       width: 130,
       render: (_, r) => {
-        const ts = r.plan?.phaseStartedAt?.['0'];
-        return ts ? dayjs(ts).format('MM-DD HH:mm') : <Text type="secondary">—</Text>;
+        const ts = r.plan?.phaseStartedAt?.['0'] ?? r.presetTask?.startedAt;
+        return ts ? <Text style={{ fontSize: 12 }}>{dayjs(ts).format('MM-DD HH:mm')}</Text> : <Text type="secondary">—</Text>;
       },
     },
     {
@@ -514,7 +618,11 @@ export default function WarmupPage() {
           );
         }
         if (row.plan.completed) {
-          return <Tag color="success">{t('wu.tagDone')}</Tag>;
+          return (
+            <Button size="small" disabled icon={<CheckCircleFilled style={{ color: '#52c41a' }} />}>
+              {t('wu.tagDone')}
+            </Button>
+          );
         }
         const phase = row.plan.currentPhase;
         const isPaused = !!row.plan.paused;
@@ -527,30 +635,30 @@ export default function WarmupPage() {
                   icon={<StepForwardOutlined />}
                   loading={busy}
                   onClick={() => handleAdvance(row)}
-                >
-                  {t('wu.btnAdvance')}
-                </Button>
+                />
               </Tooltip>
             )}
             {isPaused ? (
-              <Button
-                size="small"
-                type="primary"
-                icon={<RedoOutlined />}
-                loading={busy}
-                onClick={() => handleResume(row)}
-              >
-                {t('wu.btnResume')}
-              </Button>
+              <Tooltip title={t('wu.btnResume')}>
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={<RedoOutlined />}
+                  loading={busy}
+                  onClick={() => handleResume(row)}
+                />
+              </Tooltip>
             ) : (
-              <Button
-                size="small"
-                icon={<PauseCircleOutlined />}
-                loading={busy}
-                onClick={() => handlePause(row)}
-              >
-                {t('wu.btnPause')}
-              </Button>
+              <Tooltip title={t('wu.btnPause')}>
+                <Button
+                  size="small"
+                  type="primary"
+                  ghost
+                  icon={<PauseCircleOutlined />}
+                  loading={busy}
+                  onClick={() => handlePause(row)}
+                />
+              </Tooltip>
             )}
           </Space>
         );
@@ -558,32 +666,177 @@ export default function WarmupPage() {
     },
   ];
 
+  // ─── 统计 ─────────────────────────────────────────────────────────────
+  const total = rows.length;
+  const runningCount = rows.filter(r =>
+    (r.presetTask && (r.presetTask.status === 'running' || r.presetTask.status === 'paused')) ||
+    (r.plan && !r.plan.completed && !r.plan.paused)
+  ).length;
+  const doneCount = rows.filter(r =>
+    (r.presetTask && r.presetTask.status === 'done') ||
+    (r.plan && r.plan.completed)
+  ).length;
+  const notStartedCount = rows.filter(r => !r.plan && !r.presetTask).length;
+  const pct = (n: number) => total === 0 ? '0.0%' : `${((n / total) * 100).toFixed(1)}%`;
+
+  const PHASE_CARDS = buildPhaseCards(t);
+
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      {/* ─── Header ─── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
         <div>
-          <Title level={4} style={{ margin: 0 }}>{t('nav.warmup')}</Title>
+          <Title level={3} style={{ margin: 0 }}>🌱 {t('nav.warmup')}</Title>
           <Text type="secondary" style={{ fontSize: 12 }}>
             {t('wu.subtitle')}
           </Text>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>
-          {t('wu.refresh')}
-        </Button>
+        <Space size={16}>
+          <Space size={12} style={{ fontSize: 12 }}>
+            <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#52c41a', marginRight: 4 }} />{t('wu.legend.running')}</span>
+            <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#1677ff', marginRight: 4 }} />{t('wu.legend.completed')}</span>
+            <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#bfbfbf', marginRight: 4 }} />{t('wu.legend.notStarted')}</span>
+          </Space>
+          <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>
+            {t('wu.refresh')}
+          </Button>
+        </Space>
       </div>
 
-      {rows.length === 0 && !loading ? (
-        <Empty description={t('wu.empty')} />
-      ) : (
-        <Table
-          columns={columns}
-          dataSource={rows}
-          rowKey={(r) => r.slot.id}
-          loading={loading}
-          pagination={{ pageSize: 50, hideOnSinglePage: true }}
-          size="middle"
-        />
-      )}
+      {/* ─── 统计卡 ─── */}
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Col xs={24} sm={12} md={6}>
+          <Card size="small" bodyStyle={{ padding: 16 }}>
+            <Space align="center">
+              <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#e6f4ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <TeamOutlined style={{ fontSize: 22, color: '#1677ff' }} />
+              </div>
+              <div>
+                <Text type="secondary" style={{ fontSize: 12 }}>{t('wu.stat.total')}</Text>
+                <div><Text strong style={{ fontSize: 22 }}>{total}</Text> <Text type="secondary" style={{ fontSize: 12 }}>{t('wu.stat.unitAccount')}</Text></div>
+                <Text type="secondary" style={{ fontSize: 11 }}>{t('wu.stat.totalManaged')}</Text>
+              </div>
+            </Space>
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} md={6}>
+          <Card size="small" bodyStyle={{ padding: 16 }}>
+            <Space align="center">
+              <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#f6ffed', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <ThunderboltOutlined style={{ fontSize: 22, color: '#52c41a' }} />
+              </div>
+              <div>
+                <Text type="secondary" style={{ fontSize: 12 }}>{t('common.running')}</Text>
+                <div><Text strong style={{ fontSize: 22, color: '#52c41a' }}>{runningCount}</Text> <Text type="secondary" style={{ fontSize: 12 }}>{t('wu.stat.unitAccount')}</Text></div>
+                <Text type="secondary" style={{ fontSize: 11 }}>{pct(runningCount)}</Text>
+              </div>
+            </Space>
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} md={6}>
+          <Card size="small" bodyStyle={{ padding: 16 }}>
+            <Space align="center">
+              <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#fff7e6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <ClockCircleOutlined style={{ fontSize: 22, color: '#fa8c16' }} />
+              </div>
+              <div>
+                <Text type="secondary" style={{ fontSize: 12 }}>{t('wu.stat.notStarted')}</Text>
+                <div><Text strong style={{ fontSize: 22, color: '#fa8c16' }}>{notStartedCount}</Text> <Text type="secondary" style={{ fontSize: 12 }}>{t('wu.stat.unitAccount')}</Text></div>
+                <Text type="secondary" style={{ fontSize: 11 }}>{pct(notStartedCount)}</Text>
+              </div>
+            </Space>
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} md={6}>
+          <Card size="small" bodyStyle={{ padding: 16 }}>
+            <Space align="center">
+              <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#e6f4ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <CheckCircleOutlined style={{ fontSize: 22, color: '#1677ff' }} />
+              </div>
+              <div>
+                <Text type="secondary" style={{ fontSize: 12 }}>{t('common.completed')}</Text>
+                <div><Text strong style={{ fontSize: 22, color: '#1677ff' }}>{doneCount}</Text> <Text type="secondary" style={{ fontSize: 12 }}>{t('wu.stat.unitAccount')}</Text></div>
+                <Text type="secondary" style={{ fontSize: 11 }}>{pct(doneCount)}</Text>
+              </div>
+            </Space>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* ─── 主区: 左边阶段说明侧栏 + 右边表格 ─── */}
+      <Row gutter={16}>
+        <Col xs={24} md={6} lg={5}>
+          <Card
+            size="small"
+            title={
+              <Space size={6}>
+                <span>{t('wu.phaseSection')}</span>
+                <Tooltip title={t('wu.phaseSectionTip')}>
+                  <Text type="secondary" style={{ cursor: 'help' }}>?</Text>
+                </Tooltip>
+              </Space>
+            }
+            bodyStyle={{ padding: 12 }}
+          >
+            {PHASE_CARDS.map((p, idx) => (
+              <div key={p.num} style={{ display: 'flex', gap: 10, marginBottom: idx === PHASE_CARDS.length - 1 ? 0 : 14 }}>
+                <div style={{
+                  flexShrink: 0,
+                  width: 22, height: 22, borderRadius: '50%',
+                  background: p.color, color: '#fff',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 12, fontWeight: 600,
+                }}>{p.num}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{p.label}</div>
+                  <div style={{ fontSize: 11, color: '#8c8c8c' }}>{p.days}</div>
+                  <div style={{ fontSize: 11, color: '#8c8c8c' }}>{p.desc}</div>
+                </div>
+              </div>
+            ))}
+          </Card>
+          <Card
+            size="small"
+            style={{ marginTop: 12, background: '#e6f4ff', borderColor: '#91caff' }}
+            bodyStyle={{ padding: 12 }}
+          >
+            <Space align="start" size={8}>
+              <BulbOutlined style={{ color: '#1677ff', fontSize: 16, marginTop: 2 }} />
+              <div>
+                <Text strong style={{ fontSize: 12 }}>{t('wu.tip.title')}</Text>
+                <div style={{ fontSize: 11, color: '#595959', marginTop: 4 }}>
+                  {t('wu.tip.line1')}<br />
+                  {t('wu.tip.line2')}
+                </div>
+              </div>
+            </Space>
+          </Card>
+        </Col>
+
+        <Col xs={24} md={18} lg={19}>
+          {rows.length === 0 && !loading ? (
+            <Card><Empty description={t('wu.empty')} /></Card>
+          ) : (
+            <Card size="small" bodyStyle={{ padding: 0 }}>
+              <Table
+                columns={columns}
+                dataSource={rows}
+                rowKey={(r) => r.slot.id}
+                loading={loading}
+                pagination={{ pageSize: 10, hideOnSinglePage: false }}
+                size="middle"
+                rowClassName={(r) =>
+                  (r.plan?.completed || r.presetTask?.status === 'done') ? 'wu-row-done' : ''
+                }
+              />
+            </Card>
+          )}
+        </Col>
+      </Row>
+
+      <style>{`
+        .wu-row-done > td { background: #f6ffed !important; }
+      `}</style>
 
       {/* preset 任务详情 / 子任务时间线 Modal */}
       <Modal
