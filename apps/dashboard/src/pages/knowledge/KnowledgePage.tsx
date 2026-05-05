@@ -96,23 +96,27 @@ interface KbProtectedEntity {
   createdAt: string;
 }
 
-const KB_TYPE_META: Record<KbType, { label: string; color: string }> = {
-  product:      { label: '产品资料',         color: 'blue' },
-  pricing:      { label: '价格 / 套餐',       color: 'gold' },
-  presales_faq: { label: '售前 FAQ',          color: 'green' },
-  support_faq:  { label: '售后 FAQ',          color: 'cyan' },
-  company:      { label: '公司介绍',          color: 'purple' },
-  ad_material:  { label: '广告素材',          color: 'magenta' },
-  guardrail:    { label: '风控 / 禁答规则',   color: 'red' },
-};
+function buildKbTypeMeta(t: (k: string) => string): Record<KbType, { label: string; color: string }> {
+  return {
+    product:      { label: t('kb.type.product'),      color: 'blue' },
+    pricing:      { label: t('kb.type.pricing'),      color: 'gold' },
+    presales_faq: { label: t('kb.type.presales_faq'), color: 'green' },
+    support_faq:  { label: t('kb.type.support_faq'),  color: 'cyan' },
+    company:      { label: t('kb.type.company'),      color: 'purple' },
+    ad_material:  { label: t('kb.type.ad_material'),  color: 'magenta' },
+    guardrail:    { label: t('kb.type.guardrail'),    color: 'red' },
+  };
+}
 
-const PROTECTED_META: Record<ProtectedType, { label: string; color: string }> = {
-  phone:   { label: '电话', color: 'blue' },
-  email:   { label: '邮箱', color: 'purple' },
-  url:     { label: '网址', color: 'cyan' },
-  company: { label: '公司', color: 'gold' },
-  address: { label: '地址', color: 'green' },
-};
+function buildProtectedMeta(t: (k: string) => string): Record<ProtectedType, { label: string; color: string }> {
+  return {
+    phone:   { label: t('kb.entity.phone'),   color: 'blue' },
+    email:   { label: t('kb.entity.email'),   color: 'purple' },
+    url:     { label: t('kb.entity.url'),     color: 'cyan' },
+    company: { label: t('kb.entity.company'), color: 'gold' },
+    address: { label: t('kb.entity.address'), color: 'green' },
+  };
+}
 
 const fmtBytes = (n: number) => {
   if (n < 1024) return `${n} B`;
@@ -142,6 +146,7 @@ export default function KnowledgePage() {
   const [generating, setGenerating] = useState(false);
 
   const selectedKb = useMemo(() => kbs.find((k) => k.id === selectedKbId) ?? null, [kbs, selectedKbId]);
+  const KB_TYPE_META = buildKbTypeMeta(t);
 
   const loadKbs = useCallback(async () => {
     setKbsLoading(true);
@@ -204,11 +209,11 @@ export default function KnowledgePage() {
     try {
       if (kbModal.editing) {
         await knowledgeApi.updateKb(kbModal.editing.id, values);
-        antdMessage.success('知识库已更新');
+        antdMessage.success(t('kb.kbUpdated'));
       } else {
         const res = await knowledgeApi.createKb(values);
         setSelectedKbId(res.data?.id ?? null);
-        antdMessage.success('知识库已创建');
+        antdMessage.success(t('kb.kbCreated'));
       }
       setKbModal({ open: false, editing: null });
       void loadKbs();
@@ -258,10 +263,10 @@ export default function KnowledgePage() {
     try {
       if (faqModal.editing) {
         await knowledgeApi.updateFaq(faqModal.editing.id, values);
-        antdMessage.success('FAQ 已更新');
+        antdMessage.success(t('kb.faqUpdated'));
       } else {
         await knowledgeApi.createFaq({ ...values, kbId: selectedKbId, source: 'manual' });
-        antdMessage.success('FAQ 已添加');
+        antdMessage.success(t('kb.faqAdded'));
       }
       setFaqModal({ open: false, editing: null });
       void loadTabData(selectedKbId);
@@ -288,23 +293,23 @@ export default function KnowledgePage() {
     accept: '.txt,.md,.pdf,.docx',
     beforeUpload: async (file) => {
       if (!selectedKbId) {
-        antdMessage.warning('请先选择一个知识库');
+        antdMessage.warning(t('kb.uploadPickKb'));
         return Upload.LIST_IGNORE;
       }
       try {
         const res = await knowledgeApi.uploadSource(selectedKbId, file as File);
         if (res.data?.status === 'failed') {
-          antdMessage.error(`上传失败: ${res.data.errorMsg ?? 'unknown'}`);
+          antdMessage.error(t('kb.uploadFail', { msg: res.data.errorMsg ?? 'unknown' }));
         } else {
-          antdMessage.success(`已处理 ${file.name}`);
+          antdMessage.success(t('kb.uploadOk', { name: file.name }));
         }
         void loadTabData(selectedKbId);
       } catch (err: any) {
-        antdMessage.error(err?.response?.data?.message ?? '上传失败');
+        antdMessage.error(err?.response?.data?.message ?? t('kb.uploadGenericFail'));
       }
       return Upload.LIST_IGNORE;
     },
-  }), [selectedKbId, loadTabData]);
+  }), [selectedKbId, loadTabData, t]);
 
   const removeSource = async (srcId: string) => {
     if (!selectedKbId) return;
@@ -319,17 +324,17 @@ export default function KnowledgePage() {
   const generateFaqs = async () => {
     if (!selectedKbId) return;
     if (sources.filter((s) => s.status === 'processed').length === 0) {
-      antdMessage.warning('请先上传至少一个文档');
+      antdMessage.warning(t('kb.aiNeedDoc'));
       return;
     }
     setGenerating(true);
     try {
       const res = await knowledgeApi.generateFaqs(selectedKbId, 30);
-      antdMessage.success(`AI 生成了 ${res.data?.generated ?? 0} 条 FAQ`);
+      antdMessage.success(t('kb.aiOk', { n: res.data?.generated ?? 0 }));
       void loadTabData(selectedKbId);
       setActiveTab('faqs');
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? 'AI 生成失败，请检查 AI Settings');
+      antdMessage.error(err?.response?.data?.message ?? t('kb.aiFail'));
     } finally {
       setGenerating(false);
     }
@@ -343,7 +348,7 @@ export default function KnowledgePage() {
       protectedForm.resetFields();
       void loadTabData(selectedKbId);
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '添加失败');
+      antdMessage.error(err?.response?.data?.message ?? t('kb.faqAddFail'));
     }
   };
 
@@ -359,7 +364,7 @@ export default function KnowledgePage() {
 
   const faqColumns: ColumnsType<Faq> = [
     {
-      title: '问题', dataIndex: 'question', key: 'question',
+      title: t('kb.faq.col.q'), dataIndex: 'question', key: 'question',
       render: (q: string, row) => (
         <div>
           <Text strong>{q}</Text>
@@ -370,55 +375,55 @@ export default function KnowledgePage() {
       ),
     },
     {
-      title: '状态', dataIndex: 'enabled', key: 'enabled', width: 80,
-      render: (e: boolean) => e ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>,
+      title: t('kb.faq.col.status'), dataIndex: 'enabled', key: 'enabled', width: 80,
+      render: (e: boolean) => e ? <Tag color="green">{t('kb.faq.tag.enabled')}</Tag> : <Tag>{t('kb.faq.tag.disabled')}</Tag>,
     },
     {
-      title: '来源', dataIndex: 'source', key: 'source', width: 100,
+      title: t('kb.faq.col.source'), dataIndex: 'source', key: 'source', width: 100,
       render: (s: FaqSource) => {
         const map = {
-          manual: { label: '手动', color: 'default' },
-          ai_generated: { label: 'AI 生成', color: 'purple' },
-          imported: { label: '批量', color: 'blue' },
+          manual: { label: t('kb.faq.src.manual'), color: 'default' },
+          ai_generated: { label: t('kb.faq.src.ai'), color: 'purple' },
+          imported: { label: t('kb.faq.src.imported'), color: 'blue' },
         };
         const m = map[s];
         return <Tag color={m.color as any}>{m.label}</Tag>;
       },
     },
-    { title: '命中', dataIndex: 'hitCount', key: 'hitCount', width: 70 },
+    { title: t('kb.faq.col.hits'), dataIndex: 'hitCount', key: 'hitCount', width: 70 },
     {
-      title: '语言', dataIndex: 'language', key: 'language', width: 100,
+      title: t('kb.faq.col.lang'), dataIndex: 'language', key: 'language', width: 100,
       render: (lng?: string, row?: Faq) => {
         const l = lng ?? 'zh';
         const s = row?.status ?? 'published';
         return (
           <Space size={4}>
             <Tag color={l === 'zh' ? 'red' : l === 'en' ? 'blue' : l === 'ms' ? 'green' : 'gold'}>{l.toUpperCase()}</Tag>
-            {s === 'draft' && <Tag color="orange">草稿</Tag>}
+            {s === 'draft' && <Tag color="orange">{t('kb.faq.tag.draft')}</Tag>}
           </Space>
         );
       },
     },
     {
-      title: '操作', key: 'ops', width: 220,
+      title: t('kb.faq.col.actions'), key: 'ops', width: 220,
       render: (_, row) => (
         <Space size={4}>
           <Button size="small" icon={<EditOutlined />} onClick={() => openFaqModal(row)} />
           {(row.status ?? 'published') === 'draft' && (
-            <Popconfirm title="确认发布此草稿?" onConfirm={async () => {
+            <Popconfirm title={t('kb.faq.publishConfirm')} onConfirm={async () => {
               try {
                 await knowledgeApi.publishFaq(row.id);
-                antdMessage.success('已发布');
+                antdMessage.success(t('kb.faq.publishOk'));
                 if (selectedKbId) loadTabData(selectedKbId);
-              } catch (e: any) { antdMessage.error(e?.response?.data?.message ?? '发布失败'); }
+              } catch (e: any) { antdMessage.error(e?.response?.data?.message ?? t('kb.faq.publishFail')); }
             }}>
-              <Button size="small" type="primary" ghost>发布</Button>
+              <Button size="small" type="primary" ghost>{t('kb.faq.publish')}</Button>
             </Popconfirm>
           )}
           {(row.status ?? 'published') === 'published' && (
             <TranslateFaqDropdown faq={row} onDone={() => selectedKbId && loadTabData(selectedKbId)} />
           )}
-          <Popconfirm title="确认删除？" onConfirm={() => removeFaq(row.id)}>
+          <Popconfirm title={t('kb.faq.delConfirm')} onConfirm={() => removeFaq(row.id)}>
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
         </Space>
@@ -433,12 +438,12 @@ export default function KnowledgePage() {
         style={{ background: '#fafafa', borderRight: '1px solid #f0f0f0', padding: 8, marginRight: 16 }}
       >
         <Button type="primary" block icon={<PlusOutlined />} onClick={() => openKbModal(null)} style={{ marginBottom: 8 }}>
-          新建知识库
+          {t('kb.btnNew')}
         </Button>
         <List
           loading={kbsLoading}
           dataSource={kbs}
-          locale={{ emptyText: <Empty description="尚无知识库" /> }}
+          locale={{ emptyText: <Empty description={t('kb.empty')} /> }}
           renderItem={(kb) => {
             const meta = KB_TYPE_META[kb.type];
             const active = kb.id === selectedKbId;
@@ -464,7 +469,7 @@ export default function KnowledgePage() {
                     <Text strong style={{ fontSize: 13 }}>{kb.name}</Text>
                     {kb.isDefault && <StarFilled style={{ color: '#faad14', fontSize: 12 }} />}
                   </Space>
-                  <Tooltip title={kb.isDefault ? '取消默认' : '设为默认 (公司通用)'}>
+                  <Tooltip title={kb.isDefault ? t('kb.tooltipDefaultOff') : t('kb.tooltipDefaultOn')}>
                     <Button
                       type="text"
                       size="small"
@@ -475,7 +480,7 @@ export default function KnowledgePage() {
                 </Space>
                 <div style={{ marginTop: 4, fontSize: 11, color: '#888' }}>
                   <Tag color={meta.color} style={{ marginRight: 4, fontSize: 10 }}>{meta.label}</Tag>
-                  {docCount !== undefined && <span>{docCount} 文档 · {faqCount} FAQ</span>}
+                  {docCount !== undefined && <span>{t('kb.docCount', { docs: docCount, faqs: faqCount ?? 0 })}</span>}
                 </div>
               </Card>
             );
@@ -485,7 +490,7 @@ export default function KnowledgePage() {
 
       <Content>
         {!selectedKb ? (
-          <Empty description="请先创建或选择一个知识库" style={{ marginTop: 80 }} />
+          <Empty description={t('kb.emptySelect')} style={{ marginTop: 80 }} />
         ) : (
           <div>
             <Card style={{ marginBottom: 12 }}>
@@ -496,7 +501,7 @@ export default function KnowledgePage() {
                       <BookOutlined style={{ marginRight: 8 }} />
                       {selectedKb.name}
                     </Title>
-                    {selectedKb.isDefault && <Tag color="gold" icon={<StarFilled />}>默认 · 公司通用</Tag>}
+                    {selectedKb.isDefault && <Tag color="gold" icon={<StarFilled />}>{t('kb.tag.default')}</Tag>}
                     <Tag color={KB_TYPE_META[selectedKb.type].color}>
                       {KB_TYPE_META[selectedKb.type].label}
                     </Tag>
@@ -506,19 +511,19 @@ export default function KnowledgePage() {
                   )}
                 </div>
                 <Space>
-                  <Button icon={<EditOutlined />} onClick={() => openKbModal(selectedKb)}>编辑</Button>
-                  <Popconfirm title={`确认删除「${selectedKb.name}」？`} onConfirm={() => removeKb(selectedKb.id)}>
-                    <Button danger icon={<DeleteOutlined />}>删除</Button>
+                  <Button icon={<EditOutlined />} onClick={() => openKbModal(selectedKb)}>{t('kb.btnEdit')}</Button>
+                  <Popconfirm title={t('kb.delConfirm', { name: selectedKb.name })} onConfirm={() => removeKb(selectedKb.id)}>
+                    <Button danger icon={<DeleteOutlined />}>{t('kb.btnDelete')}</Button>
                   </Popconfirm>
                 </Space>
               </Space>
               <Card type="inner" size="small" style={{ marginTop: 12, background: '#f0fbf3' }}>
-                <Text strong style={{ fontSize: 13 }}>业务目标</Text>
+                <Text strong style={{ fontSize: 13 }}>{t('kb.goalLabel')}</Text>
                 <Text type="secondary" style={{ fontSize: 12, marginLeft: 6 }}>
-                  AI 回复时的终极目标，会被带入每次对话 prompt
+                  {t('kb.goalDesc')}
                 </Text>
                 <Paragraph style={{ margin: '6px 0 0' }}>
-                  {selectedKb.goalPrompt || <Text type="secondary">尚未设置（点「编辑」添加）</Text>}
+                  {selectedKb.goalPrompt || <Text type="secondary">{t('kb.goalEmpty')}</Text>}
                 </Paragraph>
               </Card>
             </Card>
@@ -678,22 +683,23 @@ export default function KnowledgePage() {
 
 // ── i18n V1: FAQ 翻译草稿下拉按钮 (Issue #1 Task C) ─────────────────────
 function TranslateFaqDropdown({ faq, onDone }: { faq: Faq; onDone: () => void }) {
+  const t = useT();
   const [loading, setLoading] = useState(false);
 
   const handleTranslate = async (target: 'zh' | 'en' | 'ms' | 'vi') => {
     if ((faq.language ?? 'zh') === target) {
-      antdMessage.warning(`此 FAQ 已是 ${target.toUpperCase()} 语言`);
+      antdMessage.warning(t('kb.tx.alreadyLang', { lang: target.toUpperCase() }));
       return;
     }
     setLoading(true);
-    antdMessage.loading({ content: `AI 翻译中 (${target.toUpperCase()})...`, key: 'translate', duration: 0 });
+    antdMessage.loading({ content: t('kb.tx.translating', { lang: target.toUpperCase() }), key: 'translate', duration: 0 });
     try {
       await knowledgeApi.translateFaqDraft(faq.id, target, faq.language ?? 'zh');
-      antdMessage.success({ content: `已生成 ${target.toUpperCase()} 草稿`, key: 'translate' });
+      antdMessage.success({ content: t('kb.tx.draftOk', { lang: target.toUpperCase() }), key: 'translate' });
       onDone();
     } catch (e: any) {
       antdMessage.error({
-        content: e?.response?.data?.message ?? `翻译 ${target.toUpperCase()} 失败`,
+        content: e?.response?.data?.message ?? t('kb.tx.draftFail', { lang: target.toUpperCase() }),
         key: 'translate',
       });
     } finally {
@@ -702,10 +708,10 @@ function TranslateFaqDropdown({ faq, onDone }: { faq: Faq; onDone: () => void })
   };
 
   const items = [
-    { key: 'zh', label: '生成 中文 草稿', disabled: (faq.language ?? 'zh') === 'zh' },
-    { key: 'en', label: '生成 English 草稿', disabled: (faq.language ?? 'zh') === 'en' },
-    { key: 'ms', label: '生成 Bahasa Melayu 草稿', disabled: (faq.language ?? 'zh') === 'ms' },
-    { key: 'vi', label: '生成 Tiếng Việt 草稿', disabled: (faq.language ?? 'zh') === 'vi' },
+    { key: 'zh', label: t('kb.tx.menuZh'), disabled: (faq.language ?? 'zh') === 'zh' },
+    { key: 'en', label: t('kb.tx.menuEn'), disabled: (faq.language ?? 'zh') === 'en' },
+    { key: 'ms', label: t('kb.tx.menuMs'), disabled: (faq.language ?? 'zh') === 'ms' },
+    { key: 'vi', label: t('kb.tx.menuVi'), disabled: (faq.language ?? 'zh') === 'vi' },
   ];
 
   return (
@@ -717,7 +723,7 @@ function TranslateFaqDropdown({ faq, onDone }: { faq: Faq; onDone: () => void })
       trigger={['click']}
       disabled={loading}
     >
-      <Button size="small" loading={loading}>翻译 ▾</Button>
+      <Button size="small" loading={loading}>{t('kb.tx.btn')}</Button>
     </Dropdown>
   );
 }

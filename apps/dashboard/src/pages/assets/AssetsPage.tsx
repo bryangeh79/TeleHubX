@@ -67,13 +67,15 @@ interface Asset {
 
 type SourceFilter = 'tenant' | 'builtin';
 
-const CAT_META: Record<Category, { label: string; icon: React.ReactNode; color: string }> = {
-  photo:        { label: '图片',     icon: <PictureOutlined />,      color: 'blue' },
-  video:        { label: '视频',     icon: <VideoCameraOutlined />,  color: 'purple' },
-  voice:        { label: '语音',     icon: <AudioOutlined />,        color: 'magenta' },
-  document:     { label: '文档',     icon: <FileOutlined />,         color: 'cyan' },
-  text_snippet: { label: '文本片段', icon: <FileTextOutlined />,     color: 'gold' },
-};
+function buildCatMeta(t: (k: string) => string): Record<Category, { label: string; icon: React.ReactNode; color: string }> {
+  return {
+    photo:        { label: t('as.cat.photo'),        icon: <PictureOutlined />,      color: 'blue' },
+    video:        { label: t('as.cat.video'),        icon: <VideoCameraOutlined />,  color: 'purple' },
+    voice:        { label: t('as.cat.voice'),        icon: <AudioOutlined />,        color: 'magenta' },
+    document:     { label: t('as.cat.document'),     icon: <FileOutlined />,         color: 'cyan' },
+    text_snippet: { label: t('as.cat.text_snippet'), icon: <FileTextOutlined />,     color: 'gold' },
+  };
+}
 
 const fmtBytes = (n: number) => {
   if (n < 1024) return `${n} B`;
@@ -96,9 +98,9 @@ export default function AssetsPage() {
         activeKey={outerTab}
         onChange={(k) => setOuterTab(k as any)}
         items={[
-          { key: 'media',   label: <Space size={4}><DatabaseOutlined />媒体素材</Space>,  children: <MediaSection /> },
-          { key: 'scripts', label: <Space size={4}><MessageOutlined />聊天剧本</Space>,   children: <ChatScriptsPage embedded /> },
-          { key: 'ad-faq',  label: <Space size={4}><RobotOutlined />广告话术</Space>,     children: <AdFaqSection /> },
+          { key: 'media',   label: <Space size={4}><DatabaseOutlined />{t('as.tab.media')}</Space>,  children: <MediaSection /> },
+          { key: 'scripts', label: <Space size={4}><MessageOutlined />{t('as.tab.scripts')}</Space>, children: <ChatScriptsPage embedded /> },
+          { key: 'ad-faq',  label: <Space size={4}><RobotOutlined />{t('as.tab.adFaq')}</Space>,     children: <AdFaqSection /> },
         ]}
       />
     </div>
@@ -109,6 +111,7 @@ export default function AssetsPage() {
 const { TextArea } = Input;
 
 function AdFaqSection() {
+  const t = useT();
   const [groupFaq, setGroupFaq] = useState('');
   const [privateDivert, setPrivateDivert] = useState('');
   const [origGroupFaq, setOrigGroupFaq] = useState('');
@@ -125,7 +128,7 @@ function AdFaqSection() {
       setOrigGroupFaq(res.data.groupFaq ?? '');
       setOrigPrivateDivert(res.data.privateDivert ?? '');
     } catch {
-      antdMessage.error('加载广告话术失败');
+      antdMessage.error(t('as.adfaq.loadFail'));
     } finally {
       setLoading(false);
     }
@@ -141,9 +144,9 @@ function AdFaqSection() {
       await platformConfigApi.setAdFaq({ groupFaq, privateDivert });
       setOrigGroupFaq(groupFaq);
       setOrigPrivateDivert(privateDivert);
-      antdMessage.success('已保存，约 30 秒后广告号生效');
+      antdMessage.success(t('as.adfaq.saveOk'));
     } catch {
-      antdMessage.error('保存失败');
+      antdMessage.error(t('as.adfaq.saveFail'));
     } finally {
       setSaving(false);
     }
@@ -157,9 +160,9 @@ function AdFaqSection() {
       setPrivateDivert(res.data.privateDivert ?? '');
       setOrigGroupFaq(res.data.groupFaq ?? '');
       setOrigPrivateDivert(res.data.privateDivert ?? '');
-      antdMessage.success('已恢复为默认话术');
+      antdMessage.success(t('as.adfaq.resetOk'));
     } catch {
-      antdMessage.error('重置失败');
+      antdMessage.error(t('as.adfaq.resetFail'));
     } finally {
       setSaving(false);
     }
@@ -175,11 +178,10 @@ function AdFaqSection() {
         type="info"
         showIcon
         style={{ marginBottom: 20 }}
-        message="广告号（ad role）自动话术配置"
+        message={t('as.adfaq.alert.title')}
         description={
           <span>
-            当有人私聊广告号、或在群里 @ 广告号时，系统会自动回这里设置的话术。
-            保存后约 <strong>30 秒</strong>生效（agent 同步周期）。
+            {t('as.adfaq.alert.line1')} {t('as.adfaq.alert.line2')}
           </span>
         }
       />
@@ -189,17 +191,17 @@ function AdFaqSection() {
           <Form.Item
             label={
               <Space>
-                <strong>群内 FAQ（被 @ 时回复）</strong>
-                {dirty && groupFaq !== origGroupFaq && <Tag color="orange">未保存</Tag>}
+                <strong>{t('as.adfaq.groupTitle')}</strong>
+                {dirty && groupFaq !== origGroupFaq && <Tag color="orange">{t('as.adfaq.unsaved')}</Tag>}
               </Space>
             }
-            extra="当广告号在群里被 @ 提及时，自动回复这段话。建议简短，引导用户私信 Bot。"
+            extra={t('as.adfaq.groupExtra')}
           >
             <TextArea
               value={groupFaq}
               onChange={(e) => setGroupFaq(e.target.value)}
               autoSize={{ minRows: 3, maxRows: 8 }}
-              placeholder={'例如：\n有什么问题可以私信我们的客服 Bot 哦 👉 @YourBot\n我们 24 小时在线为您服务！'}
+              placeholder={t('as.adfaq.groupPlaceholder')}
               maxLength={500}
               showCount
             />
@@ -208,17 +210,17 @@ function AdFaqSection() {
           <Form.Item
             label={
               <Space>
-                <strong>私聊引流话术（有人 DM 时回复）</strong>
-                {dirty && privateDivert !== origPrivateDivert && <Tag color="orange">未保存</Tag>}
+                <strong>{t('as.adfaq.privTitle')}</strong>
+                {dirty && privateDivert !== origPrivateDivert && <Tag color="orange">{t('as.adfaq.unsaved')}</Tag>}
               </Space>
             }
-            extra="当有人直接私信广告号时，自动回复这段话把用户引流到客服 Bot。"
+            extra={t('as.adfaq.privExtra')}
           >
             <TextArea
               value={privateDivert}
               onChange={(e) => setPrivateDivert(e.target.value)}
               autoSize={{ minRows: 3, maxRows: 8 }}
-              placeholder={'例如：\n嗨！感谢您的消息 😊\n如需了解详情或咨询，请联系我们的客服：@YourBot\n我们会尽快为您解答！'}
+              placeholder={t('as.adfaq.privPlaceholder')}
               maxLength={500}
               showCount
             />
@@ -226,9 +228,9 @@ function AdFaqSection() {
         </Form>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <Tooltip title="恢复系统默认话术（英文兜底）">
+          <Tooltip title={t('as.adfaq.tooltipReset')}>
             <Button icon={<UndoOutlined />} onClick={handleReset} loading={saving}>
-              恢复默认
+              {t('as.adfaq.btnReset')}
             </Button>
           </Tooltip>
           <Button
@@ -238,16 +240,14 @@ function AdFaqSection() {
             loading={saving}
             disabled={!dirty}
           >
-            保存
+            {t('as.adfaq.btnSave')}
           </Button>
         </div>
       </Card>
 
       <Card size="small" style={{ background: '#fffbe6' }}>
         <Text type="warning" style={{ fontSize: 12 }}>
-          💡 <strong>使用建议</strong>：话术里建议写上你的客服 Bot 用户名（如 @YourBot），
-          引导客户通过 Bot 咨询，广告号只做引流不直接服务客户。
-          支持 Emoji 和换行，最多 500 字。
+          {t('as.adfaq.tip')}
         </Text>
       </Card>
     </div>
@@ -255,6 +255,8 @@ function AdFaqSection() {
 }
 
 function MediaSection() {
+  const t = useT();
+  const CAT_META = buildCatMeta(t);
   const [activeCat, setActiveCat] = useState<Category>('photo');
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('tenant');
   const [poolFilter, setPoolFilter] = useState<string | undefined>();
@@ -273,11 +275,11 @@ function MediaSection() {
       const res = await assetsApi.list(params);
       setItems(Array.isArray(res.data) ? res.data : []);
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '加载失败');
+      antdMessage.error(err?.response?.data?.message ?? t('as.loadFail'));
     } finally {
       setLoading(false);
     }
-  }, [activeCat, sourceFilter, poolFilter]);
+  }, [activeCat, sourceFilter, poolFilter, t]);
 
   const loadPools = useCallback(async () => {
     try {
@@ -295,23 +297,23 @@ function MediaSection() {
   const handleUpload = async (file: File) => {
     try {
       await assetsApi.upload(file, { category: activeCat });
-      antdMessage.success(`已上传 ${file.name}`);
+      antdMessage.success(t('as.uploadOk', { name: file.name }));
       void load();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '上传失败');
+      antdMessage.error(err?.response?.data?.message ?? t('as.uploadFail'));
     }
   };
 
   const handleCreateSnippet = async (values: any) => {
     try {
-      const tags = values.tags ? values.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : undefined;
+      const tags = values.tags ? values.tags.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined;
       await assetsApi.createSnippet(values.text, tags, values.description);
-      antdMessage.success('文本片段已添加');
+      antdMessage.success(t('as.snippetOk'));
       setSnippetModalOpen(false);
       snippetForm.resetFields();
       void load();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '添加失败');
+      antdMessage.error(err?.response?.data?.message ?? t('as.snippetFail'));
     }
   };
 
@@ -320,13 +322,13 @@ function MediaSection() {
       await assetsApi.delete(id);
       void load();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '删除失败');
+      antdMessage.error(err?.response?.data?.message ?? t('as.delFail'));
     }
   };
 
   const columns: ColumnsType<Asset> = [
     {
-      title: '预览',
+      title: t('as.col.preview'),
       key: 'preview',
       width: 100,
       render: (_, r) => {
@@ -348,14 +350,14 @@ function MediaSection() {
       },
     },
     {
-      title: '文件名 / 内容',
+      title: t('as.col.nameContent'),
       dataIndex: 'fileName',
       key: 'fileName',
       render: (name: string, r) => (
         <div>
           <Space size={4}>
             <Text strong>{name}</Text>
-            {r.source === 'builtin' && <Tag color="cyan" style={{ fontSize: 10 }}>内置</Tag>}
+            {r.source === 'builtin' && <Tag color="cyan" style={{ fontSize: 10 }}>{t('as.col.builtin')}</Tag>}
           </Space>
           {r.poolName && (
             <div><Tag color="purple" style={{ fontSize: 10, marginTop: 2 }}>{r.poolName}</Tag></div>
@@ -363,25 +365,25 @@ function MediaSection() {
           {r.description && <div><Text type="secondary" style={{ fontSize: 12 }}>{r.description}</Text></div>}
           {r.tags?.length ? (
             <div style={{ marginTop: 4 }}>
-              {r.tags.map((t) => <Tag key={t} style={{ fontSize: 10 }}>{t}</Tag>)}
+              {r.tags.map((tg) => <Tag key={tg} style={{ fontSize: 10 }}>{tg}</Tag>)}
             </div>
           ) : null}
         </div>
       ),
     },
-    { title: '大小', dataIndex: 'byteSize', key: 'byteSize', width: 90, render: (n: number) => fmtBytes(n) },
-    { title: '用过', dataIndex: 'usageCount', key: 'usageCount', width: 70 },
+    { title: t('as.col.size'), dataIndex: 'byteSize', key: 'byteSize', width: 90, render: (n: number) => fmtBytes(n) },
+    { title: t('as.col.usage'), dataIndex: 'usageCount', key: 'usageCount', width: 70 },
     {
-      title: '上传时间', dataIndex: 'createdAt', key: 'createdAt', width: 130,
+      title: t('as.col.uploaded'), dataIndex: 'createdAt', key: 'createdAt', width: 130,
       render: (v: string) => dayjs(v).format('MM-DD HH:mm'),
     },
     {
-      title: '操作', key: 'ops', width: 80,
+      title: t('as.col.actions'), key: 'ops', width: 80,
       render: (_, r) => (
         r.source === 'builtin' ? (
-          <Tag color="default" style={{ fontSize: 10 }}>只读</Tag>
+          <Tag color="default" style={{ fontSize: 10 }}>{t('as.tag.readonly')}</Tag>
         ) : (
-          <Popconfirm title="确认删除？" onConfirm={() => handleDelete(r.id)}>
+          <Popconfirm title={t('as.delConfirm')} onConfirm={() => handleDelete(r.id)}>
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
         )
@@ -409,14 +411,14 @@ function MediaSection() {
             value={sourceFilter}
             onChange={(v) => setSourceFilter(v as SourceFilter)}
             options={[
-              { label: '我的素材', value: 'tenant' },
-              { label: `内置素材库（${pools.reduce((s, p) => s + p.count, 0)}）`, value: 'builtin' },
+              { label: t('as.scope.tenant'), value: 'tenant' },
+              { label: t('as.scope.builtin', { count: pools.reduce((s, p) => s + p.count, 0) }), value: 'builtin' },
             ]}
           />
           {sourceFilter === 'builtin' && poolsForActiveCat.length > 0 && (
             <Select
               allowClear
-              placeholder="按 pool 过滤"
+              placeholder={t('as.poolFilter')}
               value={poolFilter}
               onChange={(v) => setPoolFilter(v)}
               style={{ width: 280 }}
@@ -438,15 +440,15 @@ function MediaSection() {
                   undefined
                 }
               >
-                <Button type="primary" icon={<UploadOutlined />}>上传 {CAT_META[activeCat].label}</Button>
+                <Button type="primary" icon={<UploadOutlined />}>{t('as.btnUpload', { category: CAT_META[activeCat].label })}</Button>
               </Upload>
             ) : (
               <Button type="primary" icon={<PlusOutlined />} onClick={() => setSnippetModalOpen(true)}>
-                新建文本片段
+                {t('as.btnNewSnippet')}
               </Button>
             )
           )}
-          <Button icon={<ReloadOutlined />} onClick={() => void load()}>刷新</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => void load()}>{t('as.btnRefresh')}</Button>
         </Space>
 
         <Alert
@@ -454,11 +456,11 @@ function MediaSection() {
           showIcon
           style={{ marginBottom: 12 }}
           message={
-            activeCat === 'voice' ? '建议 ogg/opus 格式（TG 语音消息原生）。MP3/M4A 也支持但会被当文档发送。' :
-            activeCat === 'photo' ? '建议 JPG/PNG/WebP，最大 10MB，分辨率 ≤ 4096x4096。' :
-            activeCat === 'video' ? '建议 MP4 H.264，最大 50MB。' :
-            activeCat === 'text_snippet' ? '占位符 {tenantName} / {botName} 在执行时会自动替换。' :
-            '通用文档（PDF/DOC/ZIP 等），最大 50MB。'
+            activeCat === 'voice' ? t('as.hint.voice') :
+            activeCat === 'photo' ? t('as.hint.photo') :
+            activeCat === 'video' ? t('as.hint.video') :
+            activeCat === 'text_snippet' ? t('as.hint.text') :
+            t('as.hint.doc')
           }
         />
 
@@ -469,26 +471,26 @@ function MediaSection() {
           size="small"
           loading={loading}
           pagination={{ pageSize: 20, showSizeChanger: false }}
-          locale={{ emptyText: <Empty description={`尚无${CAT_META[activeCat].label}素材`} /> }}
+          locale={{ emptyText: <Empty description={t('as.empty', { category: CAT_META[activeCat].label })} /> }}
         />
       </Card>
 
       <Modal
-        title="新建文本片段"
+        title={t('as.snippet.modalTitle')}
         open={snippetModalOpen}
         onCancel={() => setSnippetModalOpen(false)}
         onOk={() => snippetForm.submit()}
         destroyOnClose
       >
         <Form form={snippetForm} layout="vertical" onFinish={handleCreateSnippet}>
-          <Form.Item name="text" label="文本内容" rules={[{ required: true }]}>
-            <Input.TextArea rows={4} placeholder="支持占位符 {tenantName} / {botName}" />
+          <Form.Item name="text" label={t('as.snippet.text')} rules={[{ required: true }]}>
+            <Input.TextArea rows={4} placeholder={t('as.snippet.textPlaceholder')} />
           </Form.Item>
-          <Form.Item name="tags" label="标签（逗号分隔）" extra="如：开场白,中文,产品A">
-            <Input placeholder="开场白,中文" />
+          <Form.Item name="tags" label={t('as.snippet.tags')} extra={t('as.snippet.tagsExtra')}>
+            <Input placeholder={t('as.snippet.tagsPlaceholder')} />
           </Form.Item>
-          <Form.Item name="description" label="描述（可选）">
-            <Input placeholder="一行描述用途" />
+          <Form.Item name="description" label={t('as.snippet.descLabel')}>
+            <Input placeholder={t('as.snippet.descPlaceholder')} />
           </Form.Item>
         </Form>
       </Modal>

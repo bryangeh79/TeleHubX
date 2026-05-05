@@ -104,29 +104,27 @@ export default function ProxiesPage() {
         icon: r.ok
           ? <CheckCircleFilled style={{ color: '#52c41a' }} />
           : <CloseCircleFilled style={{ color: '#cf1322' }} />,
-        title: r.ok ? `代理「${row.name}」连接正常` : `代理「${row.name}」测试失败`,
+        title: r.ok ? t('prx.test.okTitle', { name: row.name }) : t('prx.test.failTitle', { name: row.name }),
         content: r.ok ? (
           <div style={{ marginTop: 12 }}>
-            <p><strong>外网 IP：</strong> <Typography.Text code copyable>{r.externalIp}</Typography.Text></p>
-            <p><strong>延迟：</strong> {r.latencyMs} ms</p>
+            <p><strong>{t('prx.test.externalIp')}</strong> <Typography.Text code copyable>{r.externalIp}</Typography.Text></p>
+            <p><strong>{t('prx.test.latency')}</strong> {r.latencyMs} ms</p>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              测试方式：通过该代理向 ipify.org / ipinfo.io 发起 HTTP 请求并解析返回的 IP。
-              注意：住宅代理外网 IP 通常不等于代理服务器 IP（出口 IP 池属正常）。
+              {t('prx.test.method')} {t('prx.test.warn')}
             </Typography.Text>
           </div>
         ) : (
           <div style={{ marginTop: 12 }}>
             <p style={{ color: '#cf1322' }}>{r.error}</p>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              已自动把代理状态标记为 <Typography.Text code>dead</Typography.Text>。
-              请检查 host:port 是否正确、代理是否在线、用户名密码是否过期。
+              {t('prx.test.markedDead')} <Typography.Text code>dead</Typography.Text>. {t('prx.test.checkHint')}
             </Typography.Text>
           </div>
         ),
       });
       void reload();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '测试请求失败');
+      antdMessage.error(err?.response?.data?.message ?? t('prx.test.requestFail'));
     } finally {
       setTestingId((s) => ({ ...s, [row.id]: false }));
     }
@@ -279,7 +277,7 @@ export default function ProxiesPage() {
       render: (v: string) => dayjs(v).format('MM-DD HH:mm'),
     },
     {
-      title: '操作',
+      title: t('prx.colActions'),
       key: 'actions',
       width: 220,
       render: (_, row) => (
@@ -292,16 +290,16 @@ export default function ProxiesPage() {
             loading={!!testingId[row.id]}
             onClick={() => handleTest(row)}
           >
-            测试
+            {t('prx.btnTest')}
           </Button>
           <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(row)}>
-            编辑
+            {t('prx.btnEdit')}
           </Button>
           <Popconfirm
-            title={`删除 "${row.name}"?`}
-            description="使用此代理的账号将失去引用。"
+            title={t('prx.delConfirm.title', { name: row.name })}
+            description={t('prx.delConfirm.desc')}
             onConfirm={() => remove(row)}
-            okText="删除"
+            okText={t('common.delete')}
             okButtonProps={{ danger: true }}
           >
             <Button size="small" danger icon={<DeleteOutlined />} />
@@ -320,10 +318,10 @@ export default function ProxiesPage() {
         </Typography.Title>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>
-            刷新
+            {t('common.refresh')}
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            新建代理
+            {t('prx.btnNew')}
           </Button>
         </Space>
       </div>
@@ -332,12 +330,10 @@ export default function ProxiesPage() {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="一号一固定 IP — 不要轮换"
+        message={t('prx.alert.title')}
         description={
           <>
-            Telegram 把 Session 和 IP 绑定到 DC，频繁换 IP 会触发 re-authorization 甚至封号。
-            建议在这里维护一个池：每个广告号在 BindWizard 里挑一个 proxy，绑定后保持不变。
-            类型推荐 <Typography.Text code>SOCKS5</Typography.Text> 住宅 / 移动代理。
+            {t('prx.alert.line1')} {t('prx.alert.line2')} {t('prx.alert.line3', { tag: 'SOCKS5' })}
           </>
         }
       />

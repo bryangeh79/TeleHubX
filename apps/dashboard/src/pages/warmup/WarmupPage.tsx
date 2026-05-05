@@ -27,13 +27,15 @@ const { Title, Text } = Typography;
 
 type WarmupPhase = 0 | 1 | 2 | 3 | 4;
 
-const PHASE_META: Record<WarmupPhase, { label: string; percent: number; color: string }> = {
-  0: { label: 'P0 初始化',         percent: 0,   color: '#bfbfbf' },
-  1: { label: 'P1 沉默观察',       percent: 25,  color: '#69b1ff' },
-  2: { label: 'P2 轻微活动',       percent: 50,  color: '#4096ff' },
-  3: { label: 'P3 社交建立',       percent: 75,  color: '#1677ff' },
-  4: { label: 'P4 常规运营',       percent: 100, color: '#52c41a' },
-};
+function buildPhaseMeta(t: (k: string) => string): Record<WarmupPhase, { label: string; percent: number; color: string }> {
+  return {
+    0: { label: t('wu.phase.0'), percent: 0,   color: '#bfbfbf' },
+    1: { label: t('wu.phase.1'), percent: 25,  color: '#69b1ff' },
+    2: { label: t('wu.phase.2'), percent: 50,  color: '#4096ff' },
+    3: { label: t('wu.phase.3'), percent: 75,  color: '#1677ff' },
+    4: { label: t('wu.phase.4'), percent: 100, color: '#52c41a' },
+  };
+}
 
 interface ApiAccount {
   id: string;
@@ -133,11 +135,11 @@ export default function WarmupPage() {
 
       const planByAccountId = new Map(plansData.map(p => [p.id, p.plan]));
       const presetByAccountId = new Map<string, PresetWarmupTask>();
-      for (const t of presetTasksData) {
-        if (t?.accountId && !presetByAccountId.has(t.accountId)) {
-          presetByAccountId.set(t.accountId, {
-            id: t.id, seq: t.seq, type: t.type, status: t.status,
-            progress: t.progress ?? 0, startedAt: t.startedAt ?? null,
+      for (const tsk of presetTasksData) {
+        if (tsk?.accountId && !presetByAccountId.has(tsk.accountId)) {
+          presetByAccountId.set(tsk.accountId, {
+            id: tsk.id, seq: tsk.seq, type: tsk.type, status: tsk.status,
+            progress: tsk.progress ?? 0, startedAt: tsk.startedAt ?? null,
           });
         }
       }
@@ -150,11 +152,11 @@ export default function WarmupPage() {
       }));
       setRows(rowsBuilt);
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '加载养号状态失败');
+      antdMessage.error(err?.response?.data?.message ?? t('wu.loadFail'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void reload();
@@ -165,11 +167,11 @@ export default function WarmupPage() {
     setBusy(row.slot.account.id, true);
     try {
       await warmupApi.start(row.slot.account.id);
-      antdMessage.success(`No.${row.slot.no} 已启动养号`);
+      antdMessage.success(t('wu.startOk', { no: row.slot.no }));
       await reload();
     } catch (err: any) {
       const msg = err?.response?.data?.message;
-      antdMessage.error(typeof msg === 'string' ? msg : '启动失败');
+      antdMessage.error(typeof msg === 'string' ? msg : t('wu.startFail'));
     } finally {
       setBusy(row.slot.account.id, false);
     }
@@ -180,11 +182,11 @@ export default function WarmupPage() {
     setBusy(row.slot.account.id, true);
     try {
       await warmupApi.advance(row.slot.account.id);
-      antdMessage.success(`已推进到下一阶段`);
+      antdMessage.success(t('wu.advanceOk'));
       await reload();
     } catch (err: any) {
       const msg = err?.response?.data?.message;
-      antdMessage.error(typeof msg === 'string' ? msg : '推进失败');
+      antdMessage.error(typeof msg === 'string' ? msg : t('wu.advanceFail'));
     } finally {
       setBusy(row.slot.account.id, false);
     }
@@ -195,11 +197,11 @@ export default function WarmupPage() {
     setBusy(row.slot.account.id, true);
     try {
       await warmupApi.pause(row.slot.account.id);
-      antdMessage.warning(`No.${row.slot.no} 已暂停养号`);
+      antdMessage.warning(t('wu.pauseOk', { no: row.slot.no }));
       await reload();
     } catch (err: any) {
       const msg = err?.response?.data?.message;
-      antdMessage.error(typeof msg === 'string' ? msg : '暂停失败');
+      antdMessage.error(typeof msg === 'string' ? msg : t('wu.pauseFail'));
     } finally {
       setBusy(row.slot.account.id, false);
     }
@@ -210,19 +212,20 @@ export default function WarmupPage() {
     setBusy(row.slot.account.id, true);
     try {
       await warmupApi.resume(row.slot.account.id);
-      antdMessage.success(`No.${row.slot.no} 已恢复养号`);
+      antdMessage.success(t('wu.resumeOk', { no: row.slot.no }));
       await reload();
     } catch (err: any) {
       const msg = err?.response?.data?.message;
-      antdMessage.error(typeof msg === 'string' ? msg : '恢复失败');
+      antdMessage.error(typeof msg === 'string' ? msg : t('wu.resumeFail'));
     } finally {
       setBusy(row.slot.account.id, false);
     }
   };
 
+  const PHASE_META = buildPhaseMeta(t);
   const columns: ColumnsType<Row> = [
     {
-      title: '编号',
+      title: t('wu.col.no'),
       key: 'no',
       width: 60,
       align: 'center',
@@ -233,7 +236,7 @@ export default function WarmupPage() {
       ),
     },
     {
-      title: '手机号',
+      title: t('wu.col.phone'),
       key: 'phone',
       width: 160,
       render: (_, r) => (
@@ -241,7 +244,7 @@ export default function WarmupPage() {
       ),
     },
     {
-      title: '角色',
+      title: t('wu.col.role'),
       key: 'role',
       width: 80,
       render: (_, r) => {
@@ -255,7 +258,7 @@ export default function WarmupPage() {
       },
     },
     {
-      title: '账号状态',
+      title: t('wu.col.acctStatus'),
       key: 'state',
       width: 120,
       render: (_, r) => {
@@ -266,11 +269,10 @@ export default function WarmupPage() {
       },
     },
     {
-      title: '阶段 & 进度',
+      title: t('wu.col.phaseProgress'),
       key: 'phase',
       width: 240,
       render: (_, r) => {
-        // legacy P0-P4 warmup plan 优先
         if (r.plan) {
           const phase = (r.plan.currentPhase as WarmupPhase) ?? 0;
           const meta = PHASE_META[phase] ?? PHASE_META[0];
@@ -279,40 +281,40 @@ export default function WarmupPage() {
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <Text style={{ fontSize: 12 }}>{meta.label}</Text>
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  {meta.percent}%{r.plan.completed ? ' · 完成' : r.plan.paused ? ' · 暂停' : ''}
+                  {meta.percent}%{r.plan.completed ? t('wu.completed') : r.plan.paused ? t('wu.paused') : ''}
                 </Text>
               </div>
               <Progress percent={meta.percent} strokeColor={meta.color} showInfo={false} size="small" />
             </div>
           );
         }
-        // preset 养号任务（任务调度启动的）
         if (r.presetTask) {
-          const t = r.presetTask;
-          const presetLabel: Record<string, string> = {
-            preset_warmup_7d: '🌱 自动养号 7 天',
-            preset_full_14d: '🎯 一键托管 14 天',
-            preset_rampup_7d: '🔥 运营热身 7 天',
-            preset_mature_ops: '🚀 成熟运营',
+          const tk = r.presetTask;
+          const presetKey: Record<string, string> = {
+            preset_warmup_7d: 'wu.preset.warmup_7d',
+            preset_full_14d: 'wu.preset.full_14d',
+            preset_rampup_7d: 'wu.preset.rampup_7d',
+            preset_mature_ops: 'wu.preset.mature_ops',
           };
+          const tkLabel = presetKey[tk.type] ? t(presetKey[tk.type]) : tk.type;
           return (
             <div style={{ minWidth: 200 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <Text style={{ fontSize: 12 }}>{presetLabel[t.type] ?? t.type} · #{t.seq}</Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>{t.progress}%</Text>
+                <Text style={{ fontSize: 12 }}>{tkLabel} · #{tk.seq}</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>{tk.progress}%</Text>
               </div>
-              <Progress percent={t.progress} strokeColor="#1677ff" showInfo={false} size="small" />
-              {t.startedAt && (
-                <Text type="secondary" style={{ fontSize: 10 }}>启动 {dayjs(t.startedAt).format('MM-DD HH:mm')}</Text>
+              <Progress percent={tk.progress} strokeColor="#1677ff" showInfo={false} size="small" />
+              {tk.startedAt && (
+                <Text type="secondary" style={{ fontSize: 10 }}>{t('wu.startedAt', { time: dayjs(tk.startedAt).format('MM-DD HH:mm') })}</Text>
               )}
             </div>
           );
         }
-        return <Text type="secondary">尚未启动养号</Text>;
+        return <Text type="secondary">{t('wu.notStarted')}</Text>;
       },
     },
     {
-      title: '健康分',
+      title: t('wu.col.health'),
       key: 'health',
       width: 80,
       align: 'center',
@@ -322,7 +324,7 @@ export default function WarmupPage() {
       },
     },
     {
-      title: '开始时间',
+      title: t('wu.col.startedAt'),
       key: 'started',
       width: 130,
       render: (_, r) => {
@@ -331,7 +333,7 @@ export default function WarmupPage() {
       },
     },
     {
-      title: '操作',
+      title: t('wu.col.actions'),
       key: 'actions',
       width: 240,
       render: (_, row) => {
@@ -340,11 +342,10 @@ export default function WarmupPage() {
         const busy = !!busyId[id];
 
         if (!row.plan) {
-          // 已经在任务调度里启动了 preset 养号 → 不再显示「启动」按钮
           if (row.presetTask) {
             return (
-              <Tooltip title={`通过任务调度启动 - 任务 #${row.presetTask.seq}`}>
-                <Tag color="processing">运行中</Tag>
+              <Tooltip title={t('wu.runningPresetTip', { seq: row.presetTask.seq ?? '' })}>
+                <Tag color="processing">{t('wu.tagRunning')}</Tag>
               </Tooltip>
             );
           }
@@ -356,26 +357,26 @@ export default function WarmupPage() {
               loading={busy}
               onClick={() => handleStart(row)}
             >
-              启动养号
+              {t('wu.btnStart')}
             </Button>
           );
         }
         if (row.plan.completed) {
-          return <Tag color="success">已完成</Tag>;
+          return <Tag color="success">{t('wu.tagDone')}</Tag>;
         }
         const phase = row.plan.currentPhase;
         const isPaused = !!row.plan.paused;
         return (
           <Space size={4}>
             {!isPaused && phase < 4 && (
-              <Tooltip title={`推进到 P${phase + 1}`}>
+              <Tooltip title={t('wu.advanceTip', { phase: phase + 1 })}>
                 <Button
                   size="small"
                   icon={<StepForwardOutlined />}
                   loading={busy}
                   onClick={() => handleAdvance(row)}
                 >
-                  推进
+                  {t('wu.btnAdvance')}
                 </Button>
               </Tooltip>
             )}
@@ -387,7 +388,7 @@ export default function WarmupPage() {
                 loading={busy}
                 onClick={() => handleResume(row)}
               >
-                恢复
+                {t('wu.btnResume')}
               </Button>
             ) : (
               <Button
@@ -396,7 +397,7 @@ export default function WarmupPage() {
                 loading={busy}
                 onClick={() => handlePause(row)}
               >
-                暂停
+                {t('wu.btnPause')}
               </Button>
             )}
           </Space>
@@ -411,16 +412,16 @@ export default function WarmupPage() {
         <div>
           <Title level={4} style={{ margin: 0 }}>{t('nav.warmup')}</Title>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            7 天渐进养号：P0 初始化 → P1 沉默 → P2 轻活 → P3 社交 → P4 常规
+            {t('wu.subtitle')}
           </Text>
         </div>
         <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>
-          刷新
+          {t('wu.refresh')}
         </Button>
       </div>
 
       {rows.length === 0 && !loading ? (
-        <Empty description="尚无占用的槽位 — 请先绑定账号" />
+        <Empty description={t('wu.empty')} />
       ) : (
         <Table
           columns={columns}
