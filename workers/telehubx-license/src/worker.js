@@ -40,33 +40,37 @@ export default {
       const route = `${request.method} ${url.pathname}`;
 
       // ── public / agent ─────────────────────────────────────────
-      if (route === 'GET /health')             return health(env);
-      if (route === 'POST /license/activate')  return jsonRoute(request, env, activate);
-      if (route === 'POST /license/verify')    return jsonRoute(request, env, verify);
-      if (route === 'POST /agents/heartbeat')  return jsonRoute(request, env, heartbeat);
+      // NB: every async branch is awaited so that any rejection (D1 error,
+      // missing column, etc.) hits the outer try/catch and is converted to
+      // a JSON 500 instead of escaping as Cloudflare error 1101.
+      if (route === 'GET /health')             return await health(env);
+      if (route === 'POST /license/activate')  return await jsonRoute(request, env, activate);
+      if (route === 'POST /license/verify')    return await jsonRoute(request, env, verify);
+      if (route === 'POST /agents/heartbeat')  return await jsonRoute(request, env, heartbeat);
 
       // ── admin (require Bearer ADMIN_TOKEN) ─────────────────────
       if (url.pathname.startsWith('/admin/')) {
         const adminCheck = requireAdmin(request, env);
         if (adminCheck) return adminCheck;
 
-        if (route === 'POST /admin/licenses/create') return jsonRoute(request, env, adminCreateLicense);
-        if (route === 'GET  /admin/licenses' || route === 'GET /admin/licenses') return adminListLicenses(env);
+        if (route === 'POST /admin/licenses/create') return await jsonRoute(request, env, adminCreateLicense);
+        if (route === 'GET  /admin/licenses' || route === 'GET /admin/licenses') return await adminListLicenses(env);
 
         // /admin/licenses/:id/{revoke|extend|unbind}
         const m = url.pathname.match(/^\/admin\/licenses\/([^/]+)\/(revoke|extend|unbind)$/);
         if (m && request.method === 'POST') {
           const [, id, op] = m;
-          if (op === 'revoke') return jsonRoute(request, env, (b, e) => adminRevoke(b, e, id));
-          if (op === 'extend') return jsonRoute(request, env, (b, e) => adminExtend(b, e, id));
-          if (op === 'unbind') return jsonRoute(request, env, (b, e) => adminUnbind(b, e, id));
+          if (op === 'revoke') return await jsonRoute(request, env, (b, e) => adminRevoke(b, e, id));
+          if (op === 'extend') return await jsonRoute(request, env, (b, e) => adminExtend(b, e, id));
+          if (op === 'unbind') return await jsonRoute(request, env, (b, e) => adminUnbind(b, e, id));
         }
       }
 
       return jsonResp({ ok: false, error: 'not_found' }, 404);
     } catch (err) {
-      // never leak secrets / stack
-      return jsonResp({ ok: false, error: 'server_error', message: String(err?.message ?? err).slice(0, 200) }, 500);
+      // never leak secrets / stack — but DO surface the message so D1
+      // mismatches are debuggable from the client side.
+      return jsonResp({ ok: false, error: 'server_error', message: String(err?.message ?? err).slice(0, 300) }, 500);
     }
   },
 };
@@ -196,12 +200,16 @@ async function verifyAgentToken(env, token) {
 }
 
 // ─── audit ────────────────────────────────────────────────────────────────
+// Schema: audit_logs(id, actor, action, target_id, detail_json, created_at)
+// (target_type is encoded inside detail_json.targetType so we don't need the column)
 async function audit(env, action, targetType, targetId, actor, meta) {
+  const detail = { ...(meta ?? {}) };
+  if (targetType) detail.targetType = targetType;
   await env.DB.prepare(
-    `INSERT INTO audit_logs (id, action, target_type, target_id, actor, meta, created_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
-  ).bind(uuid(), action, targetType ?? null, targetId ?? null, actor ?? null,
-         meta ? JSON.stringify(meta) : null, nowIso())
+    `INSERT INTO audit_logs (id, actor, action, target_id, detail_json, created_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+  ).bind(uuid(), actor ?? null, action, targetId ?? null,
+         Object.keys(detail).length ? JSON.stringify(detail) : null, nowIso())
    .run().catch(() => { /* audit failure must not break primary op */ });
 }
 
@@ -238,10 +246,13 @@ async function adminCreateLicense(body, env) {
   const maxAccounts = PLAN_MAX_ACCOUNTS[planRaw];
 
   // 1) tenant
+  // Schema: tenants(id, product, tenant_name, contact, status, created_at, updated_at)
   const tenantId = uuid();
+  const now = nowIso();
   await env.DB.prepare(
-    `INSERT INTO tenants (id, name, contact, created_at) VALUES (?1, ?2, ?3, ?4)`
-  ).bind(tenantId, tenantName, contact, nowIso()).run();
+    `INSERT INTO tenants (id, product, tenant_name, contact, status, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, 'active', ?5, ?5)`
+  ).bind(tenantId, PRODUCT, tenantName, contact, now).run();
 
   // 2) license key (one-time plaintext returned)
   const licenseKey = generateLicenseKey();
@@ -249,13 +260,17 @@ async function adminCreateLicense(body, env) {
   const licenseKeySuffix = licenseKey.slice(-4);
 
   const licenseId = uuid();
+  // Schema: licenses(id, tenant_id, product, license_key_hash, license_key_suffix,
+  //   plan, max_accounts, status, expires_at, machine_fingerprint, activated_at,
+  //   last_verified_at, created_at, updated_at)
   await env.DB.prepare(
     `INSERT INTO licenses
-       (id, tenant_id, product, plan, max_accounts, license_key_hash, license_key_suffix,
-        status, expires_at, machine_fingerprint, activated_at, last_verified_at, created_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'active', ?8, NULL, NULL, NULL, ?9)`
-  ).bind(licenseId, tenantId, PRODUCT, planRaw, maxAccounts,
-         licenseKeyHash, licenseKeySuffix, expiresAt, nowIso())
+       (id, tenant_id, product, license_key_hash, license_key_suffix,
+        plan, max_accounts, status, expires_at, machine_fingerprint,
+        activated_at, last_verified_at, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'active', ?8, NULL, NULL, NULL, ?9, ?9)`
+  ).bind(licenseId, tenantId, PRODUCT, licenseKeyHash, licenseKeySuffix,
+         planRaw, maxAccounts, expiresAt, now)
    .run();
 
   await audit(env, 'license.create', 'license', licenseId, 'admin', {
@@ -281,7 +296,7 @@ async function adminListLicenses(env) {
     `SELECT
        l.id              AS id,
        l.tenant_id       AS tenant_id,
-       t.name            AS tenant_name,
+       t.tenant_name     AS tenant_name,
        t.contact         AS tenant_contact,
        l.product         AS product,
        l.plan            AS plan,
@@ -326,7 +341,8 @@ async function adminRevoke(_body, env, id) {
   const lic = await env.DB.prepare(`SELECT id FROM licenses WHERE id = ?1`).bind(id).first();
   if (!lic) return jsonResp({ ok: false, error: 'license_not_found' }, 404);
 
-  await env.DB.prepare(`UPDATE licenses SET status = 'revoked' WHERE id = ?1`).bind(id).run();
+  await env.DB.prepare(`UPDATE licenses SET status = 'revoked', updated_at = ?1 WHERE id = ?2`)
+    .bind(nowIso(), id).run();
   await audit(env, 'license.revoke', 'license', id, 'admin');
   return jsonResp({ ok: true, id, status: 'revoked' });
 }
@@ -343,8 +359,8 @@ async function adminExtend(body, env, id) {
   const lic = await env.DB.prepare(`SELECT id, expires_at FROM licenses WHERE id = ?1`).bind(id).first();
   if (!lic) return jsonResp({ ok: false, error: 'license_not_found' }, 404);
 
-  await env.DB.prepare(`UPDATE licenses SET expires_at = ?1 WHERE id = ?2`)
-    .bind(String(newExpiresAt), id).run();
+  await env.DB.prepare(`UPDATE licenses SET expires_at = ?1, updated_at = ?2 WHERE id = ?3`)
+    .bind(String(newExpiresAt), nowIso(), id).run();
   await audit(env, 'license.extend', 'license', id, 'admin', {
     oldExpiresAt: lic.expires_at, newExpiresAt,
   });
@@ -362,7 +378,8 @@ async function adminUnbind(_body, env, id) {
   const lic = await env.DB.prepare(`SELECT id, machine_fingerprint FROM licenses WHERE id = ?1`).bind(id).first();
   if (!lic) return jsonResp({ ok: false, error: 'license_not_found' }, 404);
 
-  await env.DB.prepare(`UPDATE licenses SET machine_fingerprint = NULL WHERE id = ?1`).bind(id).run();
+  await env.DB.prepare(`UPDATE licenses SET machine_fingerprint = NULL, updated_at = ?1 WHERE id = ?2`)
+    .bind(nowIso(), id).run();
   await audit(env, 'license.unbind', 'license', id, 'admin', {
     previousMachineFingerprint: lic.machine_fingerprint,
   });
@@ -385,7 +402,7 @@ async function activate(body, env) {
 
   const hash = await hashLicenseKey(licenseKey, env);
   const lic = await env.DB.prepare(
-    `SELECT l.*, t.name AS tenant_name
+    `SELECT l.*, t.tenant_name AS tenant_name
      FROM licenses l
      LEFT JOIN tenants t ON t.id = l.tenant_id
      WHERE l.license_key_hash = ?1 AND l.product = ?2`
@@ -413,7 +430,7 @@ async function activate(body, env) {
   if (isFirstBind) {
     await env.DB.prepare(
       `UPDATE licenses
-         SET machine_fingerprint = ?1, activated_at = ?2
+         SET machine_fingerprint = ?1, activated_at = ?2, updated_at = ?2
          WHERE id = ?3`
     ).bind(machineFingerprint, nowIso(), lic.id).run();
   }
@@ -423,20 +440,25 @@ async function activate(body, env) {
     `SELECT id FROM agent_devices WHERE license_id = ?1 AND machine_fingerprint = ?2`
   ).bind(lic.id, machineFingerprint).first();
 
+  // Schema: agent_devices(id, license_id, product, machine_fingerprint, hostname,
+  //   agent_version, local_account_count, running_task_count, status,
+  //   last_seen_at, created_at, updated_at)
   if (existingDev) {
     await env.DB.prepare(
       `UPDATE agent_devices
          SET hostname = ?1, agent_version = ?2, status = 'online',
-             last_seen_at = ?3
+             last_seen_at = ?3, updated_at = ?3
          WHERE id = ?4`
     ).bind(hostname, agentVersion, nowIso(), existingDev.id).run();
   } else {
+    const now = nowIso();
     await env.DB.prepare(
       `INSERT INTO agent_devices
-         (id, license_id, machine_fingerprint, hostname, agent_version, status,
-          local_account_count, running_task_count, last_seen_at, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, 'online', 0, 0, ?6, ?6)`
-    ).bind(uuid(), lic.id, machineFingerprint, hostname, agentVersion, nowIso()).run();
+         (id, license_id, product, machine_fingerprint, hostname, agent_version,
+          local_account_count, running_task_count, status,
+          last_seen_at, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, 'online', ?7, ?7, ?7)`
+    ).bind(uuid(), lic.id, PRODUCT, machineFingerprint, hostname, agentVersion, now).run();
   }
 
   // sign agent token
@@ -467,7 +489,7 @@ async function verify(body, env) {
   if (!payload?.lid) return jsonResp({ ok: false, error: 'invalid_token' }, 401);
 
   const lic = await env.DB.prepare(
-    `SELECT l.*, t.name AS tenant_name
+    `SELECT l.*, t.tenant_name AS tenant_name
      FROM licenses l
      LEFT JOIN tenants t ON t.id = l.tenant_id
      WHERE l.id = ?1 AND l.product = ?2`
@@ -483,7 +505,7 @@ async function verify(body, env) {
     return jsonResp({ ok: false, error: 'machine_mismatch' }, 409);
   }
 
-  await env.DB.prepare(`UPDATE licenses SET last_verified_at = ?1 WHERE id = ?2`)
+  await env.DB.prepare(`UPDATE licenses SET last_verified_at = ?1, updated_at = ?1 WHERE id = ?2`)
     .bind(nowIso(), lic.id).run();
 
   return jsonResp({
@@ -519,7 +541,8 @@ async function heartbeat(body, env) {
            local_account_count = ?1,
            running_task_count  = ?2,
            agent_version       = COALESCE(?3, agent_version),
-           last_seen_at        = ?4
+           last_seen_at        = ?4,
+           updated_at          = ?4
        WHERE id = ?5`
   ).bind(localAccountCount, runningTaskCount, agentVersion, nowIso(), dev.id).run();
 
