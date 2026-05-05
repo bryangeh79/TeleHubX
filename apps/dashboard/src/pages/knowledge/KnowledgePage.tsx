@@ -530,26 +530,14 @@ export default function KnowledgePage() {
                 items={[
                   {
                     key: 'docs',
-                    label: <span><FileTextOutlined /> 文档 ({sources.length})</span>,
+                    label: <span><FileTextOutlined /> {t('kb.tab.docs')} ({sources.length})</span>,
                     children: (
                       <div>
                         <Upload.Dragger {...uploadProps} style={{ marginBottom: 16 }}>
                           <p className="ant-upload-drag-icon"><InboxOutlined /></p>
-                          <p className="ant-upload-text">拖拽文件到这里，或点击选择</p>
-                          <p className="ant-upload-hint">支持 txt / md / PDF / docx · 最大 20 MB</p>
+                          <p className="ant-upload-text">{t('kb.upload.dragText')}</p>
+                          <p className="ant-upload-hint">{t('kb.upload.hint')}</p>
                         </Upload.Dragger>
-
-                        <Alert
-                          type="info"
-                          showIcon
-                          style={{ marginBottom: 12 }}
-                          message="上传后系统自动做 3 件事"
-                          description={
-                            <Text style={{ fontSize: 12 }}>
-                              ① 解析文本 ② 抽取电话/邮箱/网址（自动加入「保留实体」）③ 等待你点 AI 生成 FAQ
-                            </Text>
-                          }
-                        />
 
                         <Button
                           type="primary"
@@ -559,7 +547,7 @@ export default function KnowledgePage() {
                           disabled={sources.filter((s) => s.status === 'processed').length === 0}
                           style={{ marginBottom: 12 }}
                         >
-                          AI 生成 30 条 FAQ
+                          {t('kb.aiGenerateFaqs')}
                         </Button>
 
                         <Table
@@ -567,25 +555,25 @@ export default function KnowledgePage() {
                           rowKey="id"
                           size="small"
                           pagination={false}
-                          locale={{ emptyText: <Empty description="尚未上传文档" /> }}
+                          locale={{ emptyText: <Empty description={t('common.none')} /> }}
                           columns={[
-                            { title: '文件名', dataIndex: 'fileName', key: 'fileName' },
-                            { title: '类型', dataIndex: 'kind', key: 'kind', width: 70,
+                            { title: t('kb.col.fileName'), dataIndex: 'fileName', key: 'fileName' },
+                            { title: t('common.type'), dataIndex: 'kind', key: 'kind', width: 70,
                               render: (k: string) => <Tag>{k}</Tag> },
-                            { title: '大小', dataIndex: 'byteSize', key: 'byteSize', width: 90,
+                            { title: t('kb.col.size'), dataIndex: 'byteSize', key: 'byteSize', width: 90,
                               render: (n: number) => fmtBytes(n) },
-                            { title: '状态', dataIndex: 'status', key: 'status', width: 100,
+                            { title: t('common.status'), dataIndex: 'status', key: 'status', width: 100,
                               render: (s: SourceStatus, row) =>
                                 s === 'processed'
-                                  ? <Badge status="success" text="已处理" />
+                                  ? <Badge status="success" text={t('kb.source.processed')} />
                                   : s === 'failed'
-                                    ? <Tooltip title={row.errorMsg}><Badge status="error" text="失败" /></Tooltip>
-                                    : <Badge status="processing" text="处理中" /> },
-                            { title: '上传时间', dataIndex: 'createdAt', key: 'createdAt', width: 160,
-                              render: (t: string) => new Date(t).toLocaleString() },
-                            { title: '操作', key: 'ops', width: 80,
+                                    ? <Tooltip title={row.errorMsg}><Badge status="error" text={t('common.failed')} /></Tooltip>
+                                    : <Badge status="processing" text={t('common.running')} /> },
+                            { title: t('common.createdAt'), dataIndex: 'createdAt', key: 'createdAt', width: 160,
+                              render: (tt: string) => new Date(tt).toLocaleString() },
+                            { title: t('common.actions'), key: 'ops', width: 80,
                               render: (_, row) => (
-                                <Popconfirm title="确认删除？" onConfirm={() => removeSource(row.id)}>
+                                <Popconfirm title={t('common.confirmDelete')} onConfirm={() => removeSource(row.id)}>
                                   <Button size="small" danger icon={<DeleteOutlined />} />
                                 </Popconfirm>
                               ) },
@@ -600,16 +588,10 @@ export default function KnowledgePage() {
                     children: (
                       <div>
                         <Space style={{ marginBottom: 12 }}>
-                          <Button type="primary" icon={<PlusOutlined />} onClick={() => openFaqModal(null)}>手动添加</Button>
-                          <Button icon={<ThunderboltOutlined />} loading={generating} onClick={generateFaqs}>AI 生成 30 条</Button>
-                          <Button icon={<ReloadOutlined />} onClick={() => selectedKbId && loadTabData(selectedKbId)}>刷新</Button>
+                          <Button type="primary" icon={<PlusOutlined />} onClick={() => openFaqModal(null)}>{t('common.add')}</Button>
+                          <Button icon={<ThunderboltOutlined />} loading={generating} onClick={generateFaqs}>{t('kb.aiGenerateFaqs')}</Button>
+                          <Button icon={<ReloadOutlined />} onClick={() => selectedKbId && loadTabData(selectedKbId)}>{t('common.refresh')}</Button>
                         </Space>
-                        <Alert
-                          type="info"
-                          showIcon
-                          style={{ marginBottom: 12 }}
-                          message="FAQ 是客户自动回复的优先来源 · 命中就直接回 · 没有的问题再走 AI"
-                        />
                         <Table
                           dataSource={faqs}
                           columns={faqColumns}

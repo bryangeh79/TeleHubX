@@ -8,6 +8,7 @@ import {
   EditOutlined, GlobalOutlined, PlusOutlined, RobotOutlined, UploadOutlined,
 } from '@ant-design/icons';
 import { knowledgeApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -63,6 +64,7 @@ function extractFromProfile(profile: string): { email?: string; website?: string
 }
 
 export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
+  const t = useT();
   const [step, setStep] = useState(0);
   const [form] = Form.useForm();
   // Mirror form values to useState — prevents value loss when Form.Item unmounts on step change
@@ -289,8 +291,8 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
       title={
         <Space>
           <BankOutlined style={{ color: '#1677ff' }} />
-          <span>设置公司资讯</span>
-          {existingKbId && <Tag color="green">已有资料，可更新</Tag>}
+          <span>{t('cs.companyInfo.title')}</span>
+          {existingKbId && <Tag color="green">{t('cs.companyInfo.hasData')}</Tag>}
         </Space>
       }
       width={700}
@@ -298,22 +300,25 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
       styles={{ body: { maxHeight: '72vh', overflowY: 'auto', padding: '16px 24px' } }}
       footer={
         step === 0 ? [
-          <Button key="cancel" onClick={onClose}>取消</Button>,
+          <Button key="cancel" onClick={onClose}>{t('common.cancel')}</Button>,
           <Button key="gen" type="primary" icon={<RobotOutlined />}
             onClick={handleGenerate} loading={generating}>
-            AI 生成档案预览
+            {t('cs.companyInfo.aiGenerate')}
           </Button>,
         ] : [
-          <Button key="back" onClick={() => setStep(0)}>← 返回修改</Button>,
+          <Button key="back" onClick={() => setStep(0)}>← {t('common.back')}</Button>,
           <Button key="save" type="primary" icon={<CheckCircleOutlined />}
             onClick={handleSave} loading={saving}>
-            确认保存
+            {t('common.save')}
           </Button>,
         ]
       }
     >
       <Steps current={step} size="small" style={{ marginBottom: 20 }}
-        items={[{ title: '填写公司信息' }, { title: '确认 AI 档案' }]}
+        items={[
+          { title: t('cs.companyInfo.step1') },
+          { title: t('cs.companyInfo.step2') },
+        ]}
       />
 
       {step === 0 && (
@@ -329,13 +334,13 @@ export default function CompanyInfoWizard({ open, onClose, tenantId }: Props) {
           {/* 公司名 + 行业 */}
           <Row gutter={12}>
             <Col span={14}>
-              <Form.Item name="companyName" label="公司名称" rules={[{ required: true, message: '必填' }]}>
-                <Input placeholder="例如：StarBright Solutions Sdn Bhd" />
+              <Form.Item name="companyName" label={t('cs.companyInfo.field.name')} rules={[{ required: true, message: t('form.required') }]}>
+                <Input placeholder={t('form.placeholder.required')} />
               </Form.Item>
             </Col>
             <Col span={10}>
-              <Form.Item name="industry" label="行业类别" rules={[{ required: true, message: '必填' }]}>
-                <Select placeholder="选择行业" options={INDUSTRY_OPTIONS.map(v => ({ value: v, label: v }))} />
+              <Form.Item name="industry" label={t('cs.companyInfo.field.industry')} rules={[{ required: true, message: t('form.required') }]}>
+                <Select placeholder={t('form.placeholder.required')} options={INDUSTRY_OPTIONS.map(v => ({ value: v, label: v }))} />
               </Form.Item>
             </Col>
           </Row>

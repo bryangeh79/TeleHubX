@@ -87,33 +87,36 @@ interface TenantSettings {
 
 type ReplyMode = 'off' | 'faq' | 'smart';
 
-const MODE_CARDS: Array<{
+/** Round-7: 改函数返回, 接 useT() 实现 4 语 mode card */
+function buildModeCards(t: (k: string) => string): Array<{
   key: ReplyMode;
   icon: React.ReactNode;
   title: string;
   desc: string;
   badge?: string;
-}> = [
-  {
-    key: 'off',
-    icon: <StopOutlined style={{ fontSize: 28 }} />,
-    title: '关闭',
-    desc: '所有回复 100% 人工处理',
-  },
-  {
-    key: 'faq',
-    icon: <QuestionCircleOutlined style={{ fontSize: 28 }} />,
-    title: 'FAQ 模式',
-    desc: '只用 FAQ 匹配，命中就回，不命中转人工',
-  },
-  {
-    key: 'smart',
-    icon: <RobotOutlined style={{ fontSize: 28 }} />,
-    title: 'AI 智能 + FAQ',
-    desc: 'FAQ 优先，不命中时用 AI 兜底',
-    badge: '推荐',
-  },
-];
+}> {
+  return [
+    {
+      key: 'off',
+      icon: <StopOutlined style={{ fontSize: 28 }} />,
+      title: t('cs.replyMode.off'),
+      desc: t('cs.replyMode.off.desc'),
+    },
+    {
+      key: 'faq',
+      icon: <QuestionCircleOutlined style={{ fontSize: 28 }} />,
+      title: t('cs.replyMode.faq'),
+      desc: t('cs.replyMode.faq.desc'),
+    },
+    {
+      key: 'smart',
+      icon: <RobotOutlined style={{ fontSize: 28 }} />,
+      title: t('cs.replyMode.smart'),
+      desc: t('cs.replyMode.smart.desc'),
+      badge: t('cs.replyMode.recommended'),
+    },
+  ];
+}
 
 // ── 高级设置 Tab 组件 ─────────────────────────────────────────────────
 function AdvancedSettingsTab({
@@ -708,7 +711,7 @@ export default function CsPage() {
             onClick={() => setCompanyWizardOpen(true)}
             style={{ fontWeight: 500 }}
           >
-            设置公司资讯
+            {t('cs.companyInfo.title')}
           </Button>
           <Button
             size="large"
@@ -716,7 +719,7 @@ export default function CsPage() {
             onClick={() => setGeneralFaqOpen(true)}
             style={{ fontWeight: 500 }}
           >
-            通用 FAQ
+            {t('drawer.generalFaq')}
           </Button>
           <Button
             size="large"
@@ -725,7 +728,7 @@ export default function CsPage() {
             onClick={() => setProductWizardOpen(true)}
             style={{ fontWeight: 500 }}
           >
-            设置产品
+            {t('cs.product.title')}
           </Button>
           {botStatusBadge}
         </Space>
@@ -815,7 +818,7 @@ export default function CsPage() {
       {/* 自动回复模式 */}
       <Card title={t('page.cs.faqMode')} style={{ marginBottom: 16 }} loading={loading}>
         <Row gutter={12}>
-          {MODE_CARDS.map((m) => {
+          {buildModeCards(t).map((m) => {
             const active = m.key === currentMode;
             const aiBlocked = m.key === 'smart' && !aiConfigured;
             return (

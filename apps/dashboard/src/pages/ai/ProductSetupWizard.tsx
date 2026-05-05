@@ -10,6 +10,7 @@ import {
   UploadOutlined,
 } from '@ant-design/icons';
 import { knowledgeApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { Text, Title, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -137,6 +138,7 @@ function ProductCard({ kb, onEdit, onDelete }: { kb: any; onEdit: () => void; on
 
 // ── 主组件：5 步引导式 ─────────────────────────────────────────────────
 export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
+  const t = useT();
   const [products, setProducts] = useState<any[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
@@ -337,8 +339,8 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
       ) : (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <Button onClick={() => { setShowEditor(false); void loadProducts(); }}>← 返回产品列表</Button>
-            <Text type="secondary">{editingKbId ? '编辑产品' : `新增产品 · 第 ${step + 1}/5 步`}</Text>
+            <Button onClick={() => { setShowEditor(false); void loadProducts(); }}>← {t('common.back')}</Button>
+            <Text type="secondary">{editingKbId ? t('cs.product.edit') : `${t('cs.product.new')} · ${step + 1}/5`}</Text>
           </div>
 
           <Steps
@@ -346,11 +348,11 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
             size="small"
             style={{ marginBottom: 24 }}
             items={[
-              { title: '欢迎' },
-              { title: '基本信息' },
-              { title: '业务目标' },
-              { title: '上传资料' },
-              { title: '确认 FAQ' },
+              { title: t('cs.product.step.welcome') },
+              { title: t('cs.product.step.basic') },
+              { title: t('cs.product.step.goal') },
+              { title: t('cs.product.step.upload') },
+              { title: t('cs.product.step.faq') },
             ]}
           />
 
@@ -366,21 +368,12 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
             {step === 0 && (
               <Card style={{ textAlign: 'center', background: '#f6ffed', border: '1px solid #b7eb8f' }}>
                 <RocketOutlined style={{ fontSize: 64, color: '#52c41a', marginBottom: 16 }} />
-                <Title level={3} style={{ margin: 0 }}>📦 创建产品知识库</Title>
-                <Paragraph style={{ marginTop: 16, fontSize: 14 }}>
-                  接下来 <strong>4 个步骤</strong>，你可以：
-                </Paragraph>
-                <div style={{ textAlign: 'left', maxWidth: 380, margin: '0 auto', fontSize: 13, lineHeight: 2 }}>
-                  ✅ 填基本信息 → 选 Bot 销售目标<br/>
-                  ✅ 上传产品介绍书 (PDF / Word)<br/>
-                  ✅ AI 自动生成 <strong>30-50 条 FAQ</strong><br/>
-                  ✅ Bot 立即学会回答这个产品的问题
-                </div>
+                <Title level={3} style={{ margin: 0 }}>📦 {t('cs.product.welcome.title')}</Title>
                 <Paragraph type="secondary" style={{ marginTop: 16, fontSize: 12 }}>
-                  整个过程约 1-2 分钟。不用懂技术，按步骤填就行。
+                  {t('cs.product.welcome.desc')}
                 </Paragraph>
                 <Button type="primary" size="large" icon={<ArrowRightOutlined />} onClick={() => setStep(1)}>
-                  开始
+                  {t('common.start')}
                 </Button>
               </Card>
             )}
@@ -389,21 +382,21 @@ export default function ProductSetupWizard({ open, onClose, tenantId }: Props) {
             {step === 1 && (
               <>
                 <Alert type="info" showIcon style={{ marginBottom: 16 }}
-                  message="基本信息" description="填产品的名字和价格，Bot 用来识别和回答客户。" />
+                  message={t('cs.product.step.basic')} />
                 <Row gutter={12}>
                   <Col span={14}>
-                    <Form.Item name="productName" label="产品名称" rules={[{ required: true, message: '必填' }]}>
-                      <Input placeholder="例如：M33 Lotto Bot 自动化系统" />
+                    <Form.Item name="productName" label={t('cs.product.field.name')} rules={[{ required: true, message: t('form.required') }]}>
+                      <Input placeholder={t('form.placeholder.required')} />
                     </Form.Item>
                   </Col>
                   <Col span={10}>
-                    <Form.Item name="price" label="价格" extra="可填具体数字 / 联系询价 / 按需报价">
-                      <Input placeholder="例如：RM 299/月" />
+                    <Form.Item name="price" label={t('cs.product.field.price')}>
+                      <Input placeholder={t('form.placeholder.required')} />
                     </Form.Item>
                   </Col>
                 </Row>
-                <Form.Item name="category" label="产品类别（可选）">
-                  <Select placeholder="选择类别" allowClear
+                <Form.Item name="category" label={t('cs.product.field.category')}>
+                  <Select placeholder={t('form.placeholder.optional')} allowClear
                     options={CATEGORY_OPTIONS.map(v => ({ value: v, label: v }))} />
                 </Form.Item>
                 <Form.Item name="customerType" label="客户类型（影响 Bot 语气）"

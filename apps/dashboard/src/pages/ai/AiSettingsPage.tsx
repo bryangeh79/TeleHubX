@@ -128,13 +128,13 @@ function TenantAiModal({
             <Popconfirm
               title="清空后将回落到平台兜底 Key，确认？"
               onConfirm={handleClear}
-              okText="确认清空" cancelText="取消" okButtonProps={{ danger: true }}
+              okText={t('common.confirm')} cancelText={t('common.cancel')} okButtonProps={{ danger: true }}
             >
-              <Button danger loading={saving}>清空配置</Button>
+              <Button danger loading={saving}>{t('common.delete')}</Button>
             </Popconfirm>
           )}
-          <Button onClick={onClose}>取消</Button>
-          <Button type="primary" loading={saving} onClick={handleSave} icon={<SaveOutlined />}>保存</Button>
+          <Button onClick={onClose}>{t('common.cancel')}</Button>
+          <Button type="primary" loading={saving} onClick={handleSave} icon={<SaveOutlined />}>{t('common.save')}</Button>
         </Space>
       }
     >
@@ -253,6 +253,7 @@ function TenantAiCard({ tenantId, tenantAi, onEdit }: {
   tenantAi: any;
   onEdit: () => void;
 }) {
+  const t = useT();
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
@@ -284,10 +285,10 @@ function TenantAiCard({ tenantId, tenantAi, onEdit }: {
       extra={
         <Space>
           {tenantAi?.tenantAiProvider && (
-            <Button loading={testing} onClick={handleTest}>测试连接</Button>
+            <Button loading={testing} onClick={handleTest}>{t('cs.aiKeyTest')}</Button>
           )}
           <Button type="primary" onClick={onEdit}>
-            {tenantAi?.tenantAiProvider ? '修改配置' : '立即配置'}
+            {tenantAi?.tenantAiProvider ? t('common.edit') : t('common.create')}
           </Button>
         </Space>
       }
