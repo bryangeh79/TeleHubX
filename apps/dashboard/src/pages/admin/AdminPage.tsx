@@ -52,6 +52,7 @@ function readUserRole(): string {
 
 // ── Prompt 配置 Tab ───────────────────────────────────────────────────────
 function VariantPromptTab() {
+  const t = useT();
   const [value, setValue] = useState('');
   const [original, setOriginal] = useState('');
   const [isDefault, setIsDefault] = useState(true);
@@ -66,7 +67,7 @@ function VariantPromptTab() {
       setOriginal(res.data.value);
       setIsDefault(res.data.isDefault);
     } catch {
-      antdMessage.error('加载失败');
+      antdMessage.error(t('admin.cfg.loadFail'));
     } finally {
       setLoading(false);
     }
@@ -75,15 +76,15 @@ function VariantPromptTab() {
   useEffect(() => { void load(); }, []);
 
   const handleSave = async () => {
-    if (!value.trim()) { antdMessage.warning('Prompt 不能为空'); return; }
+    if (!value.trim()) { antdMessage.warning(t('admin.variant.empty')); return; }
     setSaving(true);
     try {
       await platformConfigApi.setVariantPrompt(value.trim());
       setOriginal(value.trim());
       setIsDefault(false);
-      antdMessage.success('已保存');
+      antdMessage.success(t('admin.cfg.saveOk'));
     } catch {
-      antdMessage.error('保存失败');
+      antdMessage.error(t('admin.cfg.saveFail'));
     } finally {
       setSaving(false);
     }
@@ -96,9 +97,9 @@ function VariantPromptTab() {
       setValue(res.data.value);
       setOriginal(res.data.value);
       setIsDefault(true);
-      antdMessage.success('已恢复为系统默认');
+      antdMessage.success(t('admin.cfg.resetOk'));
     } catch {
-      antdMessage.error('重置失败');
+      antdMessage.error(t('admin.cfg.resetFail'));
     } finally {
       setSaving(false);
     }
@@ -112,26 +113,21 @@ function VariantPromptTab() {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="变体生成 Prompt 模板"
-        description={
-          <span>
-            控制「AI 生成 10 条变体」功能的指令。使用 <Text code>{'{content}'}</Text> 代表原始文案，
-            <Text code>{'{count}'}</Text> 代表生成数量。修改后对所有广告文案的变体生成立即生效。
-          </span>
-        }
+        message={t('admin.variant.alert.title')}
+        description={t('admin.variant.alert.desc', { contentVar: '{content}', countVar: '{count}' })}
       />
 
       <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Space>
           {isDefault
-            ? <Tag color="default">系统默认</Tag>
-            : <Tag color="blue">已自定义</Tag>
+            ? <Tag color="default">{t('admin.cfg.systemDefault')}</Tag>
+            : <Tag color="blue">{t('admin.cfg.customized')}</Tag>
           }
-          {dirty && <Tag color="orange">未保存</Tag>}
+          {dirty && <Tag color="orange">{t('admin.cfg.unsaved')}</Tag>}
         </Space>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={load} loading={loading} size="small">
-            刷新
+            {t('common.refresh')}
           </Button>
         </Space>
       </div>
@@ -141,13 +137,13 @@ function VariantPromptTab() {
         onChange={(e) => setValue(e.target.value)}
         autoSize={{ minRows: 18, maxRows: 36 }}
         style={{ fontFamily: 'monospace', fontSize: 13 }}
-        placeholder="在此输入 Prompt 模板..."
+        placeholder={t('admin.variant.placeholder')}
       />
 
       <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-        <Tooltip title="恢复为系统内置的默认 Prompt">
+        <Tooltip title={t('admin.variant.tooltipReset')}>
           <Button icon={<UndoOutlined />} onClick={handleReset} loading={saving} disabled={isDefault && !dirty}>
-            恢复默认
+            {t('admin.cfg.restoreDefault')}
           </Button>
         </Tooltip>
         <Button
@@ -157,7 +153,7 @@ function VariantPromptTab() {
           loading={saving}
           disabled={!dirty}
         >
-          保存
+          {t('common.save')}
         </Button>
       </div>
     </div>
@@ -166,6 +162,7 @@ function VariantPromptTab() {
 
 // ── AI 客服人设 Tab ───────────────────────────────────────────────────────
 function GlobalPersonaTab() {
+  const t = useT();
   const [value, setValue] = useState('');
   const [original, setOriginal] = useState('');
   const [isDefault, setIsDefault] = useState(true);
@@ -180,7 +177,7 @@ function GlobalPersonaTab() {
       setOriginal(res.data.value);
       setIsDefault(res.data.isDefault);
     } catch {
-      antdMessage.error('加载失败');
+      antdMessage.error(t('admin.cfg.loadFail'));
     } finally {
       setLoading(false);
     }
@@ -189,15 +186,15 @@ function GlobalPersonaTab() {
   useEffect(() => { void load(); }, []);
 
   const handleSave = async () => {
-    if (!value.trim()) { antdMessage.warning('人设内容不能为空'); return; }
+    if (!value.trim()) { antdMessage.warning(t('admin.persona.empty')); return; }
     setSaving(true);
     try {
       await platformConfigApi.setGlobalPersona(value.trim());
       setOriginal(value.trim());
       setIsDefault(false);
-      antdMessage.success('已保存，下次 Bot 回复即生效');
+      antdMessage.success(t('admin.cfg.saveOkPersona'));
     } catch {
-      antdMessage.error('保存失败');
+      antdMessage.error(t('admin.cfg.saveFail'));
     } finally {
       setSaving(false);
     }
@@ -210,9 +207,9 @@ function GlobalPersonaTab() {
       setValue(res.data.value);
       setOriginal(res.data.value);
       setIsDefault(true);
-      antdMessage.success('已恢复为系统默认人设');
+      antdMessage.success(t('admin.persona.resetOk'));
     } catch {
-      antdMessage.error('重置失败');
+      antdMessage.error(t('admin.cfg.resetFail'));
     } finally {
       setSaving(false);
     }
@@ -226,20 +223,20 @@ function GlobalPersonaTab() {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="AI 客服人设（全局默认）"
-        description="控制 Bot 智能回复时的角色、目标、风格、销售流程、转人工规则等。此人设是所有租户 Bot 回复的基础层，下次 Bot 收到消息即生效。"
+        message={t('admin.persona.alert.title')}
+        description={t('admin.persona.alert.desc')}
       />
 
       <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Space>
           {isDefault
-            ? <Tag color="default">系统默认</Tag>
-            : <Tag color="blue">已自定义</Tag>
+            ? <Tag color="default">{t('admin.cfg.systemDefault')}</Tag>
+            : <Tag color="blue">{t('admin.cfg.customized')}</Tag>
           }
-          {dirty && <Tag color="orange">未保存</Tag>}
+          {dirty && <Tag color="orange">{t('admin.cfg.unsaved')}</Tag>}
         </Space>
         <Button icon={<ReloadOutlined />} onClick={load} loading={loading} size="small">
-          刷新
+          {t('common.refresh')}
         </Button>
       </div>
 
@@ -248,13 +245,13 @@ function GlobalPersonaTab() {
         onChange={(e) => setValue(e.target.value)}
         autoSize={{ minRows: 22, maxRows: 50 }}
         style={{ fontFamily: 'monospace', fontSize: 13 }}
-        placeholder="在此输入 AI 客服人设..."
+        placeholder={t('admin.persona.placeholder')}
       />
 
       <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-        <Tooltip title="恢复为系统内置的 18 章营销客服人格">
+        <Tooltip title={t('admin.persona.tooltipReset')}>
           <Button icon={<UndoOutlined />} onClick={handleReset} loading={saving} disabled={isDefault && !dirty}>
-            恢复默认
+            {t('admin.cfg.restoreDefault')}
           </Button>
         </Tooltip>
         <Button
@@ -264,7 +261,7 @@ function GlobalPersonaTab() {
           loading={saving}
           disabled={!dirty}
         >
-          保存
+          {t('common.save')}
         </Button>
       </div>
     </div>
@@ -273,6 +270,7 @@ function GlobalPersonaTab() {
 
 // ── 转接话术 Tab ──────────────────────────────────────────────────────────
 function HandoffNoticeTab() {
+  const t = useT();
   const [value, setValue] = useState('');
   const [original, setOriginal] = useState('');
   const [isDefault, setIsDefault] = useState(true);
@@ -287,7 +285,7 @@ function HandoffNoticeTab() {
       setOriginal(res.data.value);
       setIsDefault(res.data.isDefault);
     } catch {
-      antdMessage.error('加载失败');
+      antdMessage.error(t('admin.cfg.loadFail'));
     } finally {
       setLoading(false);
     }
@@ -296,15 +294,15 @@ function HandoffNoticeTab() {
   useEffect(() => { void load(); }, []);
 
   const handleSave = async () => {
-    if (!value.trim()) { antdMessage.warning('话术不能为空'); return; }
+    if (!value.trim()) { antdMessage.warning(t('admin.handoff.empty')); return; }
     setSaving(true);
     try {
       await platformConfigApi.setHandoffNotice(value.trim());
       setOriginal(value.trim());
       setIsDefault(false);
-      antdMessage.success('已保存，下次 handoff 触发即生效');
+      antdMessage.success(t('admin.cfg.saveOkHandoff'));
     } catch {
-      antdMessage.error('保存失败');
+      antdMessage.error(t('admin.cfg.saveFail'));
     } finally { setSaving(false); }
   };
 
@@ -315,9 +313,9 @@ function HandoffNoticeTab() {
       setValue(res.data.value);
       setOriginal(res.data.value);
       setIsDefault(true);
-      antdMessage.success('已恢复默认');
+      antdMessage.success(t('admin.cfg.resetOkHandoff'));
     } catch {
-      antdMessage.error('重置失败');
+      antdMessage.error(t('admin.cfg.resetFail'));
     } finally { setSaving(false); }
   };
 
@@ -326,27 +324,27 @@ function HandoffNoticeTab() {
   return (
     <div>
       <Alert type="info" showIcon style={{ marginBottom: 16 }}
-        message="转接人工话术"
-        description="客户触发『真人客服』『投诉』『律师』等关键字时，Bot 会立刻发这条话术告诉客户『已转人工』，避免干等。同时后台会推送给所有配置的 operator Telegram。" />
+        message={t('admin.handoff.alert.title')}
+        description={t('admin.handoff.alert.desc')} />
 
       <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
         <Space>
-          {isDefault ? <Tag color="default">系统默认</Tag> : <Tag color="blue">已自定义</Tag>}
-          {dirty && <Tag color="orange">未保存</Tag>}
+          {isDefault ? <Tag color="default">{t('admin.cfg.systemDefault')}</Tag> : <Tag color="blue">{t('admin.cfg.customized')}</Tag>}
+          {dirty && <Tag color="orange">{t('admin.cfg.unsaved')}</Tag>}
         </Space>
-        <Button icon={<ReloadOutlined />} onClick={load} loading={loading} size="small">刷新</Button>
+        <Button icon={<ReloadOutlined />} onClick={load} loading={loading} size="small">{t('common.refresh')}</Button>
       </div>
 
       <TextArea value={value} onChange={e => setValue(e.target.value)}
         autoSize={{ minRows: 4, maxRows: 10 }}
-        placeholder="例如：好的，已为你转接人工客服 😊 稍等一下..." />
+        placeholder={t('admin.handoff.placeholder')} />
 
       <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         <Button icon={<UndoOutlined />} onClick={handleReset} loading={saving} disabled={isDefault && !dirty}>
-          恢复默认
+          {t('admin.cfg.restoreDefault')}
         </Button>
         <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={saving} disabled={!dirty}>
-          保存
+          {t('common.save')}
         </Button>
       </div>
     </div>
@@ -355,6 +353,7 @@ function HandoffNoticeTab() {
 
 // ── 行业话术 Tab ──────────────────────────────────────────────────────────
 function IndustryPromptTab() {
+  const t = useT();
   const [rows, setRows] = useState<Array<{ industry: string; prompt: string }>>([]);
   const [original, setOriginal] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -368,7 +367,7 @@ function IndustryPromptTab() {
       setOriginal(map);
       setRows(Object.entries(map).map(([industry, prompt]) => ({ industry, prompt })));
     } catch {
-      antdMessage.error('加载失败');
+      antdMessage.error(t('admin.cfg.loadFail'));
     } finally {
       setLoading(false);
     }
@@ -395,21 +394,21 @@ function IndustryPromptTab() {
       const v = r.prompt.trim();
       if (!k || !v) continue;
       if (map[k]) {
-        antdMessage.warning(`行业「${k}」重复，请去除重复项`);
+        antdMessage.warning(t('admin.industry.dupWarn', { name: k }));
         return;
       }
       map[k] = v;
     }
-    if (!Object.keys(map).length) { antdMessage.warning('至少保留一行'); return; }
+    if (!Object.keys(map).length) { antdMessage.warning(t('admin.industry.atLeastOne')); return; }
     setSaving(true);
     try {
       const res = await platformConfigApi.setIndustryPrompts(map);
       const saved = (res.data?.prompts ?? map) as Record<string, string>;
       setOriginal(saved);
       setRows(Object.entries(saved).map(([industry, prompt]) => ({ industry, prompt })));
-      antdMessage.success('已保存，下次 Bot 回复即生效');
+      antdMessage.success(t('admin.cfg.saveOkPersona'));
     } catch {
-      antdMessage.error('保存失败');
+      antdMessage.error(t('admin.cfg.saveFail'));
     } finally {
       setSaving(false);
     }
@@ -422,9 +421,9 @@ function IndustryPromptTab() {
       const saved = (res.data?.prompts ?? {}) as Record<string, string>;
       setOriginal(saved);
       setRows(Object.entries(saved).map(([industry, prompt]) => ({ industry, prompt })));
-      antdMessage.success('已恢复为系统默认');
+      antdMessage.success(t('admin.cfg.resetOk'));
     } catch {
-      antdMessage.error('重置失败');
+      antdMessage.error(t('admin.cfg.resetFail'));
     } finally {
       setSaving(false);
     }
@@ -444,18 +443,18 @@ function IndustryPromptTab() {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="行业话术（按公司行业差异化）"
-        description="租户在「公司资讯向导」选定的行业，会自动注入对应话术到 AI 系统提示词。每条建议 1-3 句，≤ 200 字。请保留「其他」作为兜底。"
+        message={t('admin.industry.alert.title')}
+        description={t('admin.industry.alert.desc')}
       />
 
       <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Space>
-          <Tag color={dirty ? 'orange' : 'default'}>{dirty ? '未保存' : '已保存'}</Tag>
-          <Text type="secondary">共 {rows.length} 条</Text>
+          <Tag color={dirty ? 'orange' : 'default'}>{dirty ? t('admin.cfg.unsaved') : t('admin.cfg.saved')}</Tag>
+          <Text type="secondary">{t('admin.industry.totalCount', { count: rows.length })}</Text>
         </Space>
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={load} loading={loading} size="small">刷新</Button>
-          <Button onClick={addRow} size="small">+ 新增行业</Button>
+          <Button icon={<ReloadOutlined />} onClick={load} loading={loading} size="small">{t('common.refresh')}</Button>
+          <Button onClick={addRow} size="small">{t('admin.industry.addRow')}</Button>
         </Space>
       </div>
 
@@ -466,47 +465,47 @@ function IndustryPromptTab() {
         pagination={false}
         columns={[
           {
-            title: '行业',
+            title: t('admin.industry.col.industry'),
             dataIndex: 'industry',
             width: 160,
             render: (v: string, _r, idx) => (
               <Input
                 value={v}
                 onChange={e => updateRow(idx, { industry: e.target.value })}
-                placeholder="例如：金融业"
+                placeholder={t('admin.industry.placeholder.industry')}
               />
             ),
           },
           {
-            title: '话术注入',
+            title: t('admin.industry.col.prompt'),
             dataIndex: 'prompt',
             render: (v: string, _r, idx) => (
               <TextArea
                 value={v}
                 onChange={e => updateRow(idx, { prompt: e.target.value })}
                 autoSize={{ minRows: 2, maxRows: 6 }}
-                placeholder="此行业 Bot 应注意的话术规则……"
+                placeholder={t('admin.industry.placeholder.prompt')}
                 showCount
                 maxLength={400}
               />
             ),
           },
           {
-            title: '操作',
+            title: t('admin.industry.col.actions'),
             width: 80,
             render: (_, _r, idx) => (
-              <Button size="small" type="text" danger onClick={() => removeRow(idx)}>删除</Button>
+              <Button size="small" type="text" danger onClick={() => removeRow(idx)}>{t('common.delete')}</Button>
             ),
           },
         ]}
       />
 
       <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-        <Tooltip title="恢复为系统内置默认行业话术表">
-          <Button icon={<UndoOutlined />} onClick={handleReset} loading={saving}>恢复默认</Button>
+        <Tooltip title={t('admin.industry.tooltipReset')}>
+          <Button icon={<UndoOutlined />} onClick={handleReset} loading={saving}>{t('admin.cfg.restoreDefault')}</Button>
         </Tooltip>
         <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={saving} disabled={!dirty}>
-          保存全部
+          {t('common.save')}
         </Button>
       </div>
     </div>
@@ -515,6 +514,7 @@ function IndustryPromptTab() {
 
 // ── 租户管理 Tab ──────────────────────────────────────────────────────────
 function TenantsTab() {
+  const t = useT();
   const [tenants, setTenants] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -527,59 +527,65 @@ function TenantsTab() {
       const res = await adminApi.listTenants();
       setTenants(res.data ?? []);
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '加载失败');
+      antdMessage.error(err?.response?.data?.message ?? t('admin.cfg.loadFail'));
     } finally { setLoading(false); }
   };
   useEffect(() => { void load(); }, []);
 
   const handleCreate = async () => {
-    if (!name.trim()) { antdMessage.warning('租户名必填'); return; }
+    if (!name.trim()) { antdMessage.warning(t('admin.tenants.nameRequired')); return; }
     try {
       await adminApi.createTenant({ name: name.trim(), plan });
-      antdMessage.success(`已创建租户「${name}」`);
+      antdMessage.success(t('admin.tenants.createOk', { name }));
       setCreateOpen(false);
       setName('');
       void load();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '创建失败');
+      antdMessage.error(err?.response?.data?.message ?? t('admin.tenants.createFail'));
     }
   };
 
-  const handleSuspend = (t: any) => {
+  const handleSuspend = (row: any) => {
     Modal.confirm({
-      title: `暂停租户「${t.name}」？`,
-      content: '暂停后该租户登录失败、所有任务停止派发。可以随时恢复。',
-      okText: '暂停', okType: 'danger',
+      title: t('admin.tenants.suspendTitle', { name: row.name }),
+      content: t('admin.tenants.suspendDesc'),
+      okText: t('admin.tenants.suspendBtn'), okType: 'danger',
       onOk: async () => {
-        try { await adminApi.suspendTenant(t.id); antdMessage.success('已暂停'); void load(); }
-        catch (err: any) { antdMessage.error(err?.response?.data?.message ?? '操作失败'); }
+        try { await adminApi.suspendTenant(row.id); antdMessage.success(t('admin.tenants.suspendOk')); void load(); }
+        catch (err: any) { antdMessage.error(err?.response?.data?.message ?? t('msg.opFailed')); }
       },
     });
   };
 
-  const handleResume = async (t: any) => {
-    try { await adminApi.resumeTenant(t.id); antdMessage.success('已恢复'); void load(); }
-    catch (err: any) { antdMessage.error(err?.response?.data?.message ?? '操作失败'); }
+  const handleResume = async (row: any) => {
+    try { await adminApi.resumeTenant(row.id); antdMessage.success(t('admin.tenants.resumeOk')); void load(); }
+    catch (err: any) { antdMessage.error(err?.response?.data?.message ?? t('msg.opFailed')); }
   };
 
-  const handleDelete = (t: any) => {
-    if (t.name === 'default') { antdMessage.warning('不能删除 default 租户'); return; }
+  const handleDelete = (row: any) => {
+    if (row.name === 'default') { antdMessage.warning(t('admin.tenants.cantDeleteDefault')); return; }
     Modal.confirm({
-      title: `永久删除租户「${t.name}」？`,
-      content: '该租户的所有账号/数据/license 将全部丢失。该操作不可逆！',
-      okText: '永久删除', okType: 'danger',
+      title: t('admin.tenants.deleteTitle', { name: row.name }),
+      content: t('admin.tenants.deleteDesc'),
+      okText: t('admin.tenants.deleteBtn'), okType: 'danger',
       onOk: async () => {
-        try { await adminApi.deleteTenant(t.id); antdMessage.success('已删除'); void load(); }
-        catch (err: any) { antdMessage.error(err?.response?.data?.message ?? '删除失败'); }
+        try { await adminApi.deleteTenant(row.id); antdMessage.success(t('common.delete')); void load(); }
+        catch (err: any) { antdMessage.error(err?.response?.data?.message ?? t('msg.deleteFailed')); }
       },
     });
   };
+
+  const planAccountsLabel = (p: string) => p === 'basic'
+    ? t('admin.tenants.planAccountsBasic')
+    : p === 'pro'
+      ? t('admin.tenants.planAccountsPro')
+      : t('admin.tenants.planAccountsEnt');
 
   return (
     <div>
       <Space style={{ marginBottom: 16 }}>
-        <Button type="primary" onClick={() => setCreateOpen(true)}>+ 新建租户</Button>
-        <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>刷新</Button>
+        <Button type="primary" onClick={() => setCreateOpen(true)}>{t('admin.tenants.btnNew')}</Button>
+        <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>{t('common.refresh')}</Button>
       </Space>
       <Table
         dataSource={tenants}
@@ -587,45 +593,45 @@ function TenantsTab() {
         size="small"
         loading={loading}
         columns={[
-          { title: '租户名称', dataIndex: 'name', render: (n: string) => <Text strong>{n}</Text> },
-          { title: '套餐', dataIndex: 'plan', width: 100, render: (p: string) => <Tag color="blue">{p?.toUpperCase()}</Tag> },
-          { title: '状态', dataIndex: 'status', width: 100, render: (s: string) =>
+          { title: t('admin.tenants.col.name'), dataIndex: 'name', render: (n: string) => <Text strong>{n}</Text> },
+          { title: t('admin.tenants.col.plan'), dataIndex: 'plan', width: 100, render: (p: string) => <Tag color="blue">{p?.toUpperCase()}</Tag> },
+          { title: t('admin.tenants.col.status'), dataIndex: 'status', width: 100, render: (s: string) =>
             <Tag color={s === 'active' ? 'green' : s === 'suspended' ? 'red' : 'orange'}>{s}</Tag>
           },
-          { title: '账号配额', width: 120, render: (_, r: any) => `${r.currentAccounts ?? 0} / ${r.maxAccounts}` },
-          { title: 'License 到期', dataIndex: 'licenseExpiresAt', width: 130, render: (d: string | null) =>
-            d ? dayjs(d).format('YYYY-MM-DD') : <Text type="secondary">未绑定</Text>
+          { title: t('admin.tenants.col.quota'), width: 120, render: (_, r: any) => `${r.currentAccounts ?? 0} / ${r.maxAccounts}` },
+          { title: t('admin.tenants.col.expires'), dataIndex: 'licenseExpiresAt', width: 130, render: (d: string | null) =>
+            d ? dayjs(d).format('YYYY-MM-DD') : <Text type="secondary">{t('admin.tenants.notBound')}</Text>
           },
-          { title: '创建时间', dataIndex: 'createdAt', width: 130, render: (d: string) => dayjs(d).format('MM-DD HH:mm') },
-          { title: '操作', width: 200, render: (_, r: any) => (
+          { title: t('admin.tenants.col.created'), dataIndex: 'createdAt', width: 130, render: (d: string) => dayjs(d).format('MM-DD HH:mm') },
+          { title: t('admin.tenants.col.actions'), width: 200, render: (_, r: any) => (
             <Space size={4}>
               {r.status === 'active' && r.name !== 'default' && (
-                <Button size="small" danger onClick={() => handleSuspend(r)}>暂停</Button>
+                <Button size="small" danger onClick={() => handleSuspend(r)}>{t('admin.tenants.btnSuspend')}</Button>
               )}
               {r.status === 'suspended' && (
-                <Button size="small" type="primary" onClick={() => handleResume(r)}>恢复</Button>
+                <Button size="small" type="primary" onClick={() => handleResume(r)}>{t('admin.tenants.btnResume')}</Button>
               )}
               {r.name !== 'default' && (
-                <Button size="small" type="text" danger onClick={() => handleDelete(r)}>删除</Button>
+                <Button size="small" type="text" danger onClick={() => handleDelete(r)}>{t('admin.tenants.btnDelete')}</Button>
               )}
             </Space>
           )},
         ]}
       />
       <Modal
-        title="新建租户"
+        title={t('admin.tenants.modalNew')}
         open={createOpen}
         onCancel={() => setCreateOpen(false)}
         onOk={handleCreate}
-        okText="创建"
-        cancelText="取消"
+        okText={t('common.add')}
+        cancelText={t('common.cancel')}
       >
         <div style={{ marginBottom: 12 }}>
-          <Text strong>租户名称（公司名）</Text>
-          <Input value={name} onChange={e => setName(e.target.value)} placeholder="例如：A 科技公司" style={{ marginTop: 4 }} />
+          <Text strong>{t('admin.tenants.nameLabel')}</Text>
+          <Input value={name} onChange={e => setName(e.target.value)} placeholder={t('admin.tenants.namePlaceholder')} style={{ marginTop: 4 }} />
         </div>
         <div>
-          <Text strong>套餐</Text>
+          <Text strong>{t('admin.tenants.planLabel')}</Text>
           <div style={{ marginTop: 4 }}>
             <Space.Compact>
               {['basic', 'pro', 'enterprise'].map(p => (
@@ -634,7 +640,7 @@ function TenantsTab() {
                   type={plan === p ? 'primary' : 'default'}
                   onClick={() => setPlan(p)}
                 >
-                  {p.toUpperCase()} ({p === 'basic' ? '10 号' : p === 'pro' ? '30 号' : '50 号'})
+                  {p.toUpperCase()} ({planAccountsLabel(p)})
                 </Button>
               ))}
             </Space.Compact>
@@ -647,6 +653,7 @@ function TenantsTab() {
 
 // ── License Tab ───────────────────────────────────────────────────────────
 function LicensesTab() {
+  const t = useT();
   const [licenses, setLicenses] = useState<any[]>([]);
   const [tenants, setTenants] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -658,11 +665,11 @@ function LicensesTab() {
   const load = async () => {
     setLoading(true);
     try {
-      const [l, t] = await Promise.all([adminApi.listLicenses(), adminApi.listTenants()]);
+      const [l, ts] = await Promise.all([adminApi.listLicenses(), adminApi.listTenants()]);
       setLicenses(l.data ?? []);
-      setTenants(t.data ?? []);
+      setTenants(ts.data ?? []);
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '加载失败');
+      antdMessage.error(err?.response?.data?.message ?? t('admin.cfg.loadFail'));
     } finally { setLoading(false); }
   };
   useEffect(() => { void load(); }, []);
@@ -677,12 +684,12 @@ function LicensesTab() {
       });
       const key = res.data?.key;
       Modal.success({
-        title: '✅ License 签发成功',
+        title: t('admin.lic.issueOk'),
         content: (
           <div>
-            <p>License Key（请妥善保管）：</p>
+            <p>{t('admin.lic.issueOkDesc')}</p>
             <Text code copyable style={{ fontSize: 13 }}>{key}</Text>
-            {boundTenantId && <p style={{ marginTop: 12 }}>已直接绑定到租户「{tenants.find(t => t.id === boundTenantId)?.name}」</p>}
+            {boundTenantId && <p style={{ marginTop: 12 }}>{t('admin.lic.boundTo', { name: tenants.find(x => x.id === boundTenantId)?.name ?? '' })}</p>}
           </div>
         ),
       });
@@ -691,18 +698,18 @@ function LicensesTab() {
       setBoundTenantId(undefined);
       void load();
     } catch (err: any) {
-      antdMessage.error(err?.response?.data?.message ?? '签发失败');
+      antdMessage.error(err?.response?.data?.message ?? t('admin.lic.issueFail'));
     }
   };
 
   const handleRevoke = (l: any) => {
     Modal.confirm({
-      title: `撤销 License「${l.key}」？`,
-      content: '撤销后该 license 不能再用于激活，已绑定的租户不受影响（除非也暂停租户）',
-      okText: '撤销', okType: 'danger',
+      title: t('admin.lic.revokeTitle', { key: l.key }),
+      content: t('admin.lic.revokeDesc'),
+      okText: t('admin.lic.btnRevoke'), okType: 'danger',
       onOk: async () => {
-        try { await adminApi.revokeLicense(l.id); antdMessage.success('已撤销'); void load(); }
-        catch (err: any) { antdMessage.error(err?.response?.data?.message ?? '撤销失败'); }
+        try { await adminApi.revokeLicense(l.id); antdMessage.success(t('admin.lic.revokeOk')); void load(); }
+        catch (err: any) { antdMessage.error(err?.response?.data?.message ?? t('admin.lic.revokeFail')); }
       },
     });
   };
@@ -710,8 +717,8 @@ function LicensesTab() {
   return (
     <div>
       <Space style={{ marginBottom: 16 }}>
-        <Button type="primary" onClick={() => setIssueOpen(true)}>+ 签发新 License</Button>
-        <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>刷新</Button>
+        <Button type="primary" onClick={() => setIssueOpen(true)}>{t('admin.lic.btnIssue')}</Button>
+        <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>{t('common.refresh')}</Button>
       </Space>
       <Table
         dataSource={licenses}
@@ -719,36 +726,36 @@ function LicensesTab() {
         size="small"
         loading={loading}
         columns={[
-          { title: 'License Key', dataIndex: 'key', render: (k: string) => <Text code copyable style={{ fontSize: 11 }}>{k}</Text> },
-          { title: '套餐', dataIndex: 'plan', width: 100, render: (p: string) => <Tag color="blue">{p?.toUpperCase()}</Tag> },
-          { title: '状态', dataIndex: 'status', width: 100, render: (s: string) => {
+          { title: t('admin.lic.col.key'), dataIndex: 'key', render: (k: string) => <Text code copyable style={{ fontSize: 11 }}>{k}</Text> },
+          { title: t('admin.lic.col.plan'), dataIndex: 'plan', width: 100, render: (p: string) => <Tag color="blue">{p?.toUpperCase()}</Tag> },
+          { title: t('admin.lic.col.status'), dataIndex: 'status', width: 100, render: (s: string) => {
             const c = s === 'active' ? 'green' : s === 'pending' ? 'default' : s === 'revoked' ? 'red' : 'orange';
             return <Tag color={c}>{s}</Tag>;
           }},
-          { title: '绑定租户', dataIndex: 'tenantId', width: 120, render: (tid: string | null) =>
-            tid ? <Text>{tenants.find(t => t.id === tid)?.name ?? tid.slice(0, 8)}</Text> : <Text type="secondary">未绑定</Text>
+          { title: t('admin.lic.col.tenant'), dataIndex: 'tenantId', width: 120, render: (tid: string | null) =>
+            tid ? <Text>{tenants.find(x => x.id === tid)?.name ?? tid.slice(0, 8)}</Text> : <Text type="secondary">{t('admin.tenants.notBound')}</Text>
           },
-          { title: '到期', dataIndex: 'expiresAt', width: 110, render: (d: string | null) =>
+          { title: t('admin.lic.col.expires'), dataIndex: 'expiresAt', width: 110, render: (d: string | null) =>
             d ? dayjs(d).format('YYYY-MM-DD') : '-'
           },
-          { title: '签发时间', dataIndex: 'createdAt', width: 130, render: (d: string) => dayjs(d).format('MM-DD HH:mm') },
-          { title: '操作', width: 100, render: (_, r: any) => (
+          { title: t('admin.lic.col.issued'), dataIndex: 'createdAt', width: 130, render: (d: string) => dayjs(d).format('MM-DD HH:mm') },
+          { title: t('admin.lic.col.actions'), width: 100, render: (_, r: any) => (
             r.status === 'active' || r.status === 'pending' ? (
-              <Button size="small" danger onClick={() => handleRevoke(r)}>撤销</Button>
+              <Button size="small" danger onClick={() => handleRevoke(r)}>{t('admin.lic.btnRevoke')}</Button>
             ) : null
           )},
         ]}
       />
       <Modal
-        title="签发新 License"
+        title={t('admin.lic.modalIssue')}
         open={issueOpen}
         onCancel={() => setIssueOpen(false)}
         onOk={handleIssue}
-        okText="签发"
-        cancelText="取消"
+        okText={t('admin.lic.btnIssue').replace(/^\+ /, '')}
+        cancelText={t('common.cancel')}
       >
         <div style={{ marginBottom: 12 }}>
-          <Text strong>套餐</Text>
+          <Text strong>{t('admin.tenants.planLabel')}</Text>
           <div style={{ marginTop: 4 }}>
             <Space.Compact>
               {['basic', 'pro', 'enterprise'].map(p => (
@@ -760,21 +767,21 @@ function LicensesTab() {
           </div>
         </div>
         <div style={{ marginBottom: 12 }}>
-          <Text strong>直接绑定到租户（可选）</Text>
+          <Text strong>{t('admin.lic.bindLabel')}</Text>
           <div style={{ marginTop: 4 }}>
             <select
               value={boundTenantId ?? ''}
               onChange={e => setBoundTenantId(e.target.value || undefined)}
               style={{ width: '100%', padding: 6, borderRadius: 4, border: '1px solid #d9d9d9' }}
             >
-              <option value="">— 不绑定（让租户自助 /activate 激活）—</option>
-              {tenants.map(t => <option key={t.id} value={t.id}>{t.name} ({t.plan})</option>)}
+              <option value="">{t('admin.lic.bindNone')}</option>
+              {tenants.map(x => <option key={x.id} value={x.id}>{x.name} ({x.plan})</option>)}
             </select>
           </div>
         </div>
         <div>
-          <Text strong>备注</Text>
-          <Input.TextArea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="例如：A 公司年度 license" style={{ marginTop: 4 }} />
+          <Text strong>{t('admin.lic.notes')}</Text>
+          <Input.TextArea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder={t('admin.lic.notesPlaceholder')} style={{ marginTop: 4 }} />
         </div>
       </Modal>
     </div>
