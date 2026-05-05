@@ -29,6 +29,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { customerGroupsApi, leadCandidatesApi, tasksApi, tenantsApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { Title, Text } = Typography;
 
@@ -68,6 +69,7 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
 const TENANT_KEY = 'telehubx:tenantId';
 
 export default function LeadCandidatesPage() {
+  const t = useT();
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [stats, setStats] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
@@ -295,13 +297,12 @@ export default function LeadCandidatesPage() {
         <div>
           <Title level={4} style={{ margin: 0 }}>
             <TeamOutlined style={{ marginRight: 8 }} />
-            候选人池
+            {t('nav.candidates')}
           </Title>
-          <Text type="secondary">由 group_scrape 爬取或导入；勾选后批量派发 contact_add / campaign_single 任务</Text>
         </div>
         <Space>
-          <Button icon={<ExportOutlined />} onClick={exportCsv}>导出 CSV</Button>
-          <Button icon={<ReloadOutlined />} onClick={() => void reload()}>刷新</Button>
+          <Button icon={<ExportOutlined />} onClick={exportCsv}>{t('common.export')} CSV</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => void reload()}>{t('common.refresh')}</Button>
         </Space>
       </div>
 
@@ -320,10 +321,10 @@ export default function LeadCandidatesPage() {
       )}
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}><Card size="small"><Statistic title="总候选人" value={stats.total ?? 0} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="未联系" value={stats.pending ?? 0} valueStyle={{ color: '#666' }} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="已联系" value={stats.contacted ?? 0} valueStyle={{ color: '#1677ff' }} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="已转 Lead" value={stats.converted ?? 0} valueStyle={{ color: '#52c41a' }} /></Card></Col>
+        <Col span={6}><Card size="small"><Statistic title={t('nav.candidates')} value={stats.total ?? 0} /></Card></Col>
+        <Col span={6}><Card size="small"><Statistic title={t('common.pending')} value={stats.pending ?? 0} valueStyle={{ color: '#666' }} /></Card></Col>
+        <Col span={6}><Card size="small"><Statistic title={t('lead.contacted')} value={stats.contacted ?? 0} valueStyle={{ color: '#1677ff' }} /></Card></Col>
+        <Col span={6}><Card size="small"><Statistic title={t('lead.converted')} value={stats.converted ?? 0} valueStyle={{ color: '#52c41a' }} /></Card></Col>
       </Row>
 
       <Card>
@@ -332,7 +333,7 @@ export default function LeadCandidatesPage() {
             value={filterStatus}
             onChange={(v) => setFilterStatus(v)}
             allowClear
-            placeholder="全部状态"
+            placeholder={`${t('common.all')} ${t('common.status')}`}
             style={{ width: 140 }}
             options={Object.entries(STATUS_META).map(([k, m]) => ({ value: k, label: m.label }))}
           />

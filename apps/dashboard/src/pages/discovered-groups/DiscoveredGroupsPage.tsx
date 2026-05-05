@@ -8,6 +8,7 @@ import {
   PlayCircleOutlined, ReloadOutlined, StopOutlined, ThunderboltOutlined, TeamOutlined,
 } from '@ant-design/icons';
 import { discoveredGroupsApi, accountsApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { Title, Text } = Typography;
 
@@ -60,6 +61,7 @@ function qualityColor(q: number): string {
 }
 
 export default function DiscoveredGroupsPage() {
+  const t = useT();
   const [groups, setGroups] = useState<DiscoveredGroup[]>([]);
   const [stats, setStats] = useState<{ total: number; byStatus: Record<string, number>; avgQuality: number }>({
     total: 0, byStatus: {}, avgQuality: 0,
@@ -289,32 +291,29 @@ export default function DiscoveredGroupsPage() {
       <div style={{ marginBottom: 20 }}>
         <Title level={4} style={{ margin: 0 }}>
           <TeamOutlined style={{ marginRight: 8 }} />
-          群源发现
+          {t('nav.discoveredGroups')}
         </Title>
-        <Text type="secondary">
-          关键词搜出的 TG 群池 + 质量评分。挑高质量的「加+爬」，自动避开 spam 群。
-        </Text>
       </div>
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}><Card><Statistic title="总群数" value={stats.total} /></Card></Col>
-        <Col span={6}><Card><Statistic title="未处理" value={stats.byStatus.new ?? 0} valueStyle={{ color: '#1890ff' }} /></Card></Col>
-        <Col span={6}><Card><Statistic title="已派发任务" value={(stats.byStatus.joined ?? 0) + (stats.byStatus.scraped ?? 0)} valueStyle={{ color: '#52c41a' }} /></Card></Col>
-        <Col span={6}><Card><Statistic title="平均质量分" value={stats.avgQuality} suffix="/100" /></Card></Col>
+        <Col span={6}><Card><Statistic title={t('discovered.totalGroups')} value={stats.total} /></Card></Col>
+        <Col span={6}><Card><Statistic title={t('discovered.unprocessed')} value={stats.byStatus.new ?? 0} valueStyle={{ color: '#1890ff' }} /></Card></Col>
+        <Col span={6}><Card><Statistic title={t('discovered.dispatched')} value={(stats.byStatus.joined ?? 0) + (stats.byStatus.scraped ?? 0)} valueStyle={{ color: '#52c41a' }} /></Card></Col>
+        <Col span={6}><Card><Statistic title={t('discovered.avgQuality')} value={stats.avgQuality} suffix="/100" /></Card></Col>
       </Row>
 
       <Card>
         <Space style={{ marginBottom: 16 }} wrap>
           <Select
-            placeholder="状态筛选"
+            placeholder={t('common.status')}
             allowClear
             style={{ width: 130 }}
             value={statusFilter}
             onChange={setStatusFilter}
-            options={Object.entries(STATUS_TAG).map(([v, t]) => ({ value: v, label: t.label }))}
+            options={Object.entries(STATUS_TAG).map(([v, m]) => ({ value: v, label: m.label }))}
           />
           <Select
-            placeholder="最低质量分"
+            placeholder={t('discovered.minQuality')}
             allowClear
             style={{ width: 130 }}
             value={minQuality}

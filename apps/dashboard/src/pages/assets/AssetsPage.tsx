@@ -42,6 +42,7 @@ import dayjs from 'dayjs';
 import { MessageOutlined } from '@ant-design/icons';
 import { assetsApi, platformConfigApi } from '../../services/api';
 import ChatScriptsPage from '../chat-scripts/ChatScriptsPage';
+import { useT } from '../../i18n';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -81,17 +82,15 @@ const fmtBytes = (n: number) => {
 };
 
 export default function AssetsPage() {
+  const t = useT();
   const [outerTab, setOuterTab] = useState<'media' | 'scripts' | 'ad-faq'>('media');
   return (
     <div>
       <div style={{ marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>
           <DatabaseOutlined style={{ marginRight: 8 }} />
-          素材库
+          {t('nav.assets')}
         </Title>
-        <Text type="secondary">
-          统一管理 媒体素材 (图片/视频/语音/文档/文本) + 聊天剧本包 + 广告号话术。
-        </Text>
       </div>
       <Tabs
         activeKey={outerTab}

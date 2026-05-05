@@ -28,6 +28,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { testGroupsApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -56,6 +57,7 @@ const SOURCE_META: Record<Source, { label: string; icon: React.ReactNode; color:
 };
 
 export default function GroupsPage() {
+  const t = useT();
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -151,9 +153,8 @@ export default function GroupsPage() {
         <div>
           <Title level={4} style={{ margin: 0 }}>
             <TeamOutlined style={{ marginRight: 8 }} />
-            群组管理
+            {t('nav.groups')}
           </Title>
-          <Text type="secondary">管理 ChatScript / GroupBubble / Reaction 等任务的"运行场地"</Text>
         </div>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => void reload()}>刷新</Button>

@@ -21,6 +21,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { slotsApi, tasksApi, warmupApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { Title, Text } = Typography;
 
@@ -89,6 +90,7 @@ function healthColor(score: number): string {
 }
 
 export default function WarmupPage() {
+  const t = useT();
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<Record<string, boolean>>({});
@@ -407,7 +409,7 @@ export default function WarmupPage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div>
-          <Title level={4} style={{ margin: 0 }}>养号看板</Title>
+          <Title level={4} style={{ margin: 0 }}>{t('nav.warmup')}</Title>
           <Text type="secondary" style={{ fontSize: 12 }}>
             7 天渐进养号：P0 初始化 → P1 沉默 → P2 轻活 → P3 社交 → P4 常规
           </Text>

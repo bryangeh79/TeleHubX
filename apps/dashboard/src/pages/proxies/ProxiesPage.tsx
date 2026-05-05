@@ -28,6 +28,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { proxiesApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 type ProxyType = 'socks5' | 'socks4' | 'http' | 'https' | 'mtproto' | 'openvpn';
 type ProxyStatus = 'active' | 'disabled' | 'dead';
@@ -85,6 +86,7 @@ const TYPE_COLOR: Record<ProxyType, string> = {
 };
 
 export default function ProxiesPage() {
+  const t = useT();
   const [rows, setRows] = useState<ProxyRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -314,7 +316,7 @@ export default function ProxiesPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Typography.Title level={4} style={{ margin: 0 }}>
           <GlobalOutlined style={{ marginRight: 8 }} />
-          代理管理 <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>({rows.length})</Typography.Text>
+          {t('nav.proxies')} <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>({rows.length})</Typography.Text>
         </Typography.Title>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>

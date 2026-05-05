@@ -30,6 +30,7 @@ import {
 } from '@ant-design/icons';
 import { chatScriptsApi } from '../../services/api';
 import ChatScriptEditor from './ChatScriptEditor';
+import { useT } from '../../i18n';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -95,6 +96,7 @@ interface Props {
 }
 
 export default function ChatScriptsPage({ embedded = false }: Props) {
+  const t = useT();
   const [scripts, setScripts] = useState<ChatScript[]>([]);
   const [packs, setPacks] = useState<PackInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -172,7 +174,7 @@ export default function ChatScriptsPage({ embedded = false }: Props) {
         <div style={{ marginBottom: 20 }}>
           <Title level={4} style={{ margin: 0 }}>
             <MessageOutlined style={{ marginRight: 8 }} />
-            聊天剧本库
+            {t('nav.chatScripts')}
           </Title>
           <Text type="secondary">
             chat_script_ab / chat_script_4p 任务从这里随机抽取剧本。
@@ -239,17 +241,17 @@ export default function ChatScriptsPage({ embedded = false }: Props) {
       </Card>
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}><Card size="small"><Statistic title="总剧本" value={stats.total} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="A+B 双人" value={stats.ab} valueStyle={{ color: '#1677ff' }} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="A+B+C+D 四人" value={stats.abcd} valueStyle={{ color: '#eb2f96' }} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="WAhubX 复用" value={stats.builtin} valueStyle={{ color: '#52c41a' }} /></Card></Col>
+        <Col span={6}><Card size="small"><Statistic title={t('campaign.log.summary.total')} value={stats.total} /></Card></Col>
+        <Col span={6}><Card size="small"><Statistic title="A+B" value={stats.ab} valueStyle={{ color: '#1677ff' }} /></Card></Col>
+        <Col span={6}><Card size="small"><Statistic title="A+B+C+D" value={stats.abcd} valueStyle={{ color: '#eb2f96' }} /></Card></Col>
+        <Col span={6}><Card size="small"><Statistic title="WAhubX" value={stats.builtin} valueStyle={{ color: '#52c41a' }} /></Card></Col>
       </Row>
 
       <Card>
         <Space style={{ marginBottom: 12 }} wrap>
           <Input
             prefix={<SearchOutlined />}
-            placeholder="按名称搜索"
+            placeholder={t('common.search')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             style={{ width: 200 }}
@@ -257,7 +259,7 @@ export default function ChatScriptsPage({ embedded = false }: Props) {
           />
           <Select
             allowClear
-            placeholder="全部类型"
+            placeholder={`${t('common.all')} ${t('common.type')}`}
             value={filterType}
             onChange={(v) => setFilterType(v)}
             style={{ width: 140 }}
@@ -268,7 +270,7 @@ export default function ChatScriptsPage({ embedded = false }: Props) {
           />
           <Select
             allowClear
-            placeholder="全部分类"
+            placeholder={`${t('common.all')} ${t('common.type')}`}
             value={filterCategory}
             onChange={(v) => setFilterCategory(v)}
             style={{ width: 200 }}

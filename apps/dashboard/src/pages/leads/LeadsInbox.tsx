@@ -32,6 +32,7 @@ import {
 import dayjs from 'dayjs';
 import { io, Socket } from 'socket.io-client';
 import { leadsApi, takeoverApi } from '../../services/api';
+import { useT } from '../../i18n';
 import {
   isNotifySupported, notifyDesktop, notifyPermission, playSound,
   rememberDecline, requestNotificationPermission, userDeclinedPrompt,
@@ -86,6 +87,7 @@ const TAKEOVER_LABEL: Record<TakeoverState, { label: string; color: string }> = 
 const SF_PRO = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif';
 
 export default function LeadsInbox() {
+  const t = useT();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [selected, setSelected] = useState<Lead | null>(null);
   const [filterIntent, setFilterIntent] = useState<Intent | undefined>();
@@ -353,7 +355,7 @@ export default function LeadsInbox() {
           <Space style={{ marginTop: 8 }} size={4}>
             <Select
               size="small"
-              placeholder="意向"
+              placeholder={t('lead.intent')}
               allowClear
               style={{ width: 80 }}
               value={filterIntent}
@@ -366,7 +368,7 @@ export default function LeadsInbox() {
             />
             <Select
               size="small"
-              placeholder="接管"
+              placeholder={t('cs.handoff')}
               allowClear
               style={{ width: 96 }}
               value={filterTakeover}
@@ -602,7 +604,7 @@ export default function LeadsInbox() {
                       ref={textareaRef}
                       value={draft}
                       onChange={(e) => setDraft(e.target.value)}
-                      placeholder="输入回复... (Enter 发送, Shift+Enter 换行)"
+                      placeholder={t('lead.replyPlaceholder')}
                       autoSize={{ minRows: 1, maxRows: 4 }}
                       onPressEnter={(e) => {
                         if (!e.shiftKey) {
