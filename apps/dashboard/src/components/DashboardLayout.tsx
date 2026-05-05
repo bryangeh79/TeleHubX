@@ -4,6 +4,7 @@ import {
   CrownOutlined,
   CustomerServiceOutlined,
   DashboardOutlined,
+  FireOutlined,
   GlobalOutlined,
   InboxOutlined,
   KeyOutlined,
@@ -40,6 +41,7 @@ function buildMenuItems(t: (k: string) => string) {
   return [
     { key: '/',                  icon: <DashboardOutlined />,        label: t('nav.dashboard') },
     { key: '/accounts',          icon: <TeamOutlined />,             label: t('nav.accounts') },
+    { key: '/warmup',            icon: <FireOutlined />,             label: t('nav.warmup') },
     { key: '/scheduler',         icon: <ScheduleOutlined />,         label: t('nav.scheduler') },
     { key: '/campaigns',         icon: <SendOutlined />,             label: t('nav.campaigns') },
     { key: '/cs',                icon: <CustomerServiceOutlined />,  label: t('nav.cs') },

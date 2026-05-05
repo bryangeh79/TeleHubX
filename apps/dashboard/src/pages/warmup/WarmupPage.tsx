@@ -10,6 +10,8 @@ import {
   Tooltip,
   Empty,
   Popconfirm,
+  Modal,
+  Descriptions,
   message as antdMessage,
 } from 'antd';
 import {
@@ -19,6 +21,9 @@ import {
   ReloadOutlined,
   RedoOutlined,
   StopOutlined,
+  UnorderedListOutlined,
+  LoadingOutlined,
+  ScheduleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -98,6 +103,9 @@ export default function WarmupPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<Record<string, boolean>>({});
+  const [logTask, setLogTask] = useState<PresetWarmupTask | null>(null);
+  const [logChildren, setLogChildren] = useState<any[]>([]);
+  const [logLoading, setLogLoading] = useState(false);
 
   const setBusy = (id: string, val: boolean) =>
     setBusyId(prev => ({ ...prev, [id]: val }));
@@ -167,6 +175,27 @@ export default function WarmupPage() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // 打开 logTask 时拉子任务; running/paused 时 5s 轮询
+  useEffect(() => {
+    if (!logTask) { setLogChildren([]); return; }
+    const fetchChildren = async () => {
+      setLogLoading(true);
+      try {
+        const r = await tasksApi.children(logTask.id);
+        setLogChildren(Array.isArray(r.data) ? r.data : []);
+      } catch {
+        setLogChildren([]);
+      } finally {
+        setLogLoading(false);
+      }
+    };
+    void fetchChildren();
+    if (logTask.status === 'running' || logTask.status === 'paused') {
+      const id = setInterval(fetchChildren, 5000);
+      return () => clearInterval(id);
+    }
+  }, [logTask?.id, logTask?.status]);
 
   const handleStart = async (row: Row) => {
     if (!row.slot.account) return;
@@ -385,7 +414,7 @@ export default function WarmupPage() {
     {
       title: t('wu.col.actions'),
       key: 'actions',
-      width: 240,
+      width: 280,
       render: (_, row) => {
         const id = row.slot.account?.id;
         if (!id) return null;
@@ -396,14 +425,33 @@ export default function WarmupPage() {
             const tk = row.presetTask;
             const tkId = tk.id;
             const tkSeq = tk.seq ?? '';
-            // 终态: 不显示按钮, 只显示状态 Tag
+            const logsBtn = (
+              <Tooltip title={t('wu.btnViewPresetLogs')}>
+                <Button
+                  size="small"
+                  icon={<UnorderedListOutlined />}
+                  onClick={() => setLogTask(tk)}
+                />
+              </Tooltip>
+            );
+            // 终态: 状态 Tag + 查看日志按钮
             if (tk.status === 'done') {
-              return <Tag color="success">{t('wu.tagDone')}</Tag>;
+              return (
+                <Space size={4}>
+                  <Tag color="success">{t('wu.tagDone')}</Tag>
+                  {logsBtn}
+                </Space>
+              );
             }
             if (tk.status === 'failed') {
-              return <Tag color="error">{t('wu.tagCancelled')}</Tag>;
+              return (
+                <Space size={4}>
+                  <Tag color="error">{t('wu.tagCancelled')}</Tag>
+                  {logsBtn}
+                </Space>
+              );
             }
-            // running / paused: 状态 Tag + 控制按钮组
+            // running / paused: 状态 Tag + 控制按钮组 + 查看日志
             const isPaused = tk.status === 'paused';
             return (
               <Space size={4}>
@@ -449,6 +497,7 @@ export default function WarmupPage() {
                     />
                   </Tooltip>
                 </Popconfirm>
+                {logsBtn}
               </Space>
             );
           }
@@ -535,6 +584,122 @@ export default function WarmupPage() {
           size="middle"
         />
       )}
+
+      {/* preset 任务详情 / 子任务时间线 Modal */}
+      <Modal
+        title={
+          <Space>
+            <UnorderedListOutlined />
+            <span>{t('wu.presetLogsTitle')}</span>
+            {logTask && (logTask.status === 'running' || logTask.status === 'paused') && (
+              <Tag color="processing" icon={<LoadingOutlined />}>5s</Tag>
+            )}
+          </Space>
+        }
+        open={!!logTask}
+        onCancel={() => setLogTask(null)}
+        footer={<Button onClick={() => setLogTask(null)}>{t('common.close')}</Button>}
+        width={640}
+        destroyOnClose
+      >
+        {logTask && (() => {
+          const presetKey: Record<string, string> = {
+            preset_warmup_7d: 'wu.preset.warmup_7d',
+            preset_full_14d: 'wu.preset.full_14d',
+            preset_rampup_7d: 'wu.preset.rampup_7d',
+            preset_mature_ops: 'wu.preset.mature_ops',
+          };
+          const tkLabel = presetKey[logTask.type] ? t(presetKey[logTask.type]) : logTask.type;
+          const statusColor =
+            logTask.status === 'done' ? 'success'
+            : logTask.status === 'failed' ? 'error'
+            : logTask.status === 'paused' ? 'warning'
+            : 'processing';
+          const statusLabel =
+            logTask.status === 'done' ? t('wu.tagDone')
+            : logTask.status === 'failed' ? t('wu.tagCancelled')
+            : logTask.status === 'paused' ? t('wu.tagPaused')
+            : t('wu.tagRunning');
+          const progStatus =
+            logTask.status === 'failed' ? 'exception'
+            : logTask.status === 'done' ? 'success'
+            : 'active';
+          return (
+            <Descriptions column={1} size="small" bordered>
+              <Descriptions.Item label="ID">#{logTask.seq ?? logTask.id.slice(0, 6)}</Descriptions.Item>
+              <Descriptions.Item label={t('common.type')}>
+                <Tag color="blue">{tkLabel}</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label={t('common.status')}>
+                <Tag color={statusColor as any}>
+                  {logTask.status === 'running' ? <LoadingOutlined /> : null} {statusLabel}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label={t('task.progress')}>
+                <Progress percent={logTask.progress} size="small" status={progStatus as any} />
+              </Descriptions.Item>
+              {logTask.startedAt && (
+                <Descriptions.Item label={t('task.startedAt')}>
+                  {dayjs(logTask.startedAt).format('YYYY-MM-DD HH:mm:ss')}
+                </Descriptions.Item>
+              )}
+            </Descriptions>
+          );
+        })()}
+
+        {logTask && (
+          <div style={{ marginTop: 16 }}>
+            <Title level={5} style={{ marginBottom: 8 }}>
+              <ScheduleOutlined style={{ marginRight: 6 }} />
+              {t('wu.childProgress')} ({logChildren.filter((c) => c.status === 'done').length}/{logChildren.length})
+            </Title>
+            {logLoading && logChildren.length === 0 ? (
+              <Text type="secondary">{t('common.loading') || '...'}</Text>
+            ) : logChildren.length === 0 ? (
+              <Empty description={t('wu.noChildren')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            ) : (
+              <div style={{ maxHeight: 360, overflow: 'auto' }}>
+                {logChildren.map((c: any) => {
+                  const bg =
+                    c.status === 'done' ? '#f6ffed'
+                    : c.status === 'running' ? '#e6f7ff'
+                    : c.status === 'failed' ? '#fff1f0'
+                    : c.status === 'paused' ? '#fff7e6'
+                    : '#fafafa';
+                  const sColor =
+                    c.status === 'done' ? 'success'
+                    : c.status === 'running' ? 'processing'
+                    : c.status === 'failed' ? 'error'
+                    : c.status === 'paused' ? 'warning'
+                    : 'default';
+                  return (
+                    <div key={c.id} style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: '6px 10px',
+                      marginBottom: 4,
+                      background: bg,
+                      borderRadius: 4,
+                      fontSize: 12,
+                    }}>
+                      <Tag color="default" style={{ fontSize: 11, marginRight: 8 }}>
+                        {c.type}
+                      </Tag>
+                      <Text style={{ flex: 1, fontSize: 12 }}>{c.name}</Text>
+                      <Text type="secondary" style={{ fontSize: 11, marginRight: 10 }}>
+                        {c.scheduledAt ? dayjs(c.scheduledAt).format('MM-DD HH:mm') : '—'}
+                      </Text>
+                      <Tag color={sColor as any} style={{ fontSize: 10, margin: 0 }}>
+                        {c.status === 'running' ? <LoadingOutlined /> : null} {c.status}
+                      </Tag>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

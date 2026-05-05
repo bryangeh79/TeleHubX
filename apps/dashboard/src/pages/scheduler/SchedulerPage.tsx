@@ -699,14 +699,6 @@ export default function SchedulerPage() {
     },
   ];
 
-  // 长任务（preset_*）单独提取到顶部独立卡区
-  const longRunningTasks = tasks.filter((t) =>
-    (t.type as string).startsWith('preset_') && (t.status === 'running' || t.status === 'paused')
-  );
-  const otherTasks = tasks.filter((t) =>
-    !((t.type as string).startsWith('preset_') && (t.status === 'running' || t.status === 'paused'))
-  );
-
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -751,42 +743,6 @@ export default function SchedulerPage() {
         <Col span={6}><Card size="small"><Statistic title={t('common.failed')} value={stats.failed} prefix={<CloseCircleFilled style={{ color: '#cf1322' }} />} valueStyle={{ color: '#cf1322' }} /></Card></Col>
       </Row>
 
-      {/* 顶部：运行中的长任务（preset_* 类） */}
-      {longRunningTasks.length > 0 && (
-        <Card
-          size="small"
-          style={{ marginBottom: 16, background: '#f0f7ff', borderColor: '#91caff' }}
-          title={
-            <Space>
-              <ThunderboltOutlined style={{ color: '#1677ff' }} />
-              <Text strong>{t('scheduler.longRunningTasks')}</Text>
-              <Tag color="blue">{longRunningTasks.length}</Tag>
-            </Space>
-          }
-        >
-          <Row gutter={[12, 12]}>
-            {longRunningTasks.map((task) => {
-              const meta = TASK_TYPE_LABELS[task.type];
-              return (
-                <Col key={task.id} xs={24} md={12} lg={8}>
-                  <Card size="small" hoverable onClick={() => setLogTask(task)} style={{ cursor: 'pointer' }}>
-                    <Space size={6} style={{ marginBottom: 8 }}>
-                      <Tag color={meta?.color}>{meta?.icon} {taskTypeLabel(t, task.type)}</Tag>
-                      <Text type="secondary" style={{ fontSize: 11 }}>{task.accountLabel}</Text>
-                    </Space>
-                    <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>{task.name}</Text>
-                    <Progress percent={task.progress} status="active" strokeColor={{ from: '#1677ff', to: '#52c41a' }} />
-                    <Text type="secondary" style={{ fontSize: 11 }}>
-                      {dayjs(task.startedAt ?? task.scheduledAt).format('MM-DD HH:mm')}
-                    </Text>
-                  </Card>
-                </Col>
-              );
-            })}
-          </Row>
-        </Card>
-      )}
-
       <Card
         title={
           <Space>
@@ -820,7 +776,7 @@ export default function SchedulerPage() {
         </Space>
 
         <Table
-          dataSource={otherTasks}
+          dataSource={tasks}
           columns={columns}
           rowKey="id"
           size="small"
