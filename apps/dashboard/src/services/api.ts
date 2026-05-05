@@ -524,6 +524,12 @@ export const platformConfigApi = {
   resetHandoffNotice: () => api.post('/platform-config/ai/settings/handoff-notice/reset'),
 };
 
+export const cloudLicenseApi = {
+  status: () => api.get('/cloud-license/status'),
+  activate: (licenseKey: string) => api.post('/cloud-license/activate', { licenseKey }),
+  refresh: () => api.post('/cloud-license/refresh'),
+};
+
 export const statsApi = {
   get: () => api.get('/accounts/health-stats').catch(() => ({
     data: FALLBACK_OVERVIEW,

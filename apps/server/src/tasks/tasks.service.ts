@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, In, LessThan, Repository } from 'typeorm';
 import { Account } from '../accounts/account.entity';
@@ -9,6 +9,7 @@ import { LeadCandidatesService } from '../leads-candidates/leads-candidates.serv
 import { ensureTenant } from '../auth/tenant-guard.util';
 import { CreateTaskDto, UpdateTaskDto } from './task.dto';
 import { Task, TaskStatus, TaskType } from './task.entity';
+import { CloudLicenseService } from '../cloud-license/cloud-license.service';
 
 function addDays(d: Date, days: number): Date {
   const x = new Date(d);
@@ -59,6 +60,7 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     @InjectRepository(DiscoveredGroup) private readonly discoveredRepo: Repository<DiscoveredGroup>,
     private readonly leadCandidates: LeadCandidatesService,
     private readonly customerGroups: CustomerGroupsService,
+    private readonly cloudLicense: CloudLicenseService,
   ) {}
 
   /**
@@ -174,6 +176,10 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
   }
 
   async create(dto: CreateTaskDto, tenantId?: string): Promise<Task> {
+    // Cloud-license gate: block new tasks when locked / unconfigured.
+    const gate = this.cloudLicense.canRunTasks();
+    if (!gate.ok) throw new ForbiddenException(gate.reason ?? 'License does not allow new tasks');
+
     let payload = dto.payload as any;
     // chat_script_ab/4p: 注入 A/B/C/D 手机号
     if (

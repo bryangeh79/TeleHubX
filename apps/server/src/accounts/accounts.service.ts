@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { IsNull, Repository } from 'typeorm';
@@ -12,6 +12,7 @@ import { generateDeviceFingerprint } from './device-fingerprint.util';
 import { SlotsService } from '../slots/slots.service';
 import { TenantsService } from '../tenants/tenants.service';
 import { ensureTenant } from '../auth/tenant-guard.util';
+import { CloudLicenseService } from '../cloud-license/cloud-license.service';
 
 export interface HealthStats {
   total: number;
@@ -34,6 +35,7 @@ export class AccountsService implements OnModuleInit {
     private readonly config: ConfigService,
     private readonly slots: SlotsService,
     private readonly tenants: TenantsService,
+    private readonly cloudLicense: CloudLicenseService,
   ) {
     const raw = this.config.get<string>('SESSION_ENCRYPTION_KEY');
     this.encKey = raw ? deriveKey(raw) : null;
@@ -54,6 +56,10 @@ export class AccountsService implements OnModuleInit {
   }
 
   async create(dto: CreateAccountDto, tenantId?: string | null): Promise<Account> {
+    // Cloud-license gate: enforce maxAccounts + locked-down status before insert.
+    const gate = await this.cloudLicense.canAddAccount();
+    if (!gate.ok) throw new ForbiddenException(gate.reason ?? 'License does not allow new accounts');
+
     const account = this.repo.create({ ...dto, tenantId: tenantId ?? null });
     const saved = await this.repo.save(account);
     // Generate unique device fingerprint NOW, derived from the saved id.
@@ -209,6 +215,13 @@ export class AccountsService implements OnModuleInit {
       const existing = await this.repo.findOneBy({ phoneNumber: row.phoneNumber });
       if (existing) {
         result.skipped++;
+        continue;
+      }
+
+      // Per-row license gate so we stop importing as soon as quota is hit.
+      const gate = await this.cloudLicense.canAddAccount();
+      if (!gate.ok) {
+        result.errors.push({ row: i + 2, phone: row.phoneNumber, reason: gate.reason ?? 'license_blocked' });
         continue;
       }
 

@@ -30,6 +30,7 @@ import { GreetingTemplatesModule } from './greeting-templates/greeting-templates
 import { PlatformConfigModule } from './platform-config/platform-config.module';
 import { AdminModule } from './admin/admin.module';
 import { MaintenanceModule } from './maintenance/maintenance.module';
+import { CloudLicenseModule } from './cloud-license/cloud-license.module';
 
 @Module({
   imports: [
@@ -94,6 +95,7 @@ import { MaintenanceModule } from './maintenance/maintenance.module';
     PlatformConfigModule,
     AdminModule,
     MaintenanceModule,
+    CloudLicenseModule,
   ],
   controllers: [HealthController],
 })

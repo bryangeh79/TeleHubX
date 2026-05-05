@@ -102,6 +102,13 @@ function buildSettingItems(t: (k: string) => string): SettingItem[] {
       desc: t('settings.card.maintenance.desc'),
       navigateTo: '/settings/maintenance',
     },
+    {
+      key: 'license',
+      icon: <CrownOutlined style={{ fontSize: 28, color: '#faad14' }} />,
+      title: 'License',
+      desc: 'Activate THX license, view plan / quota / expiry, re-verify with the cloud server.',
+      navigateTo: '/settings/license',
+    },
   ];
 }
 
