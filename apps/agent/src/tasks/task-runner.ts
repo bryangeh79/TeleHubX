@@ -266,8 +266,19 @@ export async function executeTask(
       );
       await new Promise((r) => setTimeout(r, backoffMs));
 
-      // B 类: 重试前 reconnect (红线: 只 connect/disconnect, 不重建 client)
-      if (classified.needReconnect && task.accountId) {
+      // 重连策略:
+      //   - B 类 (连接已断): 每次 retry 前都 reconnect
+      //   - A 类 (网络瞬时): 第 1 次 retry 不动 socket — 真的瞬时抖动多半自愈;
+      //     第 2 次 retry (=最后一次) 强制 reconnect — 防御
+      //     "socket 名义上活着、实际上死了" 的死会话场景
+      //     (例: GramJS _updateLoop 反复 TIMEOUT 但 client 不报 disconnect)
+      //   - 红线不变: 只 client.disconnect() + client.connect(), 不重建 client,
+      //     不动 StringSession, 不触发任何 auth.* RPC.
+      const shouldReconnect =
+        classified.needReconnect ||
+        (classified.class === 'A' && nextCount === MAX_AUTO_RETRY);
+
+      if (shouldReconnect && task.accountId) {
         const ok = await cb.reconnectAccount(task.accountId).catch(() => false);
         if (!ok) {
           cb.log.error(`[task ${task.id.slice(0, 8)}] reconnect failed, abort retry`);
@@ -278,6 +289,9 @@ export async function executeTask(
           );
           return;
         }
+        cb.log.info(
+          `[task ${task.id.slice(0, 8)}] reconnected (class=${classified.class}, attempt ${nextCount}/${MAX_AUTO_RETRY})`,
+        );
       }
 
       // 递归重试 — 注意保留 task.messageSentAt (campaign_single 幂等关键)
