@@ -8,11 +8,33 @@ are stored or proxied here.
 - **Worker name:** `telehubx-license`
 - **Custom domain:** `https://telehubx-license.starbright-solutions.com`
 - **D1 database:** `telehubx-license-db` (binding name `DB`)
-- **Worker secrets:** `ADMIN_TOKEN`, `LICENSE_PEPPER`, `AGENT_TOKEN_SECRET`
+- **Worker secrets:** `ADMIN_TOKEN`, `LICENSE_PEPPER`, `AGENT_TOKEN_SECRET`,
+  `USER_PASSWORD_PEPPER` (added in v2 — required for tenant_users)
 - **Product:** locked to `telehubx`
 - **License key prefix:** locked to `THX-`
 
 ---
+
+## Migrating an existing deployment to v2 (tenant_users)
+
+1. Add a new Worker secret in the Cloudflare dashboard:
+   `USER_PASSWORD_PEPPER` — any random 32+ character string. **Do not change
+   it once set**, or all existing user passwords stop verifying.
+2. Run `migrations/001-tenant-users.sql` against `telehubx-license-db`
+   (Dashboard → D1 → Console). It is idempotent.
+3. For each existing tenant, attach a first admin user via curl:
+
+   ```bash
+   curl -X POST "$WORKER/admin/tenants/<tenantId>/users" \
+     -H "Authorization: Bearer $ADMIN_TOKEN" \
+     -H 'content-type: application/json' \
+     -d '{ "email":"owner@example.com", "password":"<initial>", "role":"admin" }'
+   ```
+4. Hand the (license key + email + initial password) trio to the customer.
+
+Existing licenses with **zero** users continue to activate without
+email/password (legacy fallback). The instant a tenant has at least one
+user, every later activation must authenticate.
 
 ## Files
 
@@ -40,11 +62,17 @@ are stored or proxied here.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/admin/licenses/create` | Create tenant + license; returns plaintext key once |
+| `POST` | `/admin/licenses/create` | Create tenant + license (+ optional initial user); plaintext key returned once |
 | `GET`  | `/admin/licenses` | List all licenses (masked key, no hash) |
 | `POST` | `/admin/licenses/:id/revoke` | Revoke a license (status → `revoked`) |
 | `POST` | `/admin/licenses/:id/extend` | Update `expires_at` |
 | `POST` | `/admin/licenses/:id/unbind` | Clear `machine_fingerprint` so a new machine can rebind |
+| `POST` | `/admin/licenses/:id/change-plan` | Switch plan (`basic`/`pro`/`enterprise`) and re-derive `max_accounts` |
+| `POST` | `/admin/tenants/:tenantId/users` | Attach a new login user to an existing tenant |
+| `GET`  | `/admin/users` | List all tenant users (no `password_hash`) |
+| `POST` | `/admin/users/:id/reset-password` | Reset a user's password — temp password returned once |
+| `POST` | `/admin/users/:id/disable` | Set user `status='disabled'` |
+| `POST` | `/admin/users/:id/enable` | Set user `status='active'` |
 
 ---
 
@@ -99,7 +127,7 @@ curl -s "$WORKER/health" | jq
 #     "dbBound": true, "time": "..." }
 ```
 
-### 2. create license (admin)
+### 2. create license + initial user (admin) — recommended
 
 ```bash
 curl -s -X POST "$WORKER/admin/licenses/create" \
@@ -109,16 +137,25 @@ curl -s -X POST "$WORKER/admin/licenses/create" \
     "tenantName": "ABC Customer",
     "contact": "customer@example.com",
     "plan": "pro",
-    "expiresAt": "2026-12-31T23:59:59Z"
+    "expiresAt": "2026-12-31T23:59:59Z",
+    "email": "owner@abc.com",
+    "initialPassword": "TempStart2026!",
+    "role": "admin"
   }' | jq
-# → { "ok": true, "licenseId": "...", "tenantId": "...", "plan": "pro",
-#     "maxAccounts": 30, "expiresAt": "...",
-#     "licenseKey": "THX-XXXX-XXXX-XXXX",   ← copy this immediately
-#     "note": "..." }
+# → { "ok":true, "licenseId":"...", "tenantId":"...", "plan":"pro",
+#     "maxAccounts":30, "expiresAt":"...",
+#     "licenseKey":"THX-XXXX-XXXX-XXXX",   ← copy this immediately
+#     "user": { "id":"...", "email":"owner@abc.com", "role":"admin" },
+#     "note":"..." }
 ```
 
+If `email` and `initialPassword` are omitted, the call still works
+(license-only, legacy mode). Once the tenant has at least one user, all
+future activations from local TeleHubX must include `email` + `password`.
+
 > The plaintext `licenseKey` is returned **once and only once**. Store it
-> in your admin records and hand it to the customer.
+> in your admin records and hand it to the customer along with the
+> initial password.
 
 ### 3. list licenses (admin)
 
@@ -134,16 +171,23 @@ curl -s -X POST "$WORKER/license/activate" \
   -H 'content-type: application/json' \
   -d '{
     "licenseKey": "THX-XXXX-XXXX-XXXX",
+    "email": "owner@abc.com",
+    "password": "TempStart2026!",
     "machineFingerprint": "machine_abc123",
     "hostname": "Customer-PC",
     "agentVersion": "1.0.0"
   }' | jq
-# → { "ok": true, "licenseId": "...", "tenantName": "...", "plan": "pro",
-#     "maxAccounts": 30, "expiresAt": "...",
-#     "agentToken": "eyJ...",  ← store locally and reuse for verify/heartbeat
-#     "agentTokenExpiresAt": "...",
-#     "firstBind": true }
+# → { "ok":true, "licenseId":"...", "tenantName":"...", "plan":"pro",
+#     "maxAccounts":30, "expiresAt":"...",
+#     "userEmail":"owner@abc.com", "userRole":"admin",
+#     "agentToken":"eyJ...",  ← store locally and reuse for verify/heartbeat
+#     "agentTokenExpiresAt":"...",
+#     "firstBind":true }
 ```
+
+If the tenant has no users yet (legacy/test mode), `email` and `password`
+are optional. As soon as one user has been attached, both fields become
+required and authentication failures return `401 invalid_credentials`.
 
 ### 5. verify (agent)
 
@@ -167,7 +211,37 @@ curl -s -X POST "$WORKER/agents/heartbeat" \
 # → { "ok": true, "serverTime": "..." }
 ```
 
-### 7. revoke / extend / unbind (admin)
+### 7. attach a user to an existing tenant (admin)
+
+Use this when migrating an old test license that doesn't yet have a
+tenant_user.
+
+```bash
+TENANT_ID=<tenantId from list>
+curl -s -X POST "$WORKER/admin/tenants/$TENANT_ID/users" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{ "email":"owner@abc.com", "password":"TempStart2026!", "role":"admin" }' | jq
+```
+
+### 8. user management (admin)
+
+```bash
+USER_ID=<id from /admin/users>
+
+# list all users (no password_hash)
+curl -s "$WORKER/admin/users" -H "Authorization: Bearer $ADMIN_TOKEN" | jq
+
+# reset password (returns new temp password ONCE)
+curl -s -X POST "$WORKER/admin/users/$USER_ID/reset-password" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq
+
+# disable / enable
+curl -s -X POST "$WORKER/admin/users/$USER_ID/disable" -H "Authorization: Bearer $ADMIN_TOKEN" | jq
+curl -s -X POST "$WORKER/admin/users/$USER_ID/enable"  -H "Authorization: Bearer $ADMIN_TOKEN" | jq
+```
+
+### 9. revoke / extend / unbind / change-plan (admin)
 
 ```bash
 LIC_ID=<licenseId from create>
@@ -185,6 +259,12 @@ curl -s -X POST "$WORKER/admin/licenses/$LIC_ID/extend" \
 # unbind (so a new machine can take over on next /license/activate)
 curl -s -X POST "$WORKER/admin/licenses/$LIC_ID/unbind" \
   -H "Authorization: Bearer $ADMIN_TOKEN" | jq
+
+# change-plan (also re-derives max_accounts from the new plan)
+curl -s -X POST "$WORKER/admin/licenses/$LIC_ID/change-plan" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{ "plan":"enterprise" }' | jq
 ```
 
 ---

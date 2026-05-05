@@ -17,6 +17,8 @@ interface LicenseStatus {
   licenseKeyMasked: string | null;
   machineFingerprint: string;
   tenantName: string | null;
+  userEmail: string | null;
+  userRole: string | null;
   plan: string | null;
   maxAccounts: number | null;
   expiresAt: string | null;
@@ -48,7 +50,7 @@ export default function LicensePage() {
   const [loading, setLoading] = useState(false);
   const [activating, setActivating] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [form] = Form.useForm<{ licenseKey: string }>();
+  const [form] = Form.useForm<{ licenseKey: string; email?: string; password?: string }>();
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -64,11 +66,14 @@ export default function LicensePage() {
 
   useEffect(() => { void reload(); }, [reload]);
 
-  const handleActivate = async (values: { licenseKey: string }) => {
+  const handleActivate = async (values: { licenseKey: string; email?: string; password?: string }) => {
     setActivating(true);
     try {
-      const res = await cloudLicenseApi.activate(values.licenseKey.trim());
-      antdMessage.success(`Activated · tenant=${res.data.tenantName} plan=${res.data.plan}`);
+      const email = values.email?.trim() || null;
+      const password = values.password ? values.password : null;
+      const res = await cloudLicenseApi.activate(values.licenseKey.trim(), email, password);
+      const u = res.data?.userEmail ? ` · user=${res.data.userEmail}` : '';
+      antdMessage.success(`Activated · tenant=${res.data.tenantName} plan=${res.data.plan}${u}`);
       form.resetFields();
       setStatus(res.data);
     } catch (err: any) {
@@ -122,11 +127,11 @@ export default function LicensePage() {
               type="info"
               showIcon
               style={{ marginBottom: 16 }}
-              message="Paste the THX license key your operator sent you."
-              description="The key is bound to this machine on first activation. To move TeleHubX to another machine, ask the platform admin to unbind first."
+              message="Activate this installation to start using TeleHubX."
+              description="Enter the License Key, your User ID (Email) and Password from the operator. The key + user are bound to this machine on first activation. To move to another machine, ask the platform admin to unbind first."
             />
           )}
-          <Form layout="vertical" form={form} onFinish={handleActivate}>
+          <Form layout="vertical" form={form} onFinish={handleActivate} autoComplete="off">
             <Form.Item
               name="licenseKey"
               label="License Key"
@@ -137,9 +142,29 @@ export default function LicensePage() {
             >
               <Input.Password placeholder="THX-XXXX-XXXX-XXXX" autoComplete="off" />
             </Form.Item>
+            <Form.Item
+              name="email"
+              label="User ID / Email"
+              rules={[
+                { required: true, message: 'Required' },
+                { type: 'email', message: 'Not a valid email' },
+              ]}
+            >
+              <Input placeholder="you@example.com" autoComplete="username" />
+            </Form.Item>
+            <Form.Item
+              name="password"
+              label="Password"
+              rules={[
+                { required: true, message: 'Required' },
+                { min: 8, message: 'At least 8 characters' },
+              ]}
+            >
+              <Input.Password placeholder="Initial password from your operator" autoComplete="new-password" />
+            </Form.Item>
             <Form.Item style={{ marginBottom: 0 }}>
               <Button type="primary" htmlType="submit" loading={activating}>
-                Activate
+                Activate &amp; Login
               </Button>
             </Form.Item>
           </Form>
@@ -204,6 +229,11 @@ export default function LicensePage() {
         <Descriptions column={1} bordered size="small">
           <Descriptions.Item label="License Key">{status?.licenseKeyMasked ?? '—'}</Descriptions.Item>
           <Descriptions.Item label="Tenant">{status?.tenantName ?? '—'}</Descriptions.Item>
+          <Descriptions.Item label="User">
+            {status?.userEmail
+              ? <Space><Text strong>{status.userEmail}</Text><Tag>{status.userRole?.toUpperCase() ?? 'USER'}</Tag></Space>
+              : <Text type="secondary">— (legacy license, no user attached)</Text>}
+          </Descriptions.Item>
           <Descriptions.Item label="Expires At">{fmtTime(status?.expiresAt ?? null)}</Descriptions.Item>
           <Descriptions.Item label="Activated At">{fmtTime(status?.activatedAt ?? null)}</Descriptions.Item>
           <Descriptions.Item label="Last Verify (success)">{fmtTime(status?.lastVerifyOkAt ?? null)}</Descriptions.Item>

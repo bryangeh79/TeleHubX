@@ -12,6 +12,8 @@ export interface ActivateResponse {
   plan: string;
   maxAccounts: number;
   expiresAt: string | null;
+  userEmail: string | null;
+  userRole: string | null;
   agentToken: string;
   agentTokenExpiresAt: string;
   firstBind: boolean;
@@ -24,6 +26,8 @@ export interface VerifyResponse {
   plan: string;
   maxAccounts: number;
   expiresAt: string | null;
+  userEmail: string | null;
+  userRole: string | null;
 }
 
 export interface HeartbeatResponse {
@@ -100,6 +104,8 @@ export class CloudLicenseClient {
 
   activate(input: {
     licenseKey: string;
+    email?: string | null;
+    password?: string | null;
     machineFingerprint: string;
     hostname: string;
     agentVersion: string;

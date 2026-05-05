@@ -55,14 +55,32 @@ export default {
 
         if (route === 'POST /admin/licenses/create') return await jsonRoute(request, env, adminCreateLicense);
         if (route === 'GET  /admin/licenses' || route === 'GET /admin/licenses') return await adminListLicenses(env);
+        if (route === 'GET  /admin/users'    || route === 'GET /admin/users')    return await adminListUsers(env);
 
-        // /admin/licenses/:id/{revoke|extend|unbind}
-        const m = url.pathname.match(/^\/admin\/licenses\/([^/]+)\/(revoke|extend|unbind)$/);
-        if (m && request.method === 'POST') {
-          const [, id, op] = m;
-          if (op === 'revoke') return await jsonRoute(request, env, (b, e) => adminRevoke(b, e, id));
-          if (op === 'extend') return await jsonRoute(request, env, (b, e) => adminExtend(b, e, id));
-          if (op === 'unbind') return await jsonRoute(request, env, (b, e) => adminUnbind(b, e, id));
+        // /admin/licenses/:id/{revoke|extend|unbind|change-plan}
+        const lm = url.pathname.match(/^\/admin\/licenses\/([^/]+)\/(revoke|extend|unbind|change-plan)$/);
+        if (lm && request.method === 'POST') {
+          const [, id, op] = lm;
+          if (op === 'revoke')      return await jsonRoute(request, env, (b, e) => adminRevoke(b, e, id));
+          if (op === 'extend')      return await jsonRoute(request, env, (b, e) => adminExtend(b, e, id));
+          if (op === 'unbind')      return await jsonRoute(request, env, (b, e) => adminUnbind(b, e, id));
+          if (op === 'change-plan') return await jsonRoute(request, env, (b, e) => adminChangePlan(b, e, id));
+        }
+
+        // /admin/tenants/:tenantId/users  → attach a user to an existing tenant
+        const tu = url.pathname.match(/^\/admin\/tenants\/([^/]+)\/users$/);
+        if (tu && request.method === 'POST') {
+          const [, tenantId] = tu;
+          return await jsonRoute(request, env, (b, e) => adminAttachUser(b, e, tenantId));
+        }
+
+        // /admin/users/:id/{reset-password|disable|enable}
+        const um = url.pathname.match(/^\/admin\/users\/([^/]+)\/(reset-password|disable|enable)$/);
+        if (um && request.method === 'POST') {
+          const [, userId, op] = um;
+          if (op === 'reset-password') return await jsonRoute(request, env, (b, e) => adminResetUserPwd(b, e, userId));
+          if (op === 'disable')        return await jsonRoute(request, env, (b, e) => adminSetUserStatus(b, e, userId, 'disabled'));
+          if (op === 'enable')         return await jsonRoute(request, env, (b, e) => adminSetUserStatus(b, e, userId, 'active'));
         }
       }
 
@@ -142,6 +160,96 @@ async function sha256Hex(s) {
 async function hashLicenseKey(key, env) {
   if (!env.LICENSE_PEPPER) throw new Error('LICENSE_PEPPER not set');
   return sha256Hex(`${key}:${env.LICENSE_PEPPER}`);
+}
+
+// ─── password (PBKDF2-SHA256, 100k iter, 32-byte hash, 16-byte salt) ─────
+const PWD_SCHEME = 'pbkdf2';
+const PWD_ITER = 100_000;
+const PWD_HASH_BYTES = 32;
+const PWD_SALT_BYTES = 16;
+// Strength: 8+ chars, contain at least 1 digit. Tighter rules belong on the
+// admin tooling side; this is a server-side floor.
+const PWD_MIN_LEN = 8;
+
+function b64Plain(bytes) {
+  return btoa(String.fromCharCode(...bytes));
+}
+function b64PlainDecode(s) {
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function pbkdf2Derive(password, salt, iter, env) {
+  const pepper = env.USER_PASSWORD_PEPPER ?? '';
+  if (!pepper) throw new Error('USER_PASSWORD_PEPPER not set');
+  const passKey = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(`${password}:${pepper}`),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveBits'],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt, iterations: iter, hash: 'SHA-256' },
+    passKey,
+    PWD_HASH_BYTES * 8,
+  );
+  return new Uint8Array(bits);
+}
+
+async function passwordHash(password, env) {
+  const salt = crypto.getRandomValues(new Uint8Array(PWD_SALT_BYTES));
+  const hash = await pbkdf2Derive(password, salt, PWD_ITER, env);
+  return `${PWD_SCHEME}$${PWD_ITER}$${b64Plain(salt)}$${b64Plain(hash)}`;
+}
+
+async function passwordVerify(password, stored, env) {
+  if (typeof stored !== 'string') return false;
+  const parts = stored.split('$');
+  if (parts.length !== 4 || parts[0] !== PWD_SCHEME) return false;
+  const iter = parseInt(parts[1], 10);
+  if (!Number.isFinite(iter) || iter < 1000 || iter > 1_000_000) return false;
+  let salt, expected;
+  try {
+    salt = b64PlainDecode(parts[2]);
+    expected = b64PlainDecode(parts[3]);
+  } catch { return false; }
+  const got = await pbkdf2Derive(password, salt, iter, env);
+  if (got.length !== expected.length) return false;
+  let r = 0;
+  for (let i = 0; i < got.length; i++) r |= got[i] ^ expected[i];
+  return r === 0;
+}
+
+function generateTempPassword() {
+  // 12 chars from URL-safe alphabet; guaranteed ≥1 digit + 1 letter.
+  const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const a = 'abcdefghjkmnpqrstuvwxyz';
+  const d = '23456789';
+  const all = A + a + d;
+  const buf = crypto.getRandomValues(new Uint8Array(12));
+  const out = [];
+  // force first three chars to span classes
+  out.push(A[buf[0] % A.length]);
+  out.push(a[buf[1] % a.length]);
+  out.push(d[buf[2] % d.length]);
+  for (let i = 3; i < 12; i++) out.push(all[buf[i] % all.length]);
+  // shuffle
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out.join('');
+}
+
+function normEmail(s) {
+  return String(s ?? '').trim().toLowerCase();
+}
+
+function isValidRole(r) {
+  return r === 'admin' || r === 'operator' || r === 'viewer';
 }
 
 // ─── agent token (compact HMAC-SHA256, JWT-like) ─────────────────────────
@@ -232,11 +340,18 @@ async function health(env) {
 }
 
 // POST /admin/licenses/create
+//
+// Backwards-compatible: if `email` and `initialPassword` are omitted,
+// only the tenant + license are created (as before). If both are supplied,
+// a tenant_user is created in the same transaction with role 'admin'.
 async function adminCreateLicense(body, env) {
-  const tenantName = String(body?.tenantName ?? '').trim();
-  const contact    = body?.contact == null ? null : String(body.contact).trim();
-  const planRaw    = String(body?.plan ?? '').trim().toLowerCase();
-  const expiresAt  = body?.expiresAt == null ? null : String(body.expiresAt);
+  const tenantName     = String(body?.tenantName ?? '').trim();
+  const contact        = body?.contact == null ? null : String(body.contact).trim();
+  const planRaw        = String(body?.plan ?? '').trim().toLowerCase();
+  const expiresAt      = body?.expiresAt == null ? null : String(body.expiresAt);
+  const email          = body?.email == null ? null : normEmail(body.email);
+  const initialPassword = body?.initialPassword == null ? null : String(body.initialPassword);
+  const role           = body?.role == null ? 'admin' : String(body.role).toLowerCase();
 
   if (!tenantName) return jsonResp({ ok: false, error: 'tenantName_required' }, 400);
   if (!PLAN_MAX_ACCOUNTS[planRaw]) {
@@ -245,8 +360,18 @@ async function adminCreateLicense(body, env) {
   // Server-side source of truth — ignore client-supplied maxAccounts
   const maxAccounts = PLAN_MAX_ACCOUNTS[planRaw];
 
+  // user fields are optional for backwards-compat — but if either is given,
+  // both must be valid.
+  const wantsUser = email != null || initialPassword != null;
+  if (wantsUser) {
+    if (!email || !/.+@.+\..+/.test(email)) return jsonResp({ ok: false, error: 'email_invalid' }, 400);
+    if (!initialPassword || initialPassword.length < PWD_MIN_LEN) {
+      return jsonResp({ ok: false, error: 'initialPassword_too_short', minLength: PWD_MIN_LEN }, 400);
+    }
+    if (!isValidRole(role)) return jsonResp({ ok: false, error: 'invalid_role' }, 400);
+  }
+
   // 1) tenant
-  // Schema: tenants(id, product, tenant_name, contact, status, created_at, updated_at)
   const tenantId = uuid();
   const now = nowIso();
   await env.DB.prepare(
@@ -260,9 +385,6 @@ async function adminCreateLicense(body, env) {
   const licenseKeySuffix = licenseKey.slice(-4);
 
   const licenseId = uuid();
-  // Schema: licenses(id, tenant_id, product, license_key_hash, license_key_suffix,
-  //   plan, max_accounts, status, expires_at, machine_fingerprint, activated_at,
-  //   last_verified_at, created_at, updated_at)
   await env.DB.prepare(
     `INSERT INTO licenses
        (id, tenant_id, product, license_key_hash, license_key_suffix,
@@ -273,8 +395,22 @@ async function adminCreateLicense(body, env) {
          planRaw, maxAccounts, expiresAt, now)
    .run();
 
+  // 3) optional tenant_user
+  let userId = null;
+  if (wantsUser) {
+    userId = uuid();
+    const passwordHashed = await passwordHash(initialPassword, env);
+    await env.DB.prepare(
+      `INSERT INTO tenant_users
+         (id, tenant_id, email, password_hash, role, status, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, 'active', ?6, ?6)`
+    ).bind(userId, tenantId, email, passwordHashed, role, now).run();
+    await audit(env, 'user.create', 'user', userId, 'admin', { tenantId, email, role });
+  }
+
   await audit(env, 'license.create', 'license', licenseId, 'admin', {
     tenantName, plan: planRaw, maxAccounts, expiresAt,
+    user: wantsUser ? { id: userId, email, role } : null,
   });
 
   return jsonResp({
@@ -285,7 +421,8 @@ async function adminCreateLicense(body, env) {
     plan: planRaw,
     maxAccounts,
     expiresAt,
-    licenseKey,                                       // ← only returned ONCE
+    licenseKey,                                       // ← returned ONCE
+    user: wantsUser ? { id: userId, email, role } : null,
     note: 'Store this license key safely — it is not retrievable again.',
   });
 }
@@ -387,11 +524,22 @@ async function adminUnbind(_body, env, id) {
 }
 
 // POST /license/activate
+//
+// Body:
+//   licenseKey, machineFingerprint, hostname, agentVersion          (always)
+//   email, password                                                  (required if the
+//                                                                    tenant has any users)
+//
+// Backwards-compat: if the tenant has zero tenant_users (legacy test data
+// before migration 001), email/password are optional. Once an admin user
+// has been attached, every subsequent activation must authenticate.
 async function activate(body, env) {
   const licenseKey = String(body?.licenseKey ?? '').trim();
   const machineFingerprint = String(body?.machineFingerprint ?? '').trim();
   const hostname = body?.hostname == null ? null : String(body.hostname).slice(0, 200);
   const agentVersion = body?.agentVersion == null ? null : String(body.agentVersion).slice(0, 50);
+  const email = body?.email == null ? null : normEmail(body.email);
+  const password = body?.password == null ? null : String(body.password);
 
   if (!licenseKey || !licenseKey.startsWith(LICENSE_PREFIX)) {
     return jsonResp({ ok: false, error: 'invalid_key_format' }, 400);
@@ -414,10 +562,49 @@ async function activate(body, env) {
     return jsonResp({ ok: false, error: 'license_expired' }, 403);
   }
 
+  // ── tenant user authentication ─────────────────────────────────────────
+  // Single fixed-cost path even when the user/tenant doesn't exist, so we
+  // don't leak user existence by timing.
+  const tenantHasUsers = await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM tenant_users WHERE tenant_id = ?1`
+  ).bind(lic.tenant_id).first();
+  const requireAuth = (tenantHasUsers?.n ?? 0) > 0;
+
+  let user = null;
+  if (requireAuth || email || password) {
+    if (!email || !password) {
+      return jsonResp({ ok: false, error: 'email_password_required' }, 400);
+    }
+    user = await env.DB.prepare(
+      `SELECT id, role, status, password_hash
+       FROM tenant_users
+       WHERE tenant_id = ?1 AND lower(email) = lower(?2)`
+    ).bind(lic.tenant_id, email).first();
+
+    // Even on miss, run a dummy verify against a constant hash so timing
+    // doesn't reveal whether the email exists.
+    const okPassword = user
+      ? await passwordVerify(password, user.password_hash, env)
+      : await passwordVerify(password, 'pbkdf2$100000$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=', env).catch(() => false);
+
+    if (!user || !okPassword) {
+      await audit(env, 'license.activate.reject_auth', 'license', lic.id, 'agent', {
+        hostname, agentVersion, emailGiven: !!email,
+      });
+      return jsonResp({ ok: false, error: 'invalid_credentials' }, 401);
+    }
+    if (user.status !== 'active') {
+      await audit(env, 'license.activate.reject_user_status', 'license', lic.id, 'agent', {
+        hostname, agentVersion, userId: user.id, userStatus: user.status,
+      });
+      return jsonResp({ ok: false, error: `user_${user.status}` }, 403);
+    }
+  }
+
   // bind / verify machine
   if (lic.machine_fingerprint && lic.machine_fingerprint !== machineFingerprint) {
     await audit(env, 'license.activate.reject_mismatch', 'license', lic.id, 'agent', {
-      hostname, agentVersion,
+      hostname, agentVersion, userId: user?.id ?? null,
     });
     return jsonResp({
       ok: false,
@@ -461,13 +648,21 @@ async function activate(body, env) {
     ).bind(uuid(), lic.id, PRODUCT, machineFingerprint, hostname, agentVersion, now).run();
   }
 
-  // sign agent token
+  // sign agent token (carries user id when authenticated)
   const iat = Math.floor(Date.now() / 1000);
   const exp = iat + AGENT_TOKEN_TTL_SEC;
-  const agentToken = await signAgentToken(env, { lid: lic.id, mfp: machineFingerprint, iat, exp });
+  const agentToken = await signAgentToken(env, {
+    lid: lic.id,
+    mfp: machineFingerprint,
+    uid: user?.id ?? null,
+    iat,
+    exp,
+  });
 
   await audit(env, isFirstBind ? 'license.activate.first' : 'license.activate.refresh',
-    'license', lic.id, 'agent', { hostname, agentVersion });
+    'license', lic.id, 'agent', {
+      hostname, agentVersion, userId: user?.id ?? null,
+    });
 
   return jsonResp({
     ok: true,
@@ -476,6 +671,8 @@ async function activate(body, env) {
     plan: lic.plan,
     maxAccounts: lic.max_accounts,
     expiresAt: lic.expires_at,
+    userEmail: user ? email : null,
+    userRole: user?.role ?? null,
     agentToken,
     agentTokenExpiresAt: new Date(exp * 1000).toISOString(),
     firstBind: isFirstBind,
@@ -505,6 +702,16 @@ async function verify(body, env) {
     return jsonResp({ ok: false, error: 'machine_mismatch' }, 409);
   }
 
+  // If the token was issued for a user, ensure the user is still active.
+  let userRow = null;
+  if (payload.uid) {
+    userRow = await env.DB.prepare(
+      `SELECT id, email, role, status FROM tenant_users WHERE id = ?1 AND tenant_id = ?2`
+    ).bind(payload.uid, lic.tenant_id).first();
+    if (!userRow) return jsonResp({ ok: false, error: 'user_not_found' }, 403);
+    if (userRow.status !== 'active') return jsonResp({ ok: false, error: `user_${userRow.status}` }, 403);
+  }
+
   await env.DB.prepare(`UPDATE licenses SET last_verified_at = ?1, updated_at = ?1 WHERE id = ?2`)
     .bind(nowIso(), lic.id).run();
 
@@ -515,6 +722,8 @@ async function verify(body, env) {
     plan: lic.plan,
     maxAccounts: lic.max_accounts,
     expiresAt: lic.expires_at,
+    userEmail: userRow?.email ?? null,
+    userRole: userRow?.role ?? null,
   });
 }
 
@@ -547,6 +756,107 @@ async function heartbeat(body, env) {
   ).bind(localAccountCount, runningTaskCount, agentVersion, nowIso(), dev.id).run();
 
   return jsonResp({ ok: true, serverTime: nowIso() });
+}
+
+// ─── Admin: change plan (and re-derive maxAccounts) ──────────────────────
+async function adminChangePlan(body, env, id) {
+  const planRaw = String(body?.plan ?? '').trim().toLowerCase();
+  if (!PLAN_MAX_ACCOUNTS[planRaw]) {
+    return jsonResp({ ok: false, error: 'invalid_plan', allowed: Object.keys(PLAN_MAX_ACCOUNTS) }, 400);
+  }
+  const lic = await env.DB.prepare(`SELECT id, plan, max_accounts FROM licenses WHERE id = ?1`).bind(id).first();
+  if (!lic) return jsonResp({ ok: false, error: 'license_not_found' }, 404);
+
+  const newMax = PLAN_MAX_ACCOUNTS[planRaw];
+  await env.DB.prepare(
+    `UPDATE licenses SET plan = ?1, max_accounts = ?2, updated_at = ?3 WHERE id = ?4`
+  ).bind(planRaw, newMax, nowIso(), id).run();
+  await audit(env, 'license.change_plan', 'license', id, 'admin', {
+    oldPlan: lic.plan, newPlan: planRaw, oldMax: lic.max_accounts, newMax,
+  });
+  return jsonResp({ ok: true, id, plan: planRaw, maxAccounts: newMax });
+}
+
+// ─── Admin: attach a user to an existing tenant ──────────────────────────
+async function adminAttachUser(body, env, tenantId) {
+  const email    = body?.email == null ? null : normEmail(body.email);
+  const password = body?.password == null ? null : String(body.password);
+  const role     = body?.role == null ? 'admin' : String(body.role).toLowerCase();
+  if (!email || !/.+@.+\..+/.test(email)) return jsonResp({ ok: false, error: 'email_invalid' }, 400);
+  if (!password || password.length < PWD_MIN_LEN) {
+    return jsonResp({ ok: false, error: 'password_too_short', minLength: PWD_MIN_LEN }, 400);
+  }
+  if (!isValidRole(role)) return jsonResp({ ok: false, error: 'invalid_role' }, 400);
+
+  const tenant = await env.DB.prepare(`SELECT id, tenant_name FROM tenants WHERE id = ?1 AND product = ?2`)
+    .bind(tenantId, PRODUCT).first();
+  if (!tenant) return jsonResp({ ok: false, error: 'tenant_not_found' }, 404);
+
+  const existing = await env.DB.prepare(
+    `SELECT id FROM tenant_users WHERE tenant_id = ?1 AND lower(email) = lower(?2)`
+  ).bind(tenantId, email).first();
+  if (existing) return jsonResp({ ok: false, error: 'email_already_exists' }, 409);
+
+  const userId = uuid();
+  const now = nowIso();
+  const passwordHashed = await passwordHash(password, env);
+  await env.DB.prepare(
+    `INSERT INTO tenant_users
+       (id, tenant_id, email, password_hash, role, status, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, 'active', ?6, ?6)`
+  ).bind(userId, tenantId, email, passwordHashed, role, now).run();
+  await audit(env, 'user.create', 'user', userId, 'admin', { tenantId, email, role });
+  return jsonResp({ ok: true, id: userId, tenantId, email, role });
+}
+
+// ─── Admin: reset user password (returns new temp password ONCE) ─────────
+async function adminResetUserPwd(_body, env, userId) {
+  const u = await env.DB.prepare(`SELECT id, tenant_id, email FROM tenant_users WHERE id = ?1`).bind(userId).first();
+  if (!u) return jsonResp({ ok: false, error: 'user_not_found' }, 404);
+  const temp = generateTempPassword();
+  const hashed = await passwordHash(temp, env);
+  await env.DB.prepare(`UPDATE tenant_users SET password_hash = ?1, updated_at = ?2 WHERE id = ?3`)
+    .bind(hashed, nowIso(), userId).run();
+  await audit(env, 'user.reset_password', 'user', userId, 'admin', { tenantId: u.tenant_id });
+  return jsonResp({
+    ok: true,
+    id: userId,
+    email: u.email,
+    tempPassword: temp,
+    note: 'Deliver this temporary password to the user securely. It is shown only once.',
+  });
+}
+
+// ─── Admin: enable / disable user ────────────────────────────────────────
+async function adminSetUserStatus(_body, env, userId, status) {
+  const u = await env.DB.prepare(`SELECT id, tenant_id FROM tenant_users WHERE id = ?1`).bind(userId).first();
+  if (!u) return jsonResp({ ok: false, error: 'user_not_found' }, 404);
+  await env.DB.prepare(`UPDATE tenant_users SET status = ?1, updated_at = ?2 WHERE id = ?3`)
+    .bind(status, nowIso(), userId).run();
+  await audit(env, 'user.set_status', 'user', userId, 'admin', { tenantId: u.tenant_id, status });
+  return jsonResp({ ok: true, id: userId, status });
+}
+
+// ─── Admin: list users (no password_hash, no token) ──────────────────────
+async function adminListUsers(env) {
+  const rs = await env.DB.prepare(
+    `SELECT u.id, u.tenant_id, u.email, u.role, u.status, u.created_at, u.updated_at,
+            t.tenant_name
+       FROM tenant_users u
+       LEFT JOIN tenants t ON t.id = u.tenant_id
+      ORDER BY u.created_at DESC`
+  ).all();
+  const users = (rs?.results ?? []).map((r) => ({
+    id: r.id,
+    tenantId: r.tenant_id,
+    tenantName: r.tenant_name,
+    email: r.email,
+    role: r.role,
+    status: r.status,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }));
+  return jsonResp({ ok: true, count: users.length, users });
 }
 
 function clampInt(v, lo, hi) {

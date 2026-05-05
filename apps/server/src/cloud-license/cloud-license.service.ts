@@ -39,6 +39,7 @@ const VERIFY_FAIL_HARD_THRESHOLD_DEFAULT = 8;            // ≥8 consecutive ver
 const HARD_TERMINAL_CODES = new Set([
   'license_revoked', 'license_suspended', 'license_expired',
   'license_not_found', 'machine_mismatch',
+  'user_disabled', 'user_not_found',
 ]);
 
 export interface CloudLicenseStatus {
@@ -46,6 +47,8 @@ export interface CloudLicenseStatus {
   licenseKeyMasked: string | null;
   machineFingerprint: string;
   tenantName: string | null;
+  userEmail: string | null;
+  userRole: string | null;
   plan: string | null;
   maxAccounts: number | null;
   expiresAt: string | null;
@@ -138,6 +141,8 @@ export class CloudLicenseService implements OnModuleInit, OnModuleDestroy {
       licenseKeyMasked: this.state?.licenseKeyMasked ?? null,
       machineFingerprint: this.fpPreview(this.machineFp),
       tenantName: this.state?.tenantName ?? null,
+      userEmail: this.state?.userEmail ?? null,
+      userRole: this.state?.userRole ?? null,
       plan: this.state?.plan ?? null,
       maxAccounts: this.state?.maxAccounts ?? null,
       expiresAt: this.state?.expiresAt ?? null,
@@ -154,22 +159,33 @@ export class CloudLicenseService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  /** Activate a license key for this machine. One-time setup. */
-  async activate(licenseKey: string): Promise<CloudLicenseStatus> {
-    const trimmed = String(licenseKey ?? '').trim();
-    if (!trimmed.startsWith('THX-')) {
+  /**
+   * Activate a license key for this machine.
+   *
+   * Email and password are required as soon as the tenant has at least one
+   * tenant_user on the License Worker side. Legacy/test tenants without
+   * any user can pass null/null and the worker accepts it.
+   */
+  async activate(licenseKey: string, email?: string | null, password?: string | null): Promise<CloudLicenseStatus> {
+    const trimmedKey = String(licenseKey ?? '').trim();
+    if (!trimmedKey.startsWith('THX-')) {
       throw new CloudLicenseError(400, 'invalid_key_format', 'License key must start with THX-');
     }
+    const trimmedEmail = email == null ? null : String(email).trim().toLowerCase();
+    const passwordIn = password == null ? null : String(password);
+
     const res = await this.client.activate({
-      licenseKey: trimmed,
+      licenseKey: trimmedKey,
+      email: trimmedEmail,
+      password: passwordIn,
       machineFingerprint: this.machineFp,
       hostname: os.hostname(),
       agentVersion: this.agentVersion,
     });
-    const masked = `THX-****-****-${trimmed.slice(-4)}`;
+    const masked = `THX-****-****-${trimmedKey.slice(-4)}`;
     const now = new Date().toISOString();
     this.state = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       licenseKeyMasked: masked,
       machineFingerprint: this.machineFp,
       agentToken: res.agentToken,
@@ -179,6 +195,8 @@ export class CloudLicenseService implements OnModuleInit, OnModuleDestroy {
       plan: res.plan,
       maxAccounts: res.maxAccounts,
       expiresAt: res.expiresAt,
+      userEmail: res.userEmail ?? null,
+      userRole: res.userRole ?? null,
       status: 'active',
       activatedAt: now,
       lastVerifyAt: now,
@@ -189,7 +207,11 @@ export class CloudLicenseService implements OnModuleInit, OnModuleDestroy {
       lastHeartbeatError: null,
     };
     this.storage.write(this.state);
-    this.logger.log(`cloud-license activated: tenant=${res.tenantName} plan=${res.plan} maxAccounts=${res.maxAccounts} firstBind=${res.firstBind} key=${masked}`);
+    this.logger.log(
+      `cloud-license activated: tenant=${res.tenantName} plan=${res.plan} ` +
+      `maxAccounts=${res.maxAccounts} firstBind=${res.firstBind} key=${masked} ` +
+      `user=${res.userEmail ?? '<none>'} role=${res.userRole ?? '<none>'}`,
+    );
     return this.status();
   }
 
@@ -283,6 +305,9 @@ export class CloudLicenseService implements OnModuleInit, OnModuleDestroy {
         plan: res.plan,
         maxAccounts: res.maxAccounts,
         expiresAt: res.expiresAt,
+        // verify also returns the user (or null); keep local view in sync
+        userEmail: res.userEmail ?? this.state.userEmail,
+        userRole: res.userRole ?? this.state.userRole,
         status: 'active',
         lastVerifyAt: now,
         lastVerifyOkAt: now,

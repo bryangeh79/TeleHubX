@@ -23,7 +23,7 @@ const KEY_LEN = 32;
 const SALT = Buffer.from('telehubx-license-storage-v1');
 
 export interface PersistedLicenseState {
-  schemaVersion: 1;
+  schemaVersion: 2;
 
   // Identity
   licenseKeyMasked: string;          // e.g. "THX-****-****-Z4RA"  for UI display
@@ -37,6 +37,10 @@ export interface PersistedLicenseState {
   plan: string;
   maxAccounts: number;
   expiresAt: string | null;
+
+  // v2: tenant user identity (null when license has no user attached)
+  userEmail: string | null;
+  userRole: string | null;
 
   // Local state machine
   status: 'active' | 'revoked' | 'suspended' | 'expired' | 'unknown';
@@ -80,7 +84,17 @@ export class LicenseStorage {
       decipher.setAuthTag(tag);
       const pt = Buffer.concat([decipher.update(ct), decipher.final()]);
       const obj = JSON.parse(pt.toString('utf8'));
-      if (obj?.schemaVersion !== 1) return null;
+      // v1 → upgrade in memory (add null user fields). It will be persisted
+      // back as v2 on next write (e.g. next verify or heartbeat).
+      if (obj?.schemaVersion === 1) {
+        return {
+          ...obj,
+          schemaVersion: 2,
+          userEmail: null,
+          userRole: null,
+        } as PersistedLicenseState;
+      }
+      if (obj?.schemaVersion !== 2) return null;
       return obj as PersistedLicenseState;
     } catch {
       return null;

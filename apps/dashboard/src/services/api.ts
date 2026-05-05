@@ -526,7 +526,8 @@ export const platformConfigApi = {
 
 export const cloudLicenseApi = {
   status: () => api.get('/cloud-license/status'),
-  activate: (licenseKey: string) => api.post('/cloud-license/activate', { licenseKey }),
+  activate: (licenseKey: string, email?: string | null, password?: string | null) =>
+    api.post('/cloud-license/activate', { licenseKey, email, password }),
   refresh: () => api.post('/cloud-license/refresh'),
 };
 

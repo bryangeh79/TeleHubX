@@ -31,13 +31,15 @@ export class CloudLicenseController {
   @Public()
   @Post('activate')
   @HttpCode(HttpStatus.OK)
-  async activate(@Body() body: { licenseKey?: string }) {
+  async activate(@Body() body: { licenseKey?: string; email?: string; password?: string }) {
     const key = String(body?.licenseKey ?? '').trim();
     if (!key.startsWith('THX-')) {
       throw new BadRequestException('License key must start with THX-');
     }
+    const email = body?.email == null ? null : String(body.email).trim();
+    const password = body?.password == null ? null : String(body.password);
     try {
-      return await this.service.activate(key);
+      return await this.service.activate(key, email, password);
     } catch (err) {
       if (err instanceof CloudLicenseError) {
         // Map worker error codes to HTTP status. machine_mismatch → 409 etc.

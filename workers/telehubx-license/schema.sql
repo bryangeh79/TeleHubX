@@ -58,6 +58,26 @@ CREATE TABLE IF NOT EXISTS agent_devices (
 CREATE INDEX IF NOT EXISTS idx_devices_license    ON agent_devices(license_id);
 CREATE INDEX IF NOT EXISTS idx_devices_license_fp ON agent_devices(license_id, machine_fingerprint);
 
+-- ─── tenant_users ───────────────────────────────────────────────────────
+-- Per-tenant login users used by the local TeleHubX activation form.
+-- Email is unique within a tenant. Passwords are stored as
+-- pbkdf2$iter$saltB64$hashB64  using USER_PASSWORD_PEPPER as a static
+-- pepper (mixed into the password input before key derivation).
+CREATE TABLE IF NOT EXISTS tenant_users (
+  id             TEXT PRIMARY KEY,
+  tenant_id      TEXT NOT NULL,
+  email          TEXT NOT NULL,
+  password_hash  TEXT NOT NULL,
+  role           TEXT NOT NULL DEFAULT 'admin',  -- admin | operator | viewer
+  status         TEXT NOT NULL DEFAULT 'active', -- active | disabled
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_users_tenant_email
+  ON tenant_users(tenant_id, lower(email));
+
 -- ─── audit_logs ─────────────────────────────────────────────────────────
 -- Production schema is intentionally tight: target_type is encoded inside
 -- detail_json.targetType so that the column doesn't need to exist.
