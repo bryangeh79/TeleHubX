@@ -1,0 +1,36 @@
+name = "telehubx-license"
+main = "src/worker.js"
+compatibility_date = "2024-10-01"
+
+# ─── D1 binding ──────────────────────────────────────────────────────────
+# database_name and database_id were created manually in the Cloudflare
+# dashboard. Fill in the database_id from your Cloudflare D1 console
+# (the binding name `DB` is what worker.js reads as env.DB).
+[[d1_databases]]
+binding       = "DB"
+database_name = "telehubx-license-db"
+database_id   = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# ─── Routes / domain ─────────────────────────────────────────────────────
+# The custom hostname https://telehubx-license.starbright-solutions.com
+# was already configured in the Cloudflare dashboard. If you deploy via
+# `wrangler deploy`, uncomment and adjust the route below; otherwise leave
+# it commented and rely on the dashboard-configured custom domain.
+#
+# [[routes]]
+# pattern = "telehubx-license.starbright-solutions.com/*"
+# zone_name = "starbright-solutions.com"
+
+# ─── Secrets (DO NOT put values here — set via dashboard or wrangler) ────
+# Required:
+#   ADMIN_TOKEN          → admin Bearer token for /admin/* routes
+#   LICENSE_PEPPER       → server-side pepper for SHA-256(licenseKey + pepper)
+#   AGENT_TOKEN_SECRET   → HMAC-SHA256 key for agent token signing
+#
+# Set with wrangler:
+#   wrangler secret put ADMIN_TOKEN
+#   wrangler secret put LICENSE_PEPPER
+#   wrangler secret put AGENT_TOKEN_SECRET
+#
+# Or (recommended for this project) leave them as already-configured
+# Worker secrets in the Cloudflare dashboard — no action needed.
