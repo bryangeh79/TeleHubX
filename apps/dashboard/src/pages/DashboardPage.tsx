@@ -142,11 +142,11 @@ export default function DashboardPage() {
   // 等下游活动指标作 heuristic, 配置完成但当天无活动会被误判.
   const nav = useNavigate();
   const steps = [
-    { key: 'bot', title: '注册 Bot Token', done: d.setup.hasBotToken, path: '/cs', icon: <ApiOutlined /> },
-    { key: 'company', title: '填写公司资讯', done: d.setup.hasCompanyKb, path: '/cs', icon: <BankOutlined /> },
-    { key: 'product', title: '添加产品', done: d.setup.hasProductKb, path: '/cs', icon: <AppstoreOutlined /> },
-    { key: 'account', title: '绑定 TG 账号', done: totalAcc > 0, path: '/accounts', icon: <UserOutlined /> },
-    { key: 'discover', title: '发现群源 + 爬人', done: candTotal > 0, path: '/discovered-groups', icon: <RobotOutlined /> },
+    { key: 'bot', title: t('dashboard.step.bot'), done: d.setup.hasBotToken, path: '/cs', icon: <ApiOutlined /> },
+    { key: 'company', title: t('dashboard.step.company'), done: d.setup.hasCompanyKb, path: '/cs', icon: <BankOutlined /> },
+    { key: 'product', title: t('dashboard.step.product'), done: d.setup.hasProductKb, path: '/cs', icon: <AppstoreOutlined /> },
+    { key: 'account', title: t('dashboard.step.account'), done: totalAcc > 0, path: '/accounts', icon: <UserOutlined /> },
+    { key: 'discover', title: t('dashboard.step.discover'), done: candTotal > 0, path: '/discovered-groups', icon: <RobotOutlined /> },
   ];
   const doneCount = steps.filter(s => s.done).length;
   const completeness = Math.round((doneCount / steps.length) * 100);
@@ -163,8 +163,8 @@ export default function DashboardPage() {
           style={{ marginBottom: 16 }}
           message={
             completeness === 0
-              ? '👋 欢迎！按下面 5 步快速启动你的 Telegram 营销系统'
-              : `📊 设置进度 ${completeness}%（${doneCount} / ${steps.length} 步完成）`
+              ? `👋 ${t('dashboard.welcome')}`
+              : `📊 ${t('dashboard.progress', { pct: completeness, done: doneCount, total: steps.length })}`
           }
           description={
             <div style={{ marginTop: 8 }}>
@@ -184,72 +184,69 @@ export default function DashboardPage() {
 
       {loading ? <Spin /> : (
         <Row gutter={[16, 16]}>
-          {/* 卡 1: 账号 */}
+          {/* card 1: accounts */}
           <Col xs={24} sm={12} lg={6}>
             <Card>
               <Statistic
-                title={<span><UserOutlined /> 账号</span>}
+                title={<span><UserOutlined /> {t('nav.accounts')}</span>}
                 value={onlineAcc}
                 suffix={<Text type="secondary" style={{ fontSize: 14 }}>/ {totalAcc}</Text>}
                 valueStyle={{ color: accColor, fontSize: 32 }}
               />
               <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
-                <Tag color="green" style={{ marginRight: 4 }}>在线 {onlineAcc}</Tag>
-                {offlineAcc > 0 && <Tag color="default" style={{ marginRight: 4 }}>离线 {offlineAcc}</Tag>}
-                {bannedAcc > 0 && <Tag color="red">异常 {bannedAcc}</Tag>}
+                <Tag color="green" style={{ marginRight: 4 }}>{t('common.online')} {onlineAcc}</Tag>
+                {offlineAcc > 0 && <Tag color="default" style={{ marginRight: 4 }}>{t('common.offline')} {offlineAcc}</Tag>}
+                {bannedAcc > 0 && <Tag color="red">{t('common.error')} {bannedAcc}</Tag>}
               </div>
             </Card>
           </Col>
 
-          {/* 卡 2: 候选人池 */}
+          {/* card 2: candidate pool */}
           <Col xs={24} sm={12} lg={6}>
             <Card>
               <Statistic
-                title={<span><TeamOutlined /> 候选人池</span>}
+                title={<span><TeamOutlined /> {t('nav.candidates')}</span>}
                 value={candTotal}
-                suffix={<Text type="secondary" style={{ fontSize: 14 }}>人</Text>}
                 valueStyle={{ color: '#1890ff', fontSize: 32 }}
               />
               <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
-                {candToday > 0 && <Tag color="blue" style={{ marginRight: 4 }}>今日 +{candToday}</Tag>}
-                <Tag color={unpackedRate > 50 ? 'orange' : 'default'}>未打包 {unpackedRate}%</Tag>
+                {candToday > 0 && <Tag color="blue" style={{ marginRight: 4 }}>+{candToday}</Tag>}
+                <Tag color={unpackedRate > 50 ? 'orange' : 'default'}>{t('dashboard.unpacked')} {unpackedRate}%</Tag>
               </div>
             </Card>
           </Col>
 
-          {/* 卡 3: 客户对话 */}
+          {/* card 3: customer conversations today */}
           <Col xs={24} sm={12} lg={6}>
             <Card>
               <Statistic
-                title={<span><MessageOutlined /> 客户对话 (今日)</span>}
+                title={<span><MessageOutlined /> {t('dashboard.customerConvToday')}</span>}
                 value={botToday}
-                suffix={<Text type="secondary" style={{ fontSize: 14 }}>条</Text>}
                 valueStyle={{ color: '#13c2c2', fontSize: 32 }}
               />
               <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
-                {userToday > 0 && <Tag color="cyan" style={{ marginRight: 4 }}>客户来 {userToday}</Tag>}
-                {humanCount > 0 && <Tag color="orange" style={{ marginRight: 4 }}>🟠 人工 {humanCount}</Tag>}
-                {pendingCount > 0 && <Tag color="red">⏳ 待处理 {pendingCount}</Tag>}
+                {userToday > 0 && <Tag color="cyan" style={{ marginRight: 4 }}>{t('dashboard.newCustomers')} {userToday}</Tag>}
+                {humanCount > 0 && <Tag color="orange" style={{ marginRight: 4 }}>🟠 {t('cs.handoff')} {humanCount}</Tag>}
+                {pendingCount > 0 && <Tag color="red">⏳ {t('common.pending')} {pendingCount}</Tag>}
                 {humanCount === 0 && pendingCount === 0 && userToday === 0 && (
-                  <Text type="secondary">今日无新对话</Text>
+                  <Text type="secondary">{t('common.none')}</Text>
                 )}
               </div>
             </Card>
           </Col>
 
-          {/* 卡 4: 成功广告投放 */}
+          {/* card 4: successful campaigns */}
           <Col xs={24} sm={12} lg={6}>
             <Card>
               <Statistic
-                title={<span><SendOutlined /> 成功广告投放</span>}
+                title={<span><SendOutlined /> {t('campaign.successDelivery')}</span>}
                 value={adCompleted}
-                suffix={<Text type="secondary" style={{ fontSize: 14 }}>个</Text>}
                 valueStyle={{ color: '#fa541c', fontSize: 32 }}
               />
               <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
-                {adRunning > 0 && <Tag color="processing" style={{ marginRight: 4 }}>运行中 {adRunning}</Tag>}
-                <Tag color="default" style={{ marginRight: 4 }}>累计已发 {adTotalSent}</Tag>
-                {adTodaySent > 0 && <Tag color="green">今日 +{adTodaySent}</Tag>}
+                {adRunning > 0 && <Tag color="processing" style={{ marginRight: 4 }}>{t('common.running')} {adRunning}</Tag>}
+                <Tag color="default" style={{ marginRight: 4 }}>{t('campaign.totalSent')} {adTotalSent}</Tag>
+                {adTodaySent > 0 && <Tag color="green">+{adTodaySent}</Tag>}
               </div>
             </Card>
           </Col>

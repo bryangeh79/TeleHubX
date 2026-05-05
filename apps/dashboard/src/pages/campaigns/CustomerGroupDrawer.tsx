@@ -113,30 +113,28 @@ export default function CustomerGroupDrawer({ open, onClose, tenantId: tenantIdP
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 2 }}>
             <Text strong style={{ fontSize: 14 }}>{g.name}</Text>
-            <Tag color="purple" style={{ fontSize: 11 }}>{g.memberCount} 人</Tag>
+            <Tag color="purple" style={{ fontSize: 11 }}>{g.memberCount}</Tag>
             {g.usedCount > 0 && (
-              <Tag color="purple" style={{ fontSize: 11 }}>{g.usedCount} 次引用</Tag>
+              <Tag color="purple" style={{ fontSize: 11 }}>×{g.usedCount}</Tag>
             )}
             <Tag color={color} style={{ fontSize: 10 }}>{SOURCE_LABELS[g.sourceType]}</Tag>
           </div>
           <div>
             <Text type="secondary" style={{ fontSize: 11 }}>
-              {g.description || '无描述'}
-              {' · 创建 '}{dayjs(g.createdAt).fromNow()}
-              {g.lastUsedAt && ` · 最近投放 ${dayjs(g.lastUsedAt).fromNow()}`}
+              {g.description || t('customerGroup.noDescription')}
+              {' · '}{dayjs(g.createdAt).fromNow()}
             </Text>
           </div>
         </div>
 
         <Space size={4}>
           <Button size="small" icon={<EyeOutlined />} onClick={() => setDetailId(g.id)}>
-            查看成员
+            {t('customerGroup.viewMembers')}
           </Button>
           <Popconfirm
-            title={`删除「${g.name}」?`}
-            description="此操作不可撤销"
+            title={t('common.confirmDelete')}
             onConfirm={() => handleDelete(g)}
-            okText="删除" cancelText="取消" okButtonProps={{ danger: true }}
+            okText={t('common.delete')} cancelText={t('common.cancel')} okButtonProps={{ danger: true }}
           >
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
@@ -172,7 +170,7 @@ export default function CustomerGroupDrawer({ open, onClose, tenantId: tenantIdP
               <Space>
                 <TeamOutlined style={{ fontSize: 22, color: '#52c41a' }} />
                 <div>
-                  <Text type="secondary" style={{ fontSize: 11 }}>客户群数量</Text>
+                  <Text type="secondary" style={{ fontSize: 11 }}>{t('customerGroup.groupCount')}</Text>
                   <div style={{ fontSize: 20, fontWeight: 600 }}>{groups.length}</div>
                 </div>
               </Space>
@@ -183,7 +181,7 @@ export default function CustomerGroupDrawer({ open, onClose, tenantId: tenantIdP
               <Space>
                 <UserOutlined style={{ fontSize: 22, color: '#52c41a' }} />
                 <div>
-                  <Text type="secondary" style={{ fontSize: 11 }}>总号码数</Text>
+                  <Text type="secondary" style={{ fontSize: 11 }}>{t('customerGroup.totalNumbers')}</Text>
                   <div style={{ fontSize: 20, fontWeight: 600 }}>{totalMembers}</div>
                 </div>
               </Space>
@@ -194,7 +192,7 @@ export default function CustomerGroupDrawer({ open, onClose, tenantId: tenantIdP
         {/* Search */}
         <Input
           prefix={<SearchOutlined style={{ color: '#999' }} />}
-          placeholder="搜索客户群"
+          placeholder={t('common.search')}
           value={search}
           onChange={e => setSearch(e.target.value)}
           allowClear
@@ -203,17 +201,17 @@ export default function CustomerGroupDrawer({ open, onClose, tenantId: tenantIdP
 
         {/* List */}
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>加载中…</div>
+          <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>{t('common.loading')}</div>
         ) : filtered.length === 0 ? (
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={search ? '没有匹配的客户群' : '还没有客户群'}
+            description={t('common.none')}
             style={{ padding: 40 }}
           >
             {!search && (
               <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}
                 style={{ background: '#52c41a', borderColor: '#52c41a' }}>
-                新建第一个
+                {t('common.create')}
               </Button>
             )}
           </Empty>

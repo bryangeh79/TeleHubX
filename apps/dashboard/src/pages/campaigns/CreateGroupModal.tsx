@@ -216,7 +216,7 @@ export default function CreateGroupModal({ open, tenantId, existingGroups, onClo
       }
     >
       {/* Step 1: mode */}
-      <Title level={5} style={{ fontSize: 14 }}>1. 选择目标客户群</Title>
+      <Title level={5} style={{ fontSize: 14 }}>1. {t('createGroup.selectTarget')}</Title>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         <ModeCard value="new" icon={<PlusOutlined />} title={t('campaign.group.modeNew')} sub="" />
         <ModeCard value="append" icon={<FolderOpenOutlined />} title={t('campaign.group.modeAppend')} sub="" />
@@ -227,21 +227,21 @@ export default function CreateGroupModal({ open, tenantId, existingGroups, onClo
           <Input
             value={name}
             onChange={e => setName(e.target.value)}
-            placeholder="新组名称 · 例如: 618 促销客户"
+            placeholder={t('createGroup.namePlaceholder')}
             maxLength={128} showCount
             style={{ marginBottom: 8 }}
           />
           <TextArea
             value={description}
             onChange={e => setDescription(e.target.value)}
-            placeholder="描述 (可选) · 例如: 2026-04 电信广告目标"
+            placeholder={`${t('form.description')} (${t('common.optional')})`}
             rows={2}
           />
         </>
       ) : (
         <Select
           style={{ width: '100%' }}
-          placeholder="选择已有客户群"
+          placeholder={t('createGroup.selectExisting')}
           value={appendToId || undefined}
           onChange={setAppendToId}
           options={existingGroups.map(g => ({
@@ -254,14 +254,14 @@ export default function CreateGroupModal({ open, tenantId, existingGroups, onClo
       <Divider style={{ margin: '16px 0 8px' }} />
 
       {/* Step 2: source */}
-      <Title level={5} style={{ fontSize: 14 }}>2. 添加号码 · 选一种方式</Title>
+      <Title level={5} style={{ fontSize: 14 }}>2. {t('createGroup.addNumbers')}</Title>
       <Tabs
         activeKey={tab}
         onChange={k => setTab(k as SourceTab)}
         items={[
-          { key: 'paste', label: '粘贴号码' },
-          { key: 'excel', label: <span><FileExcelOutlined /> Excel / CSV 文件</span> },
-          { key: 'candidates', label: <span><FilterOutlined /> 从候选池筛选</span>, disabled: mode === 'append' },
+          { key: 'paste', label: t('createGroup.tab.paste') },
+          { key: 'excel', label: <span><FileExcelOutlined /> Excel / CSV</span> },
+          { key: 'candidates', label: <span><FilterOutlined /> {t('createGroup.tab.filterPool')}</span>, disabled: mode === 'append' },
         ]}
       />
 

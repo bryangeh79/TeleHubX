@@ -101,50 +101,63 @@ interface Stats {
 
 interface TaskTypeMeta { label: string; color: string; group: string; icon: string }
 
+/**
+ * Round-9: TASK_TYPE_LABELS labels 改英文 fallback (zh-only 字符串太多, 默认 English).
+ * 渲染走 taskTypeLabel(t, type) — 优先 i18n key (taskType.<key>), 缺失时 fallback 到 .label.
+ * group/icon/color 静态保留 (group 仅用于 grouped Select).
+ */
 const TASK_TYPE_LABELS: Record<TaskType, TaskTypeMeta> = {
-  // 组合配套（一键启动）
-  preset_full_14d:        { icon: '🎯', label: '一键托管 14 天',          color: 'gold',     group: '组合配套' },
-  preset_warmup_7d:       { icon: '🌱', label: '自动养号 7 天',           color: 'lime',     group: '组合配套' },
-  preset_rampup_7d:       { icon: '🔥', label: '运营热身 7 天',           color: 'orange',   group: '组合配套' },
-  preset_mature_ops:      { icon: '🚀', label: '成熟运营 Day 15+',        color: 'volcano',  group: '组合配套' },
+  // Preset bundles
+  preset_full_14d:        { icon: '🎯', label: 'Full Preset 14 days',     color: 'gold',     group: 'Preset' },
+  preset_warmup_7d:       { icon: '🌱', label: 'Warmup 7 days',           color: 'lime',     group: 'Preset' },
+  preset_rampup_7d:       { icon: '🔥', label: 'Rampup 7 days',           color: 'orange',   group: 'Preset' },
+  preset_mature_ops:      { icon: '🚀', label: 'Mature Ops Day 15+',      color: 'volcano',  group: 'Preset' },
 
-  // 群组发现+加入
-  join_groups:            { icon: '🌐', label: '自动加群（邀请链接）',     color: 'green',    group: '群组' },
-  join_groups_by_keyword: { icon: '🔍', label: '关键词搜群+加',            color: 'green',    group: '群组' },
-  discover_groups_by_keyword: { icon: '🔭', label: '关键词发现群（不加）',     color: 'cyan',     group: '群组' },
-  join_channels:          { icon: '⭐', label: 'Follow 频道',              color: 'cyan',     group: '群组' },
-  accept_invites:         { icon: '👥', label: '接受群组邀请',             color: 'green',    group: '群组' },
+  // Group discovery + join
+  join_groups:            { icon: '🌐', label: 'Join Groups',             color: 'green',    group: 'Groups' },
+  join_groups_by_keyword: { icon: '🔍', label: 'Search & Join Groups',    color: 'green',    group: 'Groups' },
+  discover_groups_by_keyword: { icon: '🔭', label: 'Discover Groups',     color: 'cyan',     group: 'Groups' },
+  join_channels:          { icon: '⭐', label: 'Follow Channels',         color: 'cyan',     group: 'Groups' },
+  accept_invites:         { icon: '👥', label: 'Accept Invites',          color: 'green',    group: 'Groups' },
 
-  // 自建群
-  group_create:           { icon: '🏗️', label: '自建测试群',               color: 'purple',   group: '自建群' },
-  group_invite_members:   { icon: '📨', label: '邀请账号入群',             color: 'purple',   group: '自建群' },
+  // Self-built group
+  group_create:           { icon: '🏗️', label: 'Create Group',            color: 'purple',   group: 'Groups (Self)' },
+  group_invite_members:   { icon: '📨', label: 'Invite Members',          color: 'purple',   group: 'Groups (Self)' },
 
-  // 群组活动
-  group_bubble:           { icon: '💡', label: '群内冒泡',                 color: 'gold',     group: '群组活动' },
-  chat_script_ab:         { icon: '💬', label: 'A+B 双角色剧本',           color: 'purple',   group: '群组活动' },
-  chat_script_4p:         { icon: '💬', label: '4 人剧本',                 color: 'purple',   group: '群组活动' },
-  chat_script_6p:         { icon: '💬', label: '6 人剧本',                 color: 'purple',   group: '群组活动' },
+  // Group activity
+  group_bubble:           { icon: '💡', label: 'Group Bubble',            color: 'gold',     group: 'Group Activity' },
+  chat_script_ab:         { icon: '💬', label: 'Chat Script A+B',         color: 'purple',   group: 'Group Activity' },
+  chat_script_4p:         { icon: '💬', label: 'Chat Script 4-person',    color: 'purple',   group: 'Group Activity' },
+  chat_script_6p:         { icon: '💬', label: 'Chat Script 6-person',    color: 'purple',   group: 'Group Activity' },
 
-  // 拉新引流
-  keyword_lead_hunt:      { icon: '🎯', label: '关键词智能引流',           color: 'magenta',  group: '拉新引流' },
-  group_scrape:           { icon: '🎯', label: '群成员爬取',               color: 'magenta',  group: '拉新引流' },
+  // Lead generation
+  keyword_lead_hunt:      { icon: '🎯', label: 'Keyword Lead Hunt',       color: 'magenta',  group: 'Lead Hunt' },
+  group_scrape:           { icon: '🎯', label: 'Group Scrape',            color: 'magenta',  group: 'Lead Hunt' },
 
-  // 触达
-  contact_add:            { icon: '➕', label: '加 contact',               color: 'blue',     group: '触达' },
-  campaign_single:        { icon: '📝', label: '单条消息',                 color: 'cyan',     group: '触达' },
+  // Outreach
+  contact_add:            { icon: '➕', label: 'Add Contact',             color: 'blue',     group: 'Outreach' },
+  campaign_single:        { icon: '📝', label: 'Campaign Single',         color: 'cyan',     group: 'Outreach' },
 
-  // 内容输出
-  post_channel:           { icon: '📢', label: '发频道 / Story',           color: 'blue',     group: '内容输出' },
-  media_voice:            { icon: '🎤', label: '发语音 (素材池随机)',       color: 'blue',     group: '内容输出' },
-  media_photo:            { icon: '🖼️', label: '发图片 (素材池随机)',       color: 'blue',     group: '内容输出' },
-  media_video:            { icon: '🎬', label: '发视频 (素材池随机)',       color: 'blue',     group: '内容输出' },
+  // Content
+  post_channel:           { icon: '📢', label: 'Post Channel / Story',    color: 'blue',     group: 'Content' },
+  media_voice:            { icon: '🎤', label: 'Media: Voice',            color: 'blue',     group: 'Content' },
+  media_photo:            { icon: '🖼️', label: 'Media: Photo',            color: 'blue',     group: 'Content' },
+  media_video:            { icon: '🎬', label: 'Media: Video',            color: 'blue',     group: 'Content' },
 
-  // 互动 / 保活
-  reaction_boost:         { icon: '👍', label: '给消息加 Reaction',         color: 'magenta',  group: '互动 / 保活' },
-  browse_channel:         { icon: '🌐', label: '浏览频道',                 color: 'default',  group: '互动 / 保活' },
-  profile_update:         { icon: '📋', label: '更新资料 (签名/头像)',      color: 'default',  group: '互动 / 保活' },
-  idle_keepalive:         { icon: '🔌', label: '挂机保活',                 color: 'default',  group: '互动 / 保活' },
+  // Interaction / Keep-alive
+  reaction_boost:         { icon: '👍', label: 'Reaction Boost',          color: 'magenta',  group: 'Interaction' },
+  browse_channel:         { icon: '🌐', label: 'Browse Channel',          color: 'default',  group: 'Interaction' },
+  profile_update:         { icon: '📋', label: 'Profile Update',          color: 'default',  group: 'Interaction' },
+  idle_keepalive:         { icon: '🔌', label: 'Idle Keep-alive',         color: 'default',  group: 'Interaction' },
 };
+
+/** Resolve task type label via i18n (taskType.<key>); fallback to TASK_TYPE_LABELS.label */
+function taskTypeLabel(t: (k: string) => string, type: string): string {
+  const key = `taskType.${type}`;
+  const translated = t(key);
+  if (translated && translated !== key) return translated;
+  return (TASK_TYPE_LABELS as any)[type]?.label ?? type;
+}
 
 /** 把 22 个任务按 group 分组成 antd Select 的 options（带 emoji）。 */
 function buildGroupedTaskOptions() {
@@ -570,7 +583,7 @@ export default function SchedulerPage() {
         const m = TASK_TYPE_LABELS[row.type];
         return (
           <Tag color={m?.color ?? 'default'} style={{ fontSize: 12, padding: '2px 8px' }}>
-            {m?.icon ?? ''} {m?.label ?? row.type}
+            {m?.icon ?? ''} {taskTypeLabel(t, row.type)}
           </Tag>
         );
       },
@@ -701,31 +714,23 @@ export default function SchedulerPage() {
           <Space align="center" size={10}>
             <Title level={4} style={{ margin: 0 }}>
               <ScheduleOutlined style={{ marginRight: 8 }} />
-              任务调度
+              {t('page.scheduler.title')}
             </Title>
-            <Tag
-              color="success"
-              style={{ fontSize: 12, margin: 0 }}
-              title="agent 每 15s 拉一次任务，按 BehaviorSimulator 模拟真人执行；FloodWait 自动隔离账号"
-            >
+            <Tag color="success" style={{ fontSize: 12, margin: 0 }}>
               <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: '#52c41a', marginRight: 6, verticalAlign: 'middle' }} />
-              Worker 运行中
+              {t('scheduler.workerRunning')}
             </Tag>
           </Space>
-          <div>
-            <Text type="secondary">所有 Warmup / Campaign / ChatScript 任务的统一调度看板</Text>
-          </div>
         </div>
         <Space>
           <Popconfirm
-            title="紧急停止所有任务？"
-            description={`将取消所有 pending/running/paused 任务，agent 完成当前 turn 后停下。无法恢复。`}
-            okText="确认全部停止"
+            title={t('scheduler.killAllConfirm')}
+            okText={t('common.confirm')}
             okButtonProps={{ danger: true }}
-            cancelText="取消"
+            cancelText={t('common.cancel')}
             onConfirm={handleCancelAll}
           >
-            <Button danger icon={<StopOutlined />}>立即终止全部</Button>
+            <Button danger icon={<StopOutlined />}>{t('scheduler.killAll')}</Button>
           </Popconfirm>
           <Button
             type="primary"
@@ -734,7 +739,7 @@ export default function SchedulerPage() {
             onClick={() => setCreateOpen(true)}
             style={{ fontWeight: 500, paddingInline: 22 }}
           >
-            新建任务
+            {t('scheduler.newTask')}
           </Button>
         </Space>
       </div>
@@ -754,25 +759,25 @@ export default function SchedulerPage() {
           title={
             <Space>
               <ThunderboltOutlined style={{ color: '#1677ff' }} />
-              <Text strong>运行中的长任务</Text>
-              <Tag color="blue">{longRunningTasks.length} 个</Tag>
+              <Text strong>{t('scheduler.longRunningTasks')}</Text>
+              <Tag color="blue">{longRunningTasks.length}</Tag>
             </Space>
           }
         >
           <Row gutter={[12, 12]}>
-            {longRunningTasks.map((t) => {
-              const meta = TASK_TYPE_LABELS[t.type];
+            {longRunningTasks.map((task) => {
+              const meta = TASK_TYPE_LABELS[task.type];
               return (
-                <Col key={t.id} xs={24} md={12} lg={8}>
-                  <Card size="small" hoverable onClick={() => setLogTask(t)} style={{ cursor: 'pointer' }}>
+                <Col key={task.id} xs={24} md={12} lg={8}>
+                  <Card size="small" hoverable onClick={() => setLogTask(task)} style={{ cursor: 'pointer' }}>
                     <Space size={6} style={{ marginBottom: 8 }}>
-                      <Tag color={meta?.color}>{meta?.icon} {meta?.label}</Tag>
-                      <Text type="secondary" style={{ fontSize: 11 }}>{t.accountLabel}</Text>
+                      <Tag color={meta?.color}>{meta?.icon} {taskTypeLabel(t, task.type)}</Tag>
+                      <Text type="secondary" style={{ fontSize: 11 }}>{task.accountLabel}</Text>
                     </Space>
-                    <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>{t.name}</Text>
-                    <Progress percent={t.progress} status="active" strokeColor={{ from: '#1677ff', to: '#52c41a' }} />
+                    <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>{task.name}</Text>
+                    <Progress percent={task.progress} status="active" strokeColor={{ from: '#1677ff', to: '#52c41a' }} />
                     <Text type="secondary" style={{ fontSize: 11 }}>
-                      启动 {dayjs(t.startedAt ?? t.scheduledAt).format('MM-DD HH:mm')}
+                      {dayjs(task.startedAt ?? task.scheduledAt).format('MM-DD HH:mm')}
                     </Text>
                   </Card>
                 </Col>
@@ -785,9 +790,9 @@ export default function SchedulerPage() {
       <Card
         title={
           <Space>
-            <Text strong>所有任务</Text>
-            {tasks.some((t) => t.status === 'running' || t.status === 'pending') && (
-              <Tag color="processing" icon={<LoadingOutlined />}>自动刷新中 (5s)</Tag>
+            <Text strong>{t('scheduler.allTasks')}</Text>
+            {tasks.some((task) => task.status === 'running' || task.status === 'pending') && (
+              <Tag color="processing" icon={<LoadingOutlined />}>{t('scheduler.autoRefresh')} (5s)</Tag>
             )}
           </Space>
         }
@@ -799,7 +804,7 @@ export default function SchedulerPage() {
             allowClear
             placeholder={`${t('common.all')} ${t('common.status')}`}
             style={{ width: 140 }}
-            options={Object.entries(STATUS_META).map(([k, m]) => ({ value: k, label: m.label }))}
+            options={Object.entries(STATUS_META_T).map(([k, m]) => ({ value: k, label: m.label }))}
           />
           <Select
             value={filterType}
@@ -830,8 +835,8 @@ export default function SchedulerPage() {
         title={
           <Space>
             <EyeOutlined />
-            <span>任务详情</span>
-            {logTask?.status === 'running' && <Tag color="processing" icon={<LoadingOutlined />}>实时刷新中 (3s)</Tag>}
+            <span>{t('scheduler.taskDetail')}</span>
+            {logTask?.status === 'running' && <Tag color="processing" icon={<LoadingOutlined />}>{t('scheduler.autoRefresh')} (3s)</Tag>}
           </Space>
         }
         open={!!logTask}
@@ -859,35 +864,35 @@ export default function SchedulerPage() {
               </Tooltip>,
             );
           }
-          buttons.push(<Button key="close" onClick={() => setLogTask(null)}>关闭</Button>);
+          buttons.push(<Button key="close" onClick={() => setLogTask(null)}>{t('common.close')}</Button>);
           return buttons;
         })()}
         width={640}
       >
         {logTask && (
           <Descriptions column={1} size="small" bordered>
-            <Descriptions.Item label="任务编号">#{logTask.seq ?? logTask.id.slice(0, 6)}</Descriptions.Item>
-            <Descriptions.Item label="任务名">{logTask.name}</Descriptions.Item>
-            <Descriptions.Item label="任务类型">
+            <Descriptions.Item label={t('page.scheduler.col.id')}>#{logTask.seq ?? logTask.id.slice(0, 6)}</Descriptions.Item>
+            <Descriptions.Item label={t('common.name')}>{logTask.name}</Descriptions.Item>
+            <Descriptions.Item label={t('page.scheduler.col.type')}>
               <Tag color={TASK_TYPE_LABELS[logTask.type]?.color}>
-                {TASK_TYPE_LABELS[logTask.type]?.icon} {TASK_TYPE_LABELS[logTask.type]?.label}
+                {TASK_TYPE_LABELS[logTask.type]?.icon} {taskTypeLabel(t, logTask.type)}
               </Tag>
             </Descriptions.Item>
-            <Descriptions.Item label="执行账号">{logTask.accountLabel ?? '—'}</Descriptions.Item>
-            <Descriptions.Item label="状态">
-              <Tag color={STATUS_META[logTask.status].color as any}>
-                {logTask.status === 'running' ? <LoadingOutlined /> : null} {STATUS_META[logTask.status].label}
+            <Descriptions.Item label={t('page.accounts.col.label')}>{logTask.accountLabel ?? '—'}</Descriptions.Item>
+            <Descriptions.Item label={t('common.status')}>
+              <Tag color={STATUS_META_T[logTask.status].color as any}>
+                {logTask.status === 'running' ? <LoadingOutlined /> : null} {STATUS_META_T[logTask.status].label}
               </Tag>
             </Descriptions.Item>
-            <Descriptions.Item label="进度">
+            <Descriptions.Item label={t('task.progress')}>
               <Progress percent={logTask.progress} size="small" status={logTask.status === 'failed' ? 'exception' : logTask.status === 'done' ? 'success' : 'active'} />
             </Descriptions.Item>
-            <Descriptions.Item label="计划时间">{dayjs(logTask.scheduledAt).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
+            <Descriptions.Item label={t('task.scheduledAt')}>{dayjs(logTask.scheduledAt).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
             {logTask.startedAt && (
-              <Descriptions.Item label="开始时间">{dayjs(logTask.startedAt).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
+              <Descriptions.Item label={t('task.startedAt')}>{dayjs(logTask.startedAt).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
             )}
             {logTask.finishedAt && (
-              <Descriptions.Item label="结束时间">{dayjs(logTask.finishedAt).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
+              <Descriptions.Item label={t('task.finishedAt')}>{dayjs(logTask.finishedAt).format('YYYY-MM-DD HH:mm:ss')}</Descriptions.Item>
             )}
             {/* Auto-Recovery: 错误类别 + 自动重试状态 (i18n) */}
             {logTask.errorClass && resolveErrorClassMeta(logTask.errorClass, t) && (
@@ -966,11 +971,11 @@ export default function SchedulerPage() {
           <div style={{ marginTop: 16 }}>
             <Title level={5} style={{ marginBottom: 8 }}>
               <ScheduleOutlined style={{ marginRight: 6 }} />
-              子任务进度 ({logChildren.filter((c) => c.status === 'done').length}/{logChildren.length} 完成)
+              {t('scheduler.childProgress')} ({logChildren.filter((c) => c.status === 'done').length}/{logChildren.length})
             </Title>
             <div style={{ maxHeight: 360, overflow: 'auto' }}>
               {logChildren.map((c) => {
-                const m = STATUS_META[c.status];
+                const m = STATUS_META_T[c.status];
                 const tm = TASK_TYPE_LABELS[c.type];
                 return (
                   <div key={c.id} style={{
@@ -983,7 +988,7 @@ export default function SchedulerPage() {
                     fontSize: 12,
                   }}>
                     <Tag color={tm?.color ?? 'default'} style={{ fontSize: 11, marginRight: 8 }}>
-                      {tm?.icon} {tm?.label}
+                      {tm?.icon} {taskTypeLabel(t, c.type)}
                     </Tag>
                     <Text style={{ flex: 1, fontSize: 12 }}>{c.name}</Text>
                     <Text type="secondary" style={{ fontSize: 11, marginRight: 10 }}>

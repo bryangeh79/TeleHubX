@@ -241,7 +241,7 @@ function AdTemplateModal({
               loading={uploading}
               onClick={() => fileInputRef.current?.click()}
             >
-              上传图片 / 视频 / 语音
+              {t('adTemplate.uploadMedia')}
             </Button>
             {mediaFileName && (
               <Space size={4}>
@@ -259,13 +259,13 @@ function AdTemplateModal({
             <Progress percent={uploadPct} size="small" style={{ marginTop: 4, maxWidth: 300 }} />
           )}
           <div style={{ marginTop: 4 }}>
-            <Text type="secondary" style={{ fontSize: 11 }}>支持 jpg/png/mp4/mp3/ogg · 最大 50MB</Text>
+            <Text type="secondary" style={{ fontSize: 11 }}>{t('adTemplate.uploadHint')}</Text>
           </div>
           {!mediaFileName && (
             <div style={{ marginTop: 6 }}>
-              <Text type="secondary" style={{ fontSize: 11 }}>或直接填素材 ID：</Text>
+              <Text type="secondary" style={{ fontSize: 11 }}>{t('adTemplate.assetIdLabel')}</Text>
               <Input
-                placeholder="素材 UUID"
+                placeholder={t('adTemplate.assetIdPlaceholder')}
                 value={mediaAssetId}
                 onChange={e => setMediaAssetId(e.target.value)}
                 style={{ width: 260, marginLeft: 4 }}
@@ -282,8 +282,8 @@ function AdTemplateModal({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: aiEnabled ? 12 : 0 }}>
             <Space>
               <ThunderboltOutlined style={{ color: '#52c41a' }} />
-              <Text strong>AI 变体池</Text>
-              <Tag color="green" style={{ fontSize: 11 }}>推荐·防封号</Tag>
+              <Text strong>{t('adTemplate.aiVariantPool')}</Text>
+              <Tag color="green" style={{ fontSize: 11 }}>{t('cs.replyMode.recommended')}</Tag>
             </Space>
             <Switch
               checked={aiEnabled}
@@ -450,9 +450,9 @@ export default function AdTemplateDrawer({ open, onClose, tenantId: tenantIdProp
           </div>
         ) : (
           <div>
-            {templates.map((t, idx) => (
+            {templates.map((tpl, idx) => (
               <div
-                key={t.id}
+                key={tpl.id}
                 style={{
                   border: '1px solid #e8e8e8', borderRadius: 8, padding: 14,
                   marginBottom: 10, background: '#fff',
@@ -462,39 +462,39 @@ export default function AdTemplateDrawer({ open, onClose, tenantId: tenantIdProp
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                   <Space size={4} wrap>
                     <Tag color="default" style={{ fontSize: 11 }}>#{templates.length - idx}</Tag>
-                    <Text strong style={{ fontSize: 14 }}>{t.name}</Text>
+                    <Text strong style={{ fontSize: 14 }}>{tpl.name}</Text>
                     <Badge
-                      color={t.isActive ? '#52c41a' : '#d9d9d9'}
-                      text={<Text style={{ fontSize: 11, color: t.isActive ? '#52c41a' : '#999' }}>
-                        {t.isActive ? '启用' : '停用'}
+                      color={tpl.isActive ? '#52c41a' : '#d9d9d9'}
+                      text={<Text style={{ fontSize: 11, color: tpl.isActive ? '#52c41a' : '#999' }}>
+                        {tpl.isActive ? t('common.enabled') : t('common.disabled')}
                       </Text>}
                     />
-                    {t.hasMedia && <Tag color="blue" style={{ fontSize: 11 }}>含素材</Tag>}
-                    {t.aiVariantEnabled && (t.variants?.length ?? 0) > 0 && (
+                    {tpl.hasMedia && <Tag color="blue" style={{ fontSize: 11 }}>{t('adTemplate.hasMedia')}</Tag>}
+                    {tpl.aiVariantEnabled && (tpl.variants?.length ?? 0) > 0 && (
                       <Tag color="purple" icon={<ThunderboltOutlined />} style={{ fontSize: 11 }}>
-                        AI · {t.variants!.length} 变体
+                        AI · {tpl.variants!.length}
                       </Tag>
                     )}
                   </Space>
                   <Space size={4}>
-                    <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(t)}>编辑</Button>
+                    <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(tpl)}>{t('common.edit')}</Button>
                     <Popconfirm
-                      title={`删除「${t.name}」?`}
-                      onConfirm={() => handleDelete(t)}
-                      okText="删除" cancelText="取消" okButtonProps={{ danger: true }}
+                      title={t('common.confirmDelete')}
+                      onConfirm={() => handleDelete(tpl)}
+                      okText={t('common.delete')} cancelText={t('common.cancel')} okButtonProps={{ danger: true }}
                     >
-                      <Button size="small" type="link" danger icon={<DeleteOutlined />}>删除</Button>
+                      <Button size="small" type="link" danger icon={<DeleteOutlined />}>{t('common.delete')}</Button>
                     </Popconfirm>
                   </Space>
                 </div>
 
                 {/* Content preview */}
                 <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>
-                  {t.content.slice(0, 120)}{t.content.length > 120 ? '…' : ''}
+                  {tpl.content.slice(0, 120)}{tpl.content.length > 120 ? '…' : ''}
                 </Text>
                 <div style={{ marginTop: 4 }}>
                   <Text type="secondary" style={{ fontSize: 11 }}>
-                    最近修改: {dayjs(t.updatedAt).format('YYYY/M/D')}
+                    {t('adTemplate.lastModified')}: {dayjs(tpl.updatedAt).format('YYYY/M/D')}
                   </Text>
                 </div>
               </div>

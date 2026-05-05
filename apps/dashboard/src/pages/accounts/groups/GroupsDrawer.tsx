@@ -120,10 +120,7 @@ export default function GroupsDrawer({ open, onClose, onChange }: GroupsDrawerPr
           <Empty
             description={
               <div>
-                <Paragraph>尚未启用执行组别。</Paragraph>
-                <Paragraph type="secondary" style={{ fontSize: 12 }}>
-                  请先点击「分组设置」选择组别数量（2–9 组），系统会自动建立组别并排期。
-                </Paragraph>
+                <Paragraph>{t('groups.notEnabled')}</Paragraph>
               </div>
             }
           />
@@ -133,8 +130,7 @@ export default function GroupsDrawer({ open, onClose, onChange }: GroupsDrawerPr
               type="info"
               showIcon
               style={{ marginBottom: 16 }}
-              message={`共 ${groups.length} 组，每组最多 ${MAX_MEMBERS} 个账号`}
-              description="点击 + 把未分组账号加入组别；点 × 把账号移出。任何变更立即生效，不会删除任务历史。"
+              message={t('groups.summary', { count: groups.length, max: MAX_MEMBERS })}
             />
 
             <Row gutter={[12, 12]}>
@@ -146,7 +142,7 @@ export default function GroupsDrawer({ open, onClose, onChange }: GroupsDrawerPr
                       size="small"
                       title={
                         <Space>
-                          <Tag color="blue" style={{ marginRight: 0 }}>组 {g.slotNum}</Tag>
+                          <Tag color="blue" style={{ marginRight: 0 }}>{t('page.accounts.col.group')} {g.slotNum}</Tag>
                           <Text strong>{g.name ?? `Group ${g.slotNum}`}</Text>
                         </Space>
                       }
@@ -204,12 +200,12 @@ export default function GroupsDrawer({ open, onClose, onChange }: GroupsDrawerPr
                             onMouseLeave={(e) => { e.currentTarget.style.background = '#f0f7ff'; e.currentTarget.style.borderColor = '#91caff'; }}
                           >
                             <PlusOutlined style={{ marginRight: 6 }} />
-                            添加成员
+                            {t('groups.addMember')}
                           </div>
                         )}
                         {isFull && (
                           <div style={{ textAlign: 'center', padding: '8px 0', color: '#bfbfbf', fontSize: 12 }}>
-                            组已满 · 移出成员后才能加新号
+                            {t('groups.full')}
                           </div>
                         )}
                       </Space>
@@ -222,7 +218,7 @@ export default function GroupsDrawer({ open, onClose, onChange }: GroupsDrawerPr
             {ungrouped.length > 0 && (
               <Card
                 size="small"
-                title={<Space>未分组账号 <Tag>{ungrouped.length}</Tag></Space>}
+                title={<Space>{t('groups.ungrouped')} <Tag>{ungrouped.length}</Tag></Space>}
                 style={{ marginTop: 16, background: '#fafafa' }}
               >
                 <Space direction="vertical" size={4} style={{ width: '100%' }}>
@@ -247,7 +243,7 @@ export default function GroupsDrawer({ open, onClose, onChange }: GroupsDrawerPr
                             menu={{
                               items: availableGroups.map((g) => ({
                                 key: g.id,
-                                label: `加入 → 组 ${g.slotNum} (${g.members.length}/${MAX_MEMBERS})`,
+                                label: `${t('groups.joinGroup')} ${g.slotNum} (${g.members.length}/${MAX_MEMBERS})`,
                               })),
                               onClick: async ({ key }) => {
                                 try {
@@ -262,7 +258,7 @@ export default function GroupsDrawer({ open, onClose, onChange }: GroupsDrawerPr
                             }}
                           >
                             <Button size="small" type="primary" icon={<SwapOutlined />}>
-                              加入到组
+                              {t('groups.joinGroup')}
                             </Button>
                           </Dropdown>
                         </Col>
@@ -278,26 +274,17 @@ export default function GroupsDrawer({ open, onClose, onChange }: GroupsDrawerPr
 
       {/* 选号 Modal — 给某个组添加成员 */}
       <Modal
-        title={pickerGroup ? `加入到组 ${pickerGroup.slotNum} (${pickerGroup.members.length}/${MAX_MEMBERS})` : ''}
+        title={pickerGroup ? `${t('groups.joinGroup')} ${pickerGroup.slotNum} (${pickerGroup.members.length}/${MAX_MEMBERS})` : ''}
         open={!!pickerGroup}
         onCancel={() => setPickerGroup(null)}
         footer={null}
       >
         {ungrouped.length === 0 ? (
-          <Empty
-            description={
-              <div>
-                <Paragraph>所有账号都已分组</Paragraph>
-                <Paragraph type="secondary" style={{ fontSize: 12 }}>
-                  如果需要换组，请先在原组卡上点 × 移出，然后回到这里再加进新组。
-                </Paragraph>
-              </div>
-            }
-          />
+          <Empty description={<Paragraph>{t('common.none')}</Paragraph>} />
         ) : (
           <Space direction="vertical" size={6} style={{ width: '100%' }}>
             <Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
-              点击账号即加入到组 {pickerGroup?.slotNum}：
+              {t('groups.joinGroup')} {pickerGroup?.slotNum}:
             </Paragraph>
             {ungrouped.map((m) => (
               <Card
