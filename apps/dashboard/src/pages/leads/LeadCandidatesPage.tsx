@@ -57,14 +57,16 @@ interface Candidate {
   packedIntoGroupIds: string[] | null;
 }
 
-const STATUS_META: Record<string, { label: string; color: string }> = {
-  pending:   { label: '未联系', color: 'default' },
-  contacted: { label: '已联系', color: 'processing' },
-  replied:   { label: '已回复', color: 'cyan' },
-  converted: { label: '已转 Lead', color: 'success' },
-  blocked:   { label: '黑名单', color: 'error' },
-  expired:   { label: '已过期', color: 'warning' },
-};
+function buildStatusMeta(t: (k: string) => string): Record<string, { label: string; color: string }> {
+  return {
+    pending:   { label: t('lead.cand.status.pending'),   color: 'default' },
+    contacted: { label: t('lead.cand.status.contacted'), color: 'processing' },
+    replied:   { label: '已回复',     color: 'cyan' },
+    converted: { label: '已转 Lead',  color: 'success' },
+    blocked:   { label: '黑名单',     color: 'error' },
+    expired:   { label: '已过期',     color: 'warning' },
+  };
+}
 
 const TENANT_KEY = 'telehubx:tenantId';
 
@@ -219,9 +221,10 @@ export default function LeadCandidatesPage() {
     URL.revokeObjectURL(url);
   };
 
+  const STATUS_META = buildStatusMeta(t);
   const columns: ColumnsType<Candidate> = [
     {
-      title: 'TG 用户', key: 'tg', width: 240,
+      title: t('lead.cand.tg'), key: 'tg', width: 240,
       render: (_, c) => (
         <div>
           <Space size={4}>
@@ -240,11 +243,11 @@ export default function LeadCandidatesPage() {
       ),
     },
     {
-      title: '来源群', key: 'source', width: 200,
+      title: t('lead.cand.source'), key: 'source', width: 200,
       render: (_, c) => (
         c.sourceGroupTitle || c.sourceGroupId ? (
           <div>
-            <Text style={{ fontSize: 12 }}>{c.sourceGroupTitle ?? '(未知群名)'}</Text>
+            <Text style={{ fontSize: 12 }}>{c.sourceGroupTitle ?? t('lead.cand.unknownGroup')}</Text>
             <br />
             <Text type="secondary" style={{ fontSize: 10 }}>{c.sourceGroupId?.slice(0, 18)}</Text>
           </div>
@@ -252,37 +255,37 @@ export default function LeadCandidatesPage() {
       ),
     },
     {
-      title: '最后在线', dataIndex: 'lastSeenAt', key: 'lastSeenAt', width: 110,
-      render: (t: string | null) => t
-        ? <Text style={{ fontSize: 11 }}>{dayjs(t).format('MM-DD HH:mm')}</Text>
-        : <Text type="secondary" style={{ fontSize: 11 }}>未知</Text>,
+      title: t('lead.cand.lastSeen'), dataIndex: 'lastSeenAt', key: 'lastSeenAt', width: 110,
+      render: (v: string | null) => v
+        ? <Text style={{ fontSize: 11 }}>{dayjs(v).format('MM-DD HH:mm')}</Text>
+        : <Text type="secondary" style={{ fontSize: 11 }}>{t('lead.cand.unknown')}</Text>,
     },
     {
-      title: '优先级', dataIndex: 'priorityScore', key: 'priorityScore', width: 90,
+      title: t('lead.cand.priority'), dataIndex: 'priorityScore', key: 'priorityScore', width: 90,
       sorter: (a, b) => a.priorityScore - b.priorityScore,
       render: (s: number) => <Tag color={s >= 70 ? 'green' : s >= 50 ? 'blue' : 'default'}>{s}</Tag>,
     },
     {
-      title: '状态', dataIndex: 'status', key: 'status', width: 110,
+      title: t('lead.cand.status'), dataIndex: 'status', key: 'status', width: 110,
       render: (s: string) => {
         const m = STATUS_META[s] ?? { label: s, color: 'default' };
         return <Tag color={m.color as any}>{m.label}</Tag>;
       },
     },
     {
-      title: '已打包', dataIndex: 'packedIntoGroupIds', key: 'packed', width: 90,
+      title: t('lead.cand.packed'), dataIndex: 'packedIntoGroupIds', key: 'packed', width: 90,
       render: (ids: string[] | null) => (
         Array.isArray(ids) && ids.length > 0
-          ? <Tag color="purple">已入 {ids.length} 群</Tag>
-          : <Tag color="default">未打包</Tag>
+          ? <Tag color="purple">{t('lead.cand.packedNGroups', { count: ids.length })}</Tag>
+          : <Tag color="default">—</Tag>
       ),
     },
     {
-      title: '爬取时间', dataIndex: 'scrapedAt', key: 'scrapedAt', width: 140,
-      render: (t: string) => <Text style={{ fontSize: 12 }}>{dayjs(t).format('MM-DD HH:mm')}</Text>,
+      title: t('lead.cand.scrapedAt'), dataIndex: 'scrapedAt', key: 'scrapedAt', width: 140,
+      render: (v: string) => <Text style={{ fontSize: 12 }}>{dayjs(v).format('MM-DD HH:mm')}</Text>,
     },
     {
-      title: '操作', key: 'ops', width: 120,
+      title: t('lead.cand.actions'), key: 'ops', width: 120,
       render: (_, c) => (
         <Popconfirm title="确认删除此候选人？" onConfirm={() => handleDelete(c.id)}>
           <Button size="small" danger icon={<DeleteOutlined />} />
@@ -342,7 +345,7 @@ export default function LeadCandidatesPage() {
             ghost={onlyUnpacked}
             onClick={() => setOnlyUnpacked(v => !v)}
           >
-            {onlyUnpacked ? '✓ 只看未打包' : '只看未打包'}
+            {onlyUnpacked ? t('lead.cand.onlyUnpackedActive') : t('lead.cand.onlyUnpacked')}
           </Button>
           <Button
             icon={<TeamOutlined />}
@@ -355,7 +358,7 @@ export default function LeadCandidatesPage() {
               setPackOpen(true);
             }}
           >
-            📦 打包成客户群 ({selectedRowKeys.length})
+            {t('lead.cand.packBtn', { count: selectedRowKeys.length })}
           </Button>
           <Button
             type="primary"
@@ -363,7 +366,7 @@ export default function LeadCandidatesPage() {
             disabled={selectedRowKeys.length === 0}
             onClick={handleBatchContact}
           >
-            批量派发 ({selectedRowKeys.length})
+            {t('lead.cand.dispatchBtn', { count: selectedRowKeys.length })}
           </Button>
         </Space>
 

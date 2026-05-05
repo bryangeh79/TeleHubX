@@ -1505,6 +1505,7 @@ interface TaskTypeFieldsProps {
 
 function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
   const t = taskType;
+  const tt = useT();
 
   // ─── PRESET_* 组合配套 ────────────────────────────────────
   if (t === 'preset_warmup_7d' || t === 'preset_rampup_7d' || t === 'preset_full_14d' || t === 'preset_mature_ops') {
@@ -1626,17 +1627,17 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
   if (t === 'group_create') {
     return (
       <>
-        <Form.Item name="groupTitle" label="群名称" rules={[{ required: true }]}>
-          <Input placeholder="例: 内部测试群" maxLength={64} />
+        <Form.Item name="groupTitle" label={tt('createGroup.title')} rules={[{ required: true }]}>
+          <Input placeholder={tt('createGroup.titlePlaceholder')} maxLength={64} />
         </Form.Item>
-        <Form.Item name="groupType" label="群类型" initialValue="small">
+        <Form.Item name="groupType" label={tt('createGroup.type')} initialValue="small">
           <Radio.Group>
-            <Radio value="small">普通群 (small, ≤200 人)</Radio>
-            <Radio value="mega">超级群 (mega, 大群)</Radio>
+            <Radio value="small">{tt('createGroup.type.small')}</Radio>
+            <Radio value="mega">{tt('createGroup.type.mega')}</Radio>
           </Radio.Group>
         </Form.Item>
-        <Form.Item name="initialMembers" label="初始成员 (本租户账号)">
-          <Select mode="multiple" placeholder="选 1-N 个本池号作为初始成员" showSearch optionFilterProp="phone"
+        <Form.Item name="initialMembers" label={tt('createGroup.initialMembers')}>
+          <Select mode="multiple" placeholder={tt('createGroup.initialMembersPlaceholder')} showSearch optionFilterProp="phone"
             filterOption={(input, option: any) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
             options={accountOptions} />
         </Form.Item>

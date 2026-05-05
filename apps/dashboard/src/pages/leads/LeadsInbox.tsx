@@ -347,7 +347,7 @@ export default function LeadsInbox() {
       <div style={{ width: 340, borderRight: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '0 8px 12px', borderBottom: '1px solid #f5f5f5' }}>
           <Title level={5} style={{ margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span><CustomerServiceOutlined /> 人工接管 <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>({leads.length})</Text></span>
+            <span><CustomerServiceOutlined /> {t('lead.handoff.title')} <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>({leads.length})</Text></span>
             <Tooltip title={socketConnected ? 'WebSocket 已连接' : 'WebSocket 未连接'}>
               <Badge status={socketConnected ? 'processing' : 'error'} />
             </Tooltip>

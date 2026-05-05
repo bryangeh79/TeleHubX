@@ -797,8 +797,8 @@ export default function AdminPage() {
       <Result
         status="403"
         title="403"
-        subTitle="你没有访问管理面板的权限。该页仅 SaaS 平台管理员可见。"
-        extra={<Button type="primary" href="/">回到仪表盘</Button>}
+        subTitle={t('admin.deny.subtitle')}
+        extra={<Button type="primary" href="/">{t('admin.deny.back')}</Button>}
       />
     );
   }
@@ -814,10 +814,10 @@ export default function AdminPage() {
       </div>
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}><Card><Statistic title="租户总数"     value={stats.totalTenants}     prefix={<TeamOutlined />} /></Card></Col>
-        <Col span={6}><Card><Statistic title="活跃 License" value={stats.activeLicenses}   prefix={<SafetyCertificateOutlined />} /></Card></Col>
-        <Col span={6}><Card><Statistic title="30 天内到期"   value={stats.expiringIn30d}    valueStyle={{ color: stats.expiringIn30d > 0 ? '#fa8c16' : undefined }} /></Card></Col>
-        <Col span={6}><Card><Statistic title="已暂停"        value={stats.suspendedTenants} valueStyle={{ color: stats.suspendedTenants > 0 ? '#cf1322' : undefined }} /></Card></Col>
+        <Col span={6}><Card><Statistic title={t('admin.stat.totalTenants')}     value={stats.totalTenants}     prefix={<TeamOutlined />} /></Card></Col>
+        <Col span={6}><Card><Statistic title={t('admin.stat.activeLicenses')}   value={stats.activeLicenses}   prefix={<SafetyCertificateOutlined />} /></Card></Col>
+        <Col span={6}><Card><Statistic title={t('admin.stat.expiringIn30d')}    value={stats.expiringIn30d}    valueStyle={{ color: stats.expiringIn30d > 0 ? '#fa8c16' : undefined }} /></Card></Col>
+        <Col span={6}><Card><Statistic title={t('admin.stat.suspended')}        value={stats.suspendedTenants} valueStyle={{ color: stats.suspendedTenants > 0 ? '#cf1322' : undefined }} /></Card></Col>
       </Row>
 
       <Card>
@@ -846,29 +846,29 @@ export default function AdminPage() {
             },
             {
               key: 'prompt-config',
-              label: <span><FileTextOutlined /> Prompt 配置</span>,
+              label: <span><FileTextOutlined /> {t('admin.tab.promptConfig')}</span>,
               children: (
                 <Tabs
                   size="small"
                   items={[
                     {
                       key: 'persona',
-                      label: <span><RobotOutlined /> AI 客服人设</span>,
+                      label: <span><RobotOutlined /> {t('admin.tab.persona')}</span>,
                       children: <GlobalPersonaTab />,
                     },
                     {
                       key: 'variant',
-                      label: <span><FileTextOutlined /> 广告变体 Prompt</span>,
+                      label: <span><FileTextOutlined /> {t('admin.tab.adVariant')}</span>,
                       children: <VariantPromptTab />,
                     },
                     {
                       key: 'industry',
-                      label: <span><RobotOutlined /> 行业话术</span>,
+                      label: <span><RobotOutlined /> {t('admin.tab.industry')}</span>,
                       children: <IndustryPromptTab />,
                     },
                     {
                       key: 'handoff',
-                      label: <span><TeamOutlined /> 转接话术</span>,
+                      label: <span><TeamOutlined /> {t('admin.tab.handoff')}</span>,
                       children: <HandoffNoticeTab />,
                     },
                   ]}
@@ -877,9 +877,9 @@ export default function AdminPage() {
             },
             {
               key: 'system',
-              label: <span><ToolOutlined /> 系统监控</span>,
+              label: <span><ToolOutlined /> {t('admin.tab.system')}</span>,
               children: (
-                <Empty description="VPS 心跳 / License 校验 / 全局任务队列状态" style={{ padding: 40 }} />
+                <Empty description={t('admin.system.empty')} style={{ padding: 40 }} />
               ),
             },
           ]}

@@ -142,7 +142,7 @@ export default function DiscoveredGroupsPage() {
       antdMessage.success('已忽略');
       await load();
     } catch {
-      antdMessage.error('操作失败');
+      antdMessage.error(t('disc.opFail'));
     } finally {
       setActionLoading(null);
     }
@@ -155,7 +155,7 @@ export default function DiscoveredGroupsPage() {
       antdMessage.success('已恢复为未处理');
       await load();
     } catch {
-      antdMessage.error('操作失败');
+      antdMessage.error(t('disc.opFail'));
     } finally {
       setActionLoading(null);
     }
@@ -165,15 +165,15 @@ export default function DiscoveredGroupsPage() {
     const ids = groups.filter(g => g.status === 'new' && g.qualityScore < 30).map(g => g.id);
     if (!ids.length) { antdMessage.info('没有 quality<30 的未处理群'); return; }
     Modal.confirm({
-      title: `批量忽略 ${ids.length} 个低质量群（quality<30）？`,
-      content: '会把质量分低于 30 的所有未处理群标为「已忽略」。',
+      title: t('disc.batch.confirmTitle', { count: ids.length }),
+      content: t('disc.batch.confirmContent'),
       onOk: async () => {
         try {
           await discoveredGroupsApi.bulkIgnore(ids);
           antdMessage.success(`已忽略 ${ids.length} 个`);
           await load();
         } catch {
-          antdMessage.error('批量操作失败');
+          antdMessage.error(t('disc.batch.fail'));
         }
       },
     });
@@ -181,12 +181,12 @@ export default function DiscoveredGroupsPage() {
 
   const columns = useMemo(() => [
     {
-      title: '质量',
+      title: t('disc.col.quality'),
       dataIndex: 'qualityScore',
       width: 90,
       sorter: (a: DiscoveredGroup, b: DiscoveredGroup) => b.qualityScore - a.qualityScore,
       render: (q: number) => (
-        <Tooltip title="基础 30 + 成员数加权 + 真发言 +30 + ≥10 真发言 +20 - gigagroup -30 - channel -50">
+        <Tooltip title={t('disc.col.qualityHelp')}>
           <Progress
             type="circle" size={48} percent={q}
             strokeColor={qualityColor(q)}
@@ -196,7 +196,7 @@ export default function DiscoveredGroupsPage() {
       ),
     },
     {
-      title: '群名 / 用户名',
+      title: t('disc.col.name'),
       dataIndex: 'title',
       render: (_t: string, r: DiscoveredGroup) => (
         <div>
@@ -209,7 +209,7 @@ export default function DiscoveredGroupsPage() {
       ),
     },
     {
-      title: '类型',
+      title: t('disc.col.type'),
       dataIndex: 'kind',
       width: 90,
       filters: [
@@ -222,14 +222,14 @@ export default function DiscoveredGroupsPage() {
       render: (k: Kind) => <Tag color={KIND_TAG[k].color}>{KIND_TAG[k].label}</Tag>,
     },
     {
-      title: '成员数',
+      title: t('disc.col.members'),
       dataIndex: 'participantsCount',
       width: 100,
       sorter: (a: DiscoveredGroup, b: DiscoveredGroup) => b.participantsCount - a.participantsCount,
       render: (n: number) => (n < 0 ? '?' : n.toLocaleString()),
     },
     {
-      title: '真发言抽样',
+      title: t('disc.col.realMsgs'),
       dataIndex: 'sampledRealSenders',
       width: 130,
       render: (n: number, r: DiscoveredGroup) => (
@@ -243,21 +243,21 @@ export default function DiscoveredGroupsPage() {
       ),
     },
     {
-      title: '关键词',
+      title: t('disc.col.keyword'),
       dataIndex: 'keyword',
       width: 100,
       render: (k: string | null) => k ? <Tag>{k}</Tag> : '-',
     },
     {
-      title: '状态',
+      title: t('disc.col.status'),
       dataIndex: 'status',
       width: 90,
-      filters: Object.entries(STATUS_TAG).map(([v, t]) => ({ text: t.label, value: v })),
+      filters: Object.entries(STATUS_TAG).map(([v, m]) => ({ text: m.label, value: v })),
       onFilter: (v: any, r: DiscoveredGroup) => r.status === v,
       render: (s: Status) => <Tag color={STATUS_TAG[s].color}>{STATUS_TAG[s].label}</Tag>,
     },
     {
-      title: '操作',
+      title: t('disc.col.actions'),
       width: 200,
       render: (_: any, r: DiscoveredGroup) => (
         <Space size={4}>
@@ -284,7 +284,7 @@ export default function DiscoveredGroupsPage() {
         </Space>
       ),
     },
-  ], [actionLoading, accounts]);
+  ], [actionLoading, accounts, t]);
 
   return (
     <div>
@@ -324,12 +324,12 @@ export default function DiscoveredGroupsPage() {
               { value: 30, label: '≥ 30 (差)' },
             ]}
           />
-          <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>刷新</Button>
+          <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>{t('common.refresh')}</Button>
           <Button icon={<ThunderboltOutlined />} danger onClick={handleBulkIgnoreSpam}>
-            一键忽略 spam (quality&lt;30)
+            {t('disc.btnIgnoreSpam')}
           </Button>
           <Text type="secondary" style={{ marginLeft: 8 }}>
-            提示：到「任务调度」新建「关键词发现群 (discover_groups_by_keyword)」任务以填充此池
+            {t('disc.hint')}
           </Text>
         </Space>
 
