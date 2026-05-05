@@ -11,6 +11,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { accountsApi, maintenanceApi, platformConfigApi, tasksApi, tenantsApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -30,15 +31,16 @@ const STATUS_BADGE: Record<SectionStatus, { color: 'success' | 'warning' | 'erro
 };
 
 export default function MaintenancePage() {
+  const t = useT();
   return (
     <div>
       <div style={{ marginBottom: 20 }}>
         <Title level={3} style={{ margin: 0 }}>
           <ToolOutlined style={{ marginRight: 8 }} />
-          系统维护
+          {t('page.maintenance.title')}
         </Title>
         <Text type="secondary" style={{ fontSize: 14 }}>
-          租户自助诊断 — 账号 / Bot / AI / 代理 / 任务 全方位健康检查
+          {t('page.maintenance.subtitle')}
         </Text>
       </div>
 
@@ -46,7 +48,7 @@ export default function MaintenancePage() {
         type="info"
         showIcon
         style={{ marginBottom: 20, fontSize: 14 }}
-        message="按需点击各项「检查」按钮 — 默认不自动加载"
+        message={t('page.maintenance.tip')}
       />
 
       <Row gutter={[20, 20]}>

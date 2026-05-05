@@ -11,6 +11,7 @@ import {
 import { aiApi, tenantsApi } from '../../services/api';
 import CompanyInfoWizard from './CompanyInfoWizard';
 import ProductSetupWizard from './ProductSetupWizard';
+import { useT } from '../../i18n';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -323,6 +324,7 @@ function TenantAiCard({ tenantId, tenantAi, onEdit }: {
 // ── Main Page ────────────────────────────────────────────────────────────
 
 export default function AiSettingsPage() {
+  const t = useT();
   // 平台 AI Providers 已搬到 /admin → 全局 AI 默认 tab，本页不再涉及
   const [info, setInfo] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -376,7 +378,7 @@ export default function AiSettingsPage() {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
-          <Title level={4} style={{ margin: 0 }}>AI 配置</Title>
+          <Title level={4} style={{ margin: 0 }}>{t('page.cs.aiProvider')}</Title>
           <Text type="secondary" style={{ fontSize: 12 }}>
             配置 DeepSeek / Gemini / OpenAI / Claude 的 API Key
           </Text>

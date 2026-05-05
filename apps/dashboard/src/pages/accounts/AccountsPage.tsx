@@ -29,6 +29,7 @@ import GroupSettingsModal from './groups/GroupSettingsModal';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { accountsApi, executionGroupsApi, proxiesApi, slotsApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 /** Telegram paper-plane SVG, sized to inline with text. */
 const TelegramIcon = ({ size = 14 }: { size?: number }) => (
@@ -128,6 +129,7 @@ const STATUS_BADGE: Record<AccountStatus, 'success' | 'default' | 'error' | 'pro
 
 export default function AccountsPage() {
   const navigate = useNavigate();
+  const t = useT();
   const [phoneFilter, setPhoneFilter] = useState('');
   const [roleFilter, setRoleFilter] = useState<Role | undefined>();
   const [statusFilter, setStatusFilter] = useState<AccountStatus | undefined>();
@@ -444,23 +446,23 @@ export default function AccountsPage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Typography.Title level={4} style={{ margin: 0 }}>
-          账号{' '}
+          {t('nav.accounts')}{' '}
           <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>
-            （已占用 {occupiedCount}{releasedCount > 0 ? `，已释放 ${releasedCount}` : ''}）
+            （{t('common.online')} {occupiedCount}{releasedCount > 0 ? `, free ${releasedCount}` : ''}）
           </Typography.Text>
         </Typography.Title>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading}>
-            刷新
+            {t('common.refresh')}
           </Button>
           <Button icon={<TeamOutlined />} onClick={() => setGroupsDrawerOpen(true)}>
-            执行组别
+            {t('nav.groups')}
           </Button>
           <Button icon={<SettingOutlined />} onClick={() => setGroupSettingsOpen(true)}>
-            分组设置
+            {t('common.edit')}
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/accounts/bind')}>
-            新建账号
+            {t('page.accounts.add')}
           </Button>
         </Space>
       </div>

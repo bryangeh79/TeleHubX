@@ -32,6 +32,7 @@ import {
   UndoOutlined,
 } from '@ant-design/icons';
 import { adminApi, platformConfigApi } from '../../services/api';
+import { useT } from '../../i18n';
 import dayjs from 'dayjs';
 import PlatformAiProvidersTab from './PlatformAiProvidersTab';
 import UsersTab from './UsersTab';
@@ -782,6 +783,7 @@ function LicensesTab() {
 
 // ── Main ─────────────────────────────────────────────────────────────────
 export default function AdminPage() {
+  const t = useT();
   const [role, setRole] = useState<string>('OPERATOR');
   const [stats, setStats] = useState<any>({ totalTenants: 0, activeTenants: 0, suspendedTenants: 0, totalLicenses: 0, activeLicenses: 0, expiringIn30d: 0 });
 
@@ -806,10 +808,9 @@ export default function AdminPage() {
       <div style={{ marginBottom: 20 }}>
         <Title level={4} style={{ margin: 0 }}>
           <CrownOutlined style={{ marginRight: 8, color: '#faad14' }} />
-          管理面板
+          {t('page.admin.title')}
           <Tag color="gold" style={{ marginLeft: 12, fontSize: 11 }}>SaaS Admin</Tag>
         </Title>
-        <Text type="secondary">公司层级控制台 · 多租户管理 · License 签发 · 全局默认配置</Text>
       </div>
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
@@ -825,22 +826,22 @@ export default function AdminPage() {
           items={[
             {
               key: 'tenants',
-              label: <span><TeamOutlined /> 租户管理</span>,
+              label: <span><TeamOutlined /> {t('page.admin.tab.tenants')}</span>,
               children: <TenantsTab />,
             },
             {
               key: 'licenses',
-              label: <span><SafetyCertificateOutlined /> License 签发</span>,
+              label: <span><SafetyCertificateOutlined /> {t('page.admin.tab.licenses')}</span>,
               children: <LicensesTab />,
             },
             {
               key: 'platform-ai',
-              label: <span><KeyOutlined /> 全局 AI 默认</span>,
+              label: <span><KeyOutlined /> {t('page.admin.tab.platformAi')}</span>,
               children: <PlatformAiProvidersTab />,
             },
             {
               key: 'users',
-              label: <span><UserOutlined /> 用户管理</span>,
+              label: <span><UserOutlined /> {t('page.admin.tab.users')}</span>,
               children: <UsersTab />,
             },
             {

@@ -54,6 +54,7 @@ import ProductSetupWizard from '../ai/ProductSetupWizard';
 import GeneralFaqDrawer from './GeneralFaqDrawer';
 import HumanAgentsCard from './HumanAgentsCard';
 import { aiApi, knowledgeApi, tenantsApi } from '../../services/api';
+import { useT } from '../../i18n';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -397,6 +398,7 @@ function MessageFlowDiagram() {
 }
 
 export default function CsPage() {
+  const t = useT();
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [bots, setBots] = useState<TenantBot[]>([]);
   const [settings, setSettings] = useState<TenantSettings | null>(null);
@@ -696,9 +698,8 @@ export default function CsPage() {
         <div>
           <Title level={4} style={{ margin: 0 }}>
             <CustomerServiceOutlined style={{ marginRight: 8 }} />
-            智能客服
+            {t('page.cs.title')}
           </Title>
-          <Text type="secondary">配置 Telegram Bot 入口，设置自动回复模式</Text>
         </div>
         <Space size={8}>
           <Button
@@ -812,7 +813,7 @@ export default function CsPage() {
       </Card>
 
       {/* 自动回复模式 */}
-      <Card title="自动回复模式" style={{ marginBottom: 16 }} loading={loading}>
+      <Card title={t('page.cs.faqMode')} style={{ marginBottom: 16 }} loading={loading}>
         <Row gutter={12}>
           {MODE_CARDS.map((m) => {
             const active = m.key === currentMode;

@@ -13,6 +13,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { campaignsApi, customerGroupsApi, tenantsApi } from '../../services/api';
+import { useT } from '../../i18n';
 import CampaignWizard from './CampaignWizard';
 import AdTemplateDrawer from './AdTemplateDrawer';
 import GreetingDrawer from './GreetingDrawer';
@@ -69,6 +70,7 @@ const TYPE_TEXT: Record<CampaignType, string> = {
 };
 
 export default function CampaignsPage() {
+  const t = useT();
   const [campaigns, setCampaigns] = useState<ApiCampaign[]>([]);
   const [loading, setLoading] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -389,35 +391,32 @@ export default function CampaignsPage() {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <SendOutlined style={{ fontSize: 22, color: '#52c41a' }} />
-            <Title level={4} style={{ margin: 0 }}>广告投放</Title>
+            <Title level={4} style={{ margin: 0 }}>{t('nav.campaigns')}</Title>
             {hasRunning && (
               <Tag color="processing" icon={<SyncOutlined spin />} style={{ marginLeft: 4 }}>
-                自动刷新中 (5s)
+                {t('common.refresh')} (5s)
               </Tag>
             )}
           </div>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            广告投放任务、节奏与执行状态
-          </Text>
         </div>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => void reload()} loading={loading} />
-          <Button icon={<TeamOutlined />} onClick={() => setGroupsDrawerOpen(true)}>客户群管理</Button>
+          <Button icon={<TeamOutlined />} onClick={() => setGroupsDrawerOpen(true)}>{t('page.campaigns.tab.groups')}</Button>
           <Dropdown
             menu={{
               items: [
-                { key: 'ad',       label: '广告文案', icon: <FileTextOutlined />, onClick: () => setAdDrawerOpen(true) },
-                { key: 'greeting', label: '开场白',   icon: <FileTextOutlined />, onClick: () => setGreetingDrawerOpen(true) },
+                { key: 'ad',       label: t('page.campaigns.tab.templates'), icon: <FileTextOutlined />, onClick: () => setAdDrawerOpen(true) },
+                { key: 'greeting', label: t('page.campaigns.tab.greetings'), icon: <FileTextOutlined />, onClick: () => setGreetingDrawerOpen(true) },
               ],
             }}
           >
             <Button icon={<FileTextOutlined />}>
-              文案 <DownOutlined style={{ fontSize: 10 }} />
+              {t('page.campaigns.tab.templates')} <DownOutlined style={{ fontSize: 10 }} />
             </Button>
           </Dropdown>
           <Button type="primary" icon={<PlusOutlined />} onClick={openNew}
             style={{ background: '#52c41a', borderColor: '#52c41a' }}>
-            新建投放
+            {t('page.campaigns.create')}
           </Button>
         </Space>
       </div>
