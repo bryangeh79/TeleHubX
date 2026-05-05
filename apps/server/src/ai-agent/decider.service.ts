@@ -28,6 +28,14 @@ export interface DeciderInput {
   quietHoursEnabled?: boolean;
   quietHoursStart?: string | null;   // "HH:mm"
   quietHoursEnd?: string | null;
+  /**
+   * Issue #2 Round 2: 已 resolve 的客户回复语言 (zh / en / ms / vi).
+   * 由 BotGateway 根据 settings.customerReplyLanguage + lang-detect 解析后传入.
+   * 不传 = 不按语言过滤 (老行为, 跨语言 FAQ 都参与匹配).
+   */
+  customerLanguage?: string;
+  /** Issue #2 Round 2: 租户 contentDefaultLanguage, 用于 FAQ fallback. */
+  contentDefaultLanguage?: string;
 }
 
 const DEFAULT_HANDOFF_KEYWORDS_ZH = [
@@ -167,13 +175,38 @@ export class AutoReplyDecider {
       }
     }
 
-    // --- 4. FAQ match (tenant scoped, Codex #1) ---
+    // --- 4. FAQ match (tenant + status='published' + language fallback) ---
+    // Issue #2 Round 2:
+    //   1. 先用 customerLanguage 查 published FAQ
+    //   2. 未命中 → fallback contentDefaultLanguage published FAQ
+    //   3. 仍未命中 → 走下一步 (handoff for FAQ mode, AI for SMART)
+    //   4. status='draft' 永远不参与 — 草稿绝不发给客户
     try {
-      const matches = await this.knowledge.search(text, kbId, 1, tenantId);
-      if (matches.length && matches[0].score >= FAQ_SCORE_THRESHOLD) {
-        const m = matches[0];
-        void this.knowledge.recordHit(m.faq.id).catch(() => {});
-        return { action: 'reply_faq', answer: m.faq.answer, matchedFaqId: m.faq.id };
+      const tryMatch = async (lang: string | undefined) => {
+        const matches = await this.knowledge.search(text, {
+          kbId,
+          tenantId,
+          status: 'published',
+          language: lang,
+          topN: 1,
+        });
+        return matches.length && matches[0].score >= FAQ_SCORE_THRESHOLD ? matches[0] : null;
+      };
+
+      // Stage 1: 客户语言
+      let hit = input.customerLanguage ? await tryMatch(input.customerLanguage) : null;
+      // Stage 2: fallback contentDefaultLanguage (避免重复查同语言)
+      if (!hit && input.contentDefaultLanguage && input.contentDefaultLanguage !== input.customerLanguage) {
+        hit = await tryMatch(input.contentDefaultLanguage);
+      }
+      // Stage 3: 都没传 → 兼容老行为, 不限语言但限 published
+      if (!hit && !input.customerLanguage && !input.contentDefaultLanguage) {
+        hit = await tryMatch(undefined);
+      }
+
+      if (hit) {
+        void this.knowledge.recordHit(hit.faq.id).catch(() => {});
+        return { action: 'reply_faq', answer: hit.faq.answer, matchedFaqId: hit.faq.id };
       }
     } catch (err) {
       this.logger.warn(`[decider] FAQ search failed: ${err instanceof Error ? err.message : err}`);

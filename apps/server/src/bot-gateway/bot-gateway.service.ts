@@ -12,6 +12,8 @@ import { TenantsService } from '../tenants/tenants.service';
 import { TenantBot } from '../tenants/tenant-bot.entity';
 import { BotReplyService } from './bot-reply.service';
 import { BotUpdateAdapter, NormalizedMessage, TelegramUpdate } from './bot-update.adapter';
+import { langDisplayName, resolveReplyLanguage } from '../common/lang-detect';
+import type { DetectableLang } from '../common/lang-detect';
 
 /** Lazy lookup; avoids hard import on TakeoverGateway to dodge circular deps. */
 type TakeoverGatewayLike = {
@@ -50,11 +52,23 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
     kbContext?: string;
     customerType?: 'b2b' | 'b2c' | 'mixed';
     industryPrompt?: string;
+    /** Issue #2 Round 2: AI 必须用客户语言回复 */
+    replyLanguage?: DetectableLang;
   } = {}): Promise<string> {
-    const { kbContext = '', customerType, industryPrompt } = opts;
+    const { kbContext = '', customerType, industryPrompt, replyLanguage } = opts;
     const basePersonality = await this.platformConfig.getGlobalPersona();
 
     const layers: string[] = [basePersonality];
+
+    // Issue #2 Round 2: 显式语言指令 — AI 必须用客户语言回复
+    // 放在第一层 (在 customerType / industry / kbContext 之前), 优先级最高
+    if (replyLanguage) {
+      layers.push(
+        `【LANGUAGE】You MUST reply in ${langDisplayName(replyLanguage)}. ` +
+        `Even if the knowledge base content is in another language, you must translate naturally to ${langDisplayName(replyLanguage)} when answering. ` +
+        `Keep proper nouns (product names, brand names, prices, contact details, URLs) exactly as written in the source.`,
+      );
+    }
 
     if (customerType === 'b2b') {
       layers.push(
@@ -368,7 +382,22 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
 
     try {
       const settings = await this.tenants.getSettings(bot.tenantId);
+
+      // Issue #2 Round 2: resolve 客户回复语言
+      //   1. settings.customerReplyLanguage != 'auto' → 直接用
+      //   2. auto → detectCustomerLanguage(msg.text)
+      //   3. 检测失败 → settings.contentDefaultLanguage
+      //   4. fallback 'zh'
+      const contentDefaultLanguage = (settings as any).contentDefaultLanguage ?? 'zh';
+      const customerReplyLanguage = (settings as any).customerReplyLanguage ?? 'auto';
+      const resolvedLanguage = resolveReplyLanguage({
+        messageText: msg.text,
+        customerReplyLanguage,
+        contentDefaultLanguage,
+      });
+
       // Codex round-10 #1 #3 #4: 必传 tenantId/botId, 透传 daily limit + quiet hours
+      // Issue #2 Round 2: 透传 customerLanguage + contentDefaultLanguage
       const outcome = await this.decider.decide({
         chatId: msg.chatId,
         userMessage: msg.text,
@@ -379,6 +408,8 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
         quietHoursEnabled: (settings as any).quietHoursEnabled ?? false,
         quietHoursStart: (settings as any).quietHoursStart ?? null,
         quietHoursEnd: (settings as any).quietHoursEnd ?? null,
+        customerLanguage: resolvedLanguage,
+        contentDefaultLanguage,
       });
 
       switch (outcome.action) {
@@ -423,7 +454,11 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
           });
 
           // Inject knowledge base context for truly intelligent replies
-          const search = await this.knowledge.searchForContext(msg.text, bot.tenantId, 5);
+          // Issue #2 Round 2: 优先用客户语言的 published FAQ, 不够时 fallback contentDefaultLanguage
+          const search = await this.knowledge.searchForContext(msg.text, bot.tenantId, 5, {
+            customerLanguage: resolvedLanguage,
+            contentDefaultLanguage,
+          });
           let contextText = rosterBlock
             ? (search.contextText ? `${rosterBlock}\n\n${search.contextText}` : rosterBlock)
             : search.contextText;
@@ -478,6 +513,7 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
             kbContext: contextText,
             customerType,
             industryPrompt,
+            replyLanguage: resolvedLanguage,
           });
 
           const result = await this.aiAgent.reply(
@@ -626,6 +662,20 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    // Issue #2 Round 2: 按客户最近一条消息识别语言 (无消息 → contentDefaultLanguage)
+    const callbackSettings = await this.tenants.getSettings(bot.tenantId);
+    const callbackContentDefaultLang = (callbackSettings as any).contentDefaultLanguage ?? 'zh';
+    const callbackCustReplyLang = (callbackSettings as any).customerReplyLanguage ?? 'auto';
+    // 回调没有 user message → 用历史最后一条 user 消息检测; 没有则 fallback contentDefault
+    const lastUserMsg = (lead.replies ?? [])
+      .filter((r: any) => r.sender === 'user' && r.text && !r.text.startsWith('[选择了'))
+      .slice(-1)[0]?.text ?? '';
+    const callbackResolvedLang = resolveReplyLanguage({
+      messageText: lastUserMsg,
+      customerReplyLanguage: callbackCustReplyLang,
+      contentDefaultLanguage: callbackContentDefaultLang,
+    });
+
     // Industry prompt
     let industryPrompt: string | undefined;
     const companyKb = await this.knowledge.getCompanyKb(bot.tenantId);
@@ -651,6 +701,7 @@ export class BotGatewayService implements OnModuleInit, OnModuleDestroy {
       kbContext: kbBlock,
       customerType,
       industryPrompt,
+      replyLanguage: callbackResolvedLang,
     });
 
     let replyText = '';

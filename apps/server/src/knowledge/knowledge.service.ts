@@ -130,7 +130,44 @@ export class KnowledgeService {
    *
    * BotGateway 调用此方法必须传 tenantId, 否则 A 客户问"价格"会命中 B 租户 FAQ
    */
-  async search(query: string, kbId?: string, topN = 5, tenantId?: string): Promise<FaqMatch[]> {
+  /**
+   * FAQ search.
+   *
+   * Issue #2 Round 2: 加 language + status 过滤参数.
+   * BotGateway runtime 必须只查 status='published' (默认), language 可选过滤.
+   * Dashboard 管理页可传 status='draft' 或不传 status 列出全部.
+   */
+  async search(
+    query: string,
+    optsOrKbId?: string | {
+      kbId?: string;
+      tenantId?: string;
+      language?: string;       // zh / en / ms / vi — 不传 = 不过滤
+      status?: string;         // 'published' | 'draft' — 不传 = 不过滤
+      topN?: number;
+    },
+    legacyTopN = 5,
+    legacyTenantId?: string,
+  ): Promise<FaqMatch[]> {
+    // 兼容老签名: search(query, kbId?, topN?, tenantId?)
+    let kbId: string | undefined;
+    let tenantId: string | undefined;
+    let language: string | undefined;
+    let status: string | undefined;
+    let topN = 5;
+
+    if (typeof optsOrKbId === 'string' || optsOrKbId === undefined) {
+      kbId = optsOrKbId as string | undefined;
+      topN = legacyTopN;
+      tenantId = legacyTenantId;
+    } else {
+      kbId = optsOrKbId.kbId;
+      tenantId = optsOrKbId.tenantId;
+      language = optsOrKbId.language;
+      status = optsOrKbId.status;
+      topN = optsOrKbId.topN ?? 5;
+    }
+
     const qTokens = this.tokenize(query);
     if (!qTokens.size) return [];
 
@@ -138,12 +175,13 @@ export class KnowledgeService {
       .where('faq.enabled = :en', { en: true });
     if (kbId) qb.andWhere('faq.kbId = :kbId', { kbId });
     if (tenantId) {
-      // FAQ 通过 KB 关联租户; 用 IN (SELECT id FROM kbs WHERE tenantId=) 子查询过滤
       qb.andWhere(
         `faq.kbId IN (SELECT id FROM knowledge_bases WHERE "tenantId" = :tid)`,
         { tid: tenantId },
       );
     }
+    if (language) qb.andWhere('faq.language = :lang', { lang: language });
+    if (status) qb.andWhere('faq.status = :st', { st: status });
     const candidates = await qb.getMany();
 
     const scored = candidates.map<FaqMatch>((faq) => {
@@ -477,17 +515,27 @@ FAQ 要求：
    * Returns top-N matches formatted as Q&A pairs PLUS metadata about which
    * KBs were hit so callers can read description.customerType / useCompanyFallback.
    */
+  /**
+   * Search across all KBs for a tenant and return formatted context for AI prompt.
+   *
+   * Issue #2 Round 2: 加 language fallback. KB / FAQ 都只看 status='published'.
+   *   1. 先用 customerLanguage 查
+   *   2. 命中数 < 3 时再补 contentDefaultLanguage 的内容 (避免单语言 KB 不够 AI 参考)
+   *   3. 草稿永远不进
+   */
   async searchForContext(
     query: string,
     tenantId: string,
     topN = 5,
+    opts?: { customerLanguage?: string; contentDefaultLanguage?: string },
   ): Promise<{
     contextText: string;
     hasResults: boolean;
     matchedKbs: KnowledgeBase[];
     productHitCount: number;
   }> {
-    const kbs = await this.kbs.find({ where: { tenantId, enabled: true } });
+    // 只取 status='published' KBs
+    const kbs = await this.kbs.find({ where: { tenantId, enabled: true, status: 'published' } });
     if (!kbs.length) return { contextText: '', hasResults: false, matchedKbs: [], productHitCount: 0 };
     const kbById = new Map<string, KnowledgeBase>(kbs.map(k => [k.id, k]));
     const kbIds = kbs.map(k => k.id);
@@ -495,19 +543,44 @@ FAQ 要求：
     const qTokens = this.tokenize(query);
     if (!qTokens.size) return { contextText: '', hasResults: false, matchedKbs: [], productHitCount: 0 };
 
-    const candidates = await this.faqs.find({ where: { enabled: true } });
+    // 只取 status='published' FAQ — 草稿永远不参与客服回复
+    const candidates = await this.faqs.find({ where: { enabled: true, status: 'published' } });
     const tenantFaqs = candidates.filter(f => kbIds.includes(f.kbId));
 
-    const scored = tenantFaqs.map(faq => {
+    const customerLang = opts?.customerLanguage;
+    const defaultLang = opts?.contentDefaultLanguage;
+
+    // Score helper
+    const scoreSet = (faqs: typeof tenantFaqs) => faqs.map(faq => {
       const { score } = this.faqMatchScore(qTokens, faq);
       return { faq, score };
-    });
+    }).filter(m => m.score >= 0.25);
 
-    // 上下文注入用更宽松的阈值（0.25），让低分相关 FAQ 也能进 prompt 给 AI 参考
-    const top = scored
-      .filter(m => m.score >= 0.25)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, topN);
+    let top: ReturnType<typeof scoreSet> = [];
+
+    if (customerLang) {
+      // 1. 只查目标语言 FAQ
+      const langFaqs = tenantFaqs.filter(f => (f.language ?? 'zh') === customerLang);
+      top = scoreSet(langFaqs).sort((a, b) => b.score - a.score).slice(0, topN);
+    }
+
+    // 2. 不够则用 default language 补 (不重复)
+    if (top.length < 3 && defaultLang && defaultLang !== customerLang) {
+      const seenIds = new Set(top.map(m => m.faq.id));
+      const fallbackFaqs = tenantFaqs.filter(
+        f => (f.language ?? 'zh') === defaultLang && !seenIds.has(f.id),
+      );
+      const fallback = scoreSet(fallbackFaqs).sort((a, b) => b.score - a.score).slice(0, topN - top.length);
+      top = [...top, ...fallback];
+    }
+
+    // 3. 仍不够 (或调用方没传语言) → 全语言兜底, 让低分相关 FAQ 仍能进 prompt 给 AI 参考
+    if (top.length < 3) {
+      const seenIds = new Set(top.map(m => m.faq.id));
+      const remaining = tenantFaqs.filter(f => !seenIds.has(f.id));
+      const fallback = scoreSet(remaining).sort((a, b) => b.score - a.score).slice(0, topN - top.length);
+      top = [...top, ...fallback];
+    }
 
     if (!top.length) return { contextText: '', hasResults: false, matchedKbs: [], productHitCount: 0 };
 
@@ -534,8 +607,9 @@ FAQ 要求：
     tenantId: string,
     topN = 5,
   ): Promise<{ contextText: string; hasResults: boolean }> {
+    // Issue #2 Round 2: 只取 status='published'
     const companyKbs = await this.kbs.find({
-      where: { tenantId, enabled: true, type: KbType.COMPANY },
+      where: { tenantId, enabled: true, type: KbType.COMPANY, status: 'published' },
     });
     if (!companyKbs.length) return { contextText: '', hasResults: false };
     const kbIdSet = new Set(companyKbs.map(k => k.id));
@@ -543,7 +617,7 @@ FAQ 要求：
     const qTokens = this.tokenize(query);
     if (!qTokens.size) return { contextText: '', hasResults: false };
 
-    const candidates = await this.faqs.find({ where: { enabled: true } });
+    const candidates = await this.faqs.find({ where: { enabled: true, status: 'published' } });
     const companyFaqs = candidates.filter(f => kbIdSet.has(f.kbId));
 
     const scored = companyFaqs.map(faq => {
@@ -587,8 +661,9 @@ FAQ 要求：
     price: string;
     customerType?: 'b2b' | 'b2c' | 'mixed';
   }>> {
+    // Issue #2 Round 2: 只取已发布产品 KB. 草稿不暴露给客户 (按钮 / AI prompt)
     const productKbs = await this.kbs.find({
-      where: { tenantId, enabled: true, type: KbType.PRODUCT },
+      where: { tenantId, enabled: true, type: KbType.PRODUCT, status: 'published' },
       order: { createdAt: 'ASC' },
     });
     return productKbs.map(kb => {
@@ -616,8 +691,9 @@ FAQ 要求：
    * convenience routes. Returns null if no company KB exists.
    */
   async getCompanyKb(tenantId: string): Promise<KnowledgeBase | null> {
+    // Issue #2 Round 2: 只取已发布公司 KB
     const list = await this.kbs.find({
-      where: { tenantId, type: KbType.COMPANY },
+      where: { tenantId, type: KbType.COMPANY, status: 'published' },
       order: { isDefault: 'DESC', createdAt: 'ASC' },
     });
     return list[0] ?? null;
