@@ -861,6 +861,12 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     t.startedAt = null;
     t.finishedAt = null;
     t.cancelRequested = false;  // Codex #1: 清取消标志, 否则 agent 拉到立即被强制 failed 死循环
+    // 手动重试 = "从头来一次", 重置 Auto-Recovery 计数器, 否则上次已经
+    // 跑到 2/2 的任务再被 retry 时, 新的执行直接到 markFailed, 拿不到
+    // task-runner 的重试 + reconnect 路径.
+    t.autoRetryCount = 0;
+    t.errorClass = null;
+    t.lastRetryAt = null;
     t.scheduledAt = new Date();
     return this.repo.save(t);
   }
@@ -1044,12 +1050,19 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
       .getMany();
     const quarantinedIds = new Set(quarantined.map((a) => a.id));
 
-    // Healthcheck 2: 排除已有 RUNNING 任务的账号（避免 over-dispatch 给 hung 客户端）
+    // Healthcheck 2: 排除已有 RUNNING 真正可执行任务的账号 (避免 over-dispatch 给 hung 客户端)
+    //
+    // 只统计"真正在跑的子任务", 排除 preset_* 父任务和 keyword_lead_hunt 父任务 —
+    // 这两种 type 是调度容器, 永远 RUNNING (直到所有子任务跑完, 可能 7-14 天).
+    // 如果把它们也算 busy, 一旦启动养号, 这个号就再也不能做任何别的任务,
+    // 包括 dashboard 上手动新建的 #98 这种.
     const busy = await this.repo
       .createQueryBuilder('t')
       .select('DISTINCT t."accountId"', 'accountId')
       .where('t.status = :s', { s: TaskStatus.RUNNING })
       .andWhere('t."accountId" IN (:...ids)', { ids: accountIds })
+      .andWhere(`t.type::text NOT LIKE 'preset_%'`)
+      .andWhere(`t.type::text != 'keyword_lead_hunt'`)
       .getRawMany();
     const busyIds = new Set(busy.map((b) => b.accountId));
 
