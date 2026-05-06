@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Row, Col, Card, Statistic, Typography, Spin, Tag, Steps, Button, Alert } from 'antd';
 import { useNavigate } from 'react-router-dom';
+import { useThemeMode } from '../hooks/useThemeMode';
 import {
   UserOutlined,
   TeamOutlined,
@@ -66,6 +67,7 @@ const FALLBACK: DashboardData = {
 
 export default function DashboardPage() {
   const t = useT();
+  const { mode: themeMode } = useThemeMode();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -152,9 +154,25 @@ export default function DashboardPage() {
   const completeness = Math.round((doneCount / steps.length) * 100);
   const showOnboarding = completeness < 100 && !loading;
 
-  return (
+  const isDark = themeMode === 'dark';
+  const content = (
     <div>
-      <Title level={4} style={{ marginBottom: 24 }}>{t('page.dashboard.title')}</Title>
+      <div style={{ marginBottom: 28 }}>
+        <Title
+          level={2}
+          style={{
+            margin: 0,
+            color: isDark ? '#fff' : undefined,
+            fontWeight: 600,
+            letterSpacing: 0.5,
+          }}
+        >
+          {t('page.dashboard.title')}
+        </Title>
+        <Text style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)', fontSize: 13 }}>
+          系统运行总览，关键数据一目了然
+        </Text>
+      </div>
 
       {showOnboarding && (
         <Alert
@@ -254,4 +272,6 @@ export default function DashboardPage() {
       )}
     </div>
   );
+
+  return content;
 }

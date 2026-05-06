@@ -9,6 +9,7 @@ import viVN from 'antd/locale/vi_VN';
 import msMY from 'antd/locale/ms_MY';
 import App from './App';
 import { I18nProvider, useI18n } from './i18n';
+import { ThemeModeProvider } from './hooks/useThemeMode';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -39,7 +40,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <I18nProvider>
-        <AppWithLocale />
+        <ThemeModeProvider>
+          <AppWithLocale />
+        </ThemeModeProvider>
       </I18nProvider>
     </QueryClientProvider>
   </React.StrictMode>,

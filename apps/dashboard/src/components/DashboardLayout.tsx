@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Alert, Avatar, Button, Dropdown, Form, Input, Layout, Menu, Modal, Select, Space, Typography, message as antdMessage, theme } from 'antd';
 import {
+  BulbFilled,
+  BulbOutlined,
   CrownOutlined,
   CustomerServiceOutlined,
   DashboardOutlined,
@@ -18,6 +20,8 @@ import {
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { authApi } from '../services/api';
 import { LANG_OPTIONS, useI18n } from '../i18n';
+import { useThemeMode } from '../hooks/useThemeMode';
+import BrandLogo from './BrandLogo';
 
 const { Header, Content } = Layout;
 const { Title, Text } = Typography;
@@ -61,6 +65,7 @@ export default function DashboardLayout() {
   const location = useLocation();
   const { token } = theme.useToken();
   const { lang, setLang, t } = useI18n();
+  const { mode: themeMode, toggle: toggleTheme } = useThemeMode();
 
   const user = readStoredUser();
   const isSuperAdmin = user.role?.toLowerCase() === 'super_admin';
@@ -98,8 +103,12 @@ export default function DashboardLayout() {
     }
   };
 
+  const isDark = themeMode === 'dark';
+  const layoutBg = isDark ? '#0a1020' : token.colorBgLayout;
+  const bgImage = isDark ? '/dashboard-bg.png' : '/dashboard-bg2.png';
+
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ minHeight: '100vh', background: layoutBg }}>
       <Header
         style={{
           background: token.colorBgContainer,
@@ -115,7 +124,8 @@ export default function DashboardLayout() {
           lineHeight: '56px',
         }}
       >
-        <Space size={4} style={{ marginRight: 8, flexShrink: 0 }}>
+        <Space size={8} style={{ marginRight: 8, flexShrink: 0 }} align="center">
+          <BrandLogo size={26} />
           <Title level={5} style={{ margin: 0, color: token.colorPrimary }}>
             TeleHubX
           </Title>
@@ -133,6 +143,13 @@ export default function DashboardLayout() {
         />
 
         <Space size={12} style={{ flexShrink: 0 }}>
+          <Button
+            type="text"
+            size="small"
+            icon={themeMode === 'dark' ? <BulbFilled style={{ color: '#faad14' }} /> : <BulbOutlined />}
+            onClick={toggleTheme}
+            title={themeMode === 'dark' ? 'Light mode' : 'Dark mode'}
+          />
           <Select
             size="small"
             variant="borderless"
@@ -157,9 +174,15 @@ export default function DashboardLayout() {
       <Content
         style={{
           margin: 24,
-          background: token.colorBgContainer,
           padding: 24,
           borderRadius: token.borderRadiusLG,
+          backgroundColor: isDark ? '#0a1020' : '#ffffff',
+          backgroundImage: `url('${bgImage}')`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+          backgroundAttachment: 'local',
+          color: isDark ? 'rgba(255,255,255,0.85)' : undefined,
         }}
       >
         <Outlet />
