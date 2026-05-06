@@ -187,7 +187,7 @@ function stagingDepsInstall(appName, finalAppDir) {
 
 function assembleAppPackage(appName) {
   const srcDir = path.join(REPO, 'apps', appName);
-  const dstDir = path.join(DIST, 'app', appName);
+  const dstDir = path.join(DIST, 'apps', appName);
   rmDir(dstDir);
   fs.mkdirSync(dstDir, { recursive: true });
   // Built code only (we DO NOT touch source dirs)
@@ -248,7 +248,7 @@ step('Assemble dist/app/agent (staged npm install)', () => assembleAppPackage('a
 verifyCanary(canary, 'Assemble agent');
 
 step('Assemble dist/app/dashboard', () => {
-  const dst = path.join(DIST, 'app/dashboard');
+  const dst = path.join(DIST, 'apps/dashboard');
   rmDir(dst);
   cpDir(path.join(REPO, 'apps/dashboard/dist'), path.join(dst, 'dist'));
   cpFile(path.join(REPO, 'apps/dashboard/serve.cjs'), path.join(dst, 'serve.cjs'));

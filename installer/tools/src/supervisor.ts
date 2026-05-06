@@ -139,6 +139,27 @@ function buildServices(env: SupervisorEnv, paths: DataPaths): ServiceDef[] {
   ];
 }
 
+/**
+ * Build subprocess env: process.env + explicit TELEHUBX_INSTALL_PATH /
+ * TELEHUBX_DATA_DIR / TELEHUBX_RUNTIME_MODE / port overrides so that all
+ * spawned children resolve paths the same way the supervisor did,
+ * regardless of how this exe was launched (Issue #14).
+ */
+function subprocessEnv(env: SupervisorEnv): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    TELEHUBX_INSTALL_PATH: env.installPath,
+    TELEHUBX_DATA_DIR: env.dataDir,
+    TELEHUBX_RUNTIME_MODE: env.runtimeMode,
+    APP_PORT: String(env.appPort),
+    DASHBOARD_PORT: String(env.dashboardPort),
+    PG_PORT: String(env.pgPort),
+    DB_PORT: String(env.pgPort),
+    REDIS_PORT: String(env.redisPort),
+    LICENSE_SERVER_URL: env.licenseServerUrl,
+  };
+}
+
 function spawnDetached(svc: ServiceDef, paths: DataPaths, env: SupervisorEnv): PidRecord {
   const logFile = path.join(paths.logsDir, `${svc.name}.log`);
   const fdOut = openSync(logFile, 'a');
@@ -148,7 +169,7 @@ function spawnDetached(svc: ServiceDef, paths: DataPaths, env: SupervisorEnv): P
     detached: true,
     stdio: ['ignore', fdOut, fdErr],
     cwd: svc.cwd ?? path.dirname(svc.exe),
-    env: process.env,
+    env: subprocessEnv(env),
     windowsHide: true,
   });
   child.unref();
@@ -262,10 +283,19 @@ async function main(): Promise<void> {
       if (existsSync(initScript)) {
         log.info(`[postgres] running init-pgdata (idempotent)`);
         const portableNode = path.join(env.installPath, 'runtime', 'node', 'node.exe');
-        const nodeBin = existsSync(portableNode) ? portableNode : process.execPath;
+        // SEA exe (process.execPath = telehubx-supervisor.exe) cannot be passed to
+        // spawnSync as a "node" replacement — it would try to interpret the script as
+        // its own SEA blob entry. Use the bundled portable node when running as SEA.
+        const seaMode = path.basename(process.execPath).toLowerCase().startsWith('telehubx-');
+        const nodeBin = existsSync(portableNode) ? portableNode
+                       : seaMode ? '' : process.execPath;
+        if (!nodeBin) {
+          log.error(`init-pgdata: portable node missing at ${portableNode} (required when running as SEA exe)`);
+          process.exit(5);
+        }
         const r = require('node:child_process').spawnSync(nodeBin, [initScript], {
           encoding: 'utf8',
-          env: process.env,
+          env: subprocessEnv(env),
           windowsHide: true,
         });
         if (r.status !== 0) {

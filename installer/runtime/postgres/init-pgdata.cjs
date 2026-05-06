@@ -27,9 +27,15 @@ function expandWinVars(s) {
   return s.replace(/%([^%]+)%/g, (_, k) => process.env[k] || '');
 }
 
+// Layout: <installPath>/runtime/postgres/init-pgdata.cjs
+//   __dirname     = <installPath>/runtime/postgres
+//   ../../        = <installPath>           <-- correct (2 up)
+//   ../../../     = parent of installPath   <-- WRONG (was the old code)
+// supervisor always passes TELEHUBX_INSTALL_PATH explicitly now (Issue #14 fix),
+// so the fallback path math is just a safety net.
 const installPath = process.env.TELEHUBX_INSTALL_PATH
   ? path.resolve(process.env.TELEHUBX_INSTALL_PATH)
-  : path.resolve(__dirname, '..', '..', '..');
+  : path.resolve(__dirname, '..', '..');
 
 const dataDir = path.resolve(
   expandWinVars(process.env.TELEHUBX_DATA_DIR || path.join(installPath, 'data'))

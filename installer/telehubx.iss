@@ -19,7 +19,7 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
 LicenseFile=
-OutputBaseFilename=TeleHubX-Setup-{#AppVersion}
+OutputBaseFilename=TeleHubX-Setup-{#AppVersion}-vmfix1
 OutputDir=Output
 SetupIconFile=assets\telehubx.ico
 WizardImageFile=assets\telehubx-banner.bmp
@@ -45,7 +45,7 @@ Name: "autostart";   Description: "Start TeleHubX automatically when Windows log
 
 [Files]
 ; Application code (built dist)
-Source: "dist\app\*";       DestDir: "{app}\app";       Flags: recursesubdirs ignoreversion
+Source: "dist\apps\*";       DestDir: "{app}\apps";       Flags: recursesubdirs ignoreversion
 ; Tools (.exe — Node SEA bundles)
 Source: "dist\tools\*";     DestDir: "{app}\tools";     Flags: recursesubdirs ignoreversion
 ; Runtime binaries (Node + Postgres + Memurai)
