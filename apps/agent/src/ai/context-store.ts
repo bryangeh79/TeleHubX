@@ -6,9 +6,22 @@ export interface ConversationMessage {
   content: string;
 }
 
+// Resolve a user-writable data dir for context JSON files.
+// Priority: TELEHUBX_DATA_DIR/contexts > ./data/contexts (dev fallback).
+// Issue #14 vmfix3: relative './data/contexts' resolves under apps/agent
+// when launched by supervisor on Windows installs -> %ProgramFiles% -> EPERM.
+function defaultContextDir(): string {
+  const expand = (s: string) => s.replace(/%([^%]+)%/g, (_, k) => process.env[k] ?? '');
+  const dataDir = process.env.TELEHUBX_DATA_DIR;
+  if (dataDir && dataDir.trim()) {
+    return path.join(path.resolve(expand(dataDir)), 'contexts');
+  }
+  return path.resolve(process.cwd(), 'data', 'contexts');
+}
+
 // Keyed by accountId + chatId, stored as individual JSON files under dataDir.
 export class ContextStore {
-  constructor(private readonly dataDir = './data/contexts') {
+  constructor(private readonly dataDir = defaultContextDir()) {
     fs.mkdirSync(dataDir, { recursive: true });
   }
 
