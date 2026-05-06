@@ -440,16 +440,27 @@ async function bootstrap(): Promise<void> {
       } catch {}
     },
     /**
-     * Auto-Recovery: 重连账号 (B 类错误前置).
-     * 红线 (用户要求):
-     *   - 只允许 client.disconnect() + client.connect()
-     *   - 不允许 new TelegramClient(), 不允许覆盖 StringSession
-     *   - 不允许触发任何 auth.* RPC
-     * 30s 总超时.
+     * Auto-Recovery: 重连账号 (B / A-类最后一次重试触发).
+     *
+     * 历史: 之前实现是 slot.client.disconnect() + slot.client.connect()
+     * (复用同一个 TelegramClient 实例). 经探针对照实验 (probe-account.ts
+     * 4 组矩阵全绿) 证明该路径无法救出 wedged 客户端 — GramJS 内部状态
+     * (update loop / msg_seqno / pending RPC buffer) 不会随 socket 重连
+     * 重置, 长跑后所有 invoke 卡 60s timeout. 用同 session 新建 client
+     * 立刻能用.
+     *
+     * 新策略 (守住关键安全约束):
+     *   1. disconnect 老 client + slots.delete (销毁实例, 释放 GramJS 内部状态)
+     *   2. 从 DB 重新拉账号 (拿最新 proxy / fingerprint / tenantId)
+     *   3. 走 connect() 完整流程 → fetch session → new TelegramClient → 重挂 handler
+     *
+     * 守住的红线 (相比之前):
+     *   ✅ session 直接从 DB 读, 不重新 auth, 不覆盖 sessionString
+     *   ✅ 不触发 auth.* RPC (connect() 只做 MTProto 握手)
+     *   ⚠️  允许 new TelegramClient() — 这是修复必需, 没有别的办法清 GramJS 内部状态
      */
     reconnectAccount: async (accountId: string): Promise<boolean> => {
-      const slot = slots.get(accountId);
-      if (!slot) {
+      if (!slots.has(accountId)) {
         logger.warn(`[reconnect] ${accountId.slice(0, 8)} not in slots, abort`);
         return false;
       }
@@ -457,18 +468,23 @@ async function bootstrap(): Promise<void> {
       try {
         await Promise.race([
           (async () => {
-            try {
-              await slot.client.disconnect();
-            } catch {
-              // 已断开 / 未连接 — 忽略
-            }
-            await slot.client.connect();
+            // 1. 拉最新 account row (proxy / fingerprint 可能变了)
+            const accounts = await fetchJson<ApiAccount[]>('/accounts');
+            const fresh = accounts.find((a) => a.id === accountId);
+            if (!fresh) throw new Error(`account ${accountId.slice(0, 8)} not in /accounts`);
+
+            // 2. 销毁老 client + 清 slot (clears GramJS internal state)
+            await disconnect(accountId);
+
+            // 3. 走 connect() 完整流程: 重新 fetch session + new TelegramClient + 挂 handler
+            await connect(fresh);
+            if (!slots.has(accountId)) throw new Error('reconnect produced no new slot');
           })(),
           new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error('reconnect timeout 30s')), timeoutMs),
           ),
         ]);
-        logger.info(`[reconnect] ${accountId.slice(0, 8)} ✓`);
+        logger.info(`[reconnect] ${accountId.slice(0, 8)} ✓ (fresh client)`);
         return true;
       } catch (err: unknown) {
         logger.error(
