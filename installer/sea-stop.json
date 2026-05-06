@@ -1,0 +1,8 @@
+{
+  "main": "installer/tools/dist-bundle/stop.cjs",
+  "output": "installer/tools/dist-bundle/stop.blob",
+  "disableExperimentalSEAWarning": true,
+  "useSnapshot": false,
+  "useCodeCache": true,
+  "assets": {}
+}

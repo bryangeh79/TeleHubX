@@ -14,6 +14,7 @@ data/machine-fingerprint.txt
 *.exe
 *.iss
 !installer.iss
+!installer/*.iss
 .npm/
 Chat History/
 example.env
@@ -23,6 +24,11 @@ memory/
 /tools/
 !installer/tools/
 installer/tools/dist/
+installer/tools/dist-bundle/
 installer/tools/node_modules/
 installer/dist/
+installer/Output/
+installer/assets/telehubx.ico
+installer/assets/telehubx-banner.bmp
+installer/assets/telehubx-banner-small.bmp
 /vendor/

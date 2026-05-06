@@ -52,12 +52,36 @@ export interface SupervisorEnv {
  *   3. <installPath>/.env（安装时复制的 .env.template）
  *   4. <installPath>/installer/.env.template（dev fallback）
  */
+function detectInstallPath(): string {
+  // 1. 显式 env 优先
+  if (process.env.TELEHUBX_INSTALL_PATH) return path.resolve(process.env.TELEHUBX_INSTALL_PATH);
+
+  // 2. SEA exe 模式: process.execPath 是 telehubx-supervisor.exe / telehubx-stop.exe
+  //    位于 {app}\tools\ 下, installPath = ../
+  const execBase = path.basename(process.execPath).toLowerCase();
+  if (execBase.startsWith('telehubx-')) {
+    return path.resolve(path.dirname(process.execPath), '..');
+  }
+
+  // 3. 普通 Node 跑 dist/supervisor.js: __dirname 在 installer/tools/dist/shared/
+  //    或 dist-bundle/, 都在 installer/tools/ 下 N 级
+  //    安全做法: 找最近的祖先包含 apps/server/dist 的目录
+  let dir = __dirname;
+  for (let i = 0; i < 8; i++) {
+    if (require('node:fs').existsSync(path.join(dir, 'apps', 'server', 'dist', 'main.js'))) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  // 4. 兜底: __dirname 上 4 级 (与 Phase 2 行为兼容)
+  return path.resolve(__dirname, '..', '..', '..', '..');
+}
+
 export function loadSupervisorEnv(): SupervisorEnv {
-  // installPath: 默认从可执行文件位置往上推算
-  // dist/supervisor.js 在 installer/tools/dist/, 推 4 级到 repo root
-  const installPath = path.resolve(
-    process.env.TELEHUBX_INSTALL_PATH ?? path.resolve(__dirname, '..', '..', '..', '..'),
-  );
+  const installPath = detectInstallPath();
 
   // 候选 .env 路径，按优先级
   const dataDirHint = expandWinVars(

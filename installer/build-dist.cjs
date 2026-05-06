@@ -45,7 +45,11 @@ function step(name, fn) {
 }
 
 function run(cmd, args, opts = {}) {
-  const r = spawnSync(cmd, args, { stdio: 'inherit', shell: process.platform === 'win32', ...opts });
+  // shell:true breaks paths with spaces on Windows. Only use shell for .cmd / .bat
+  // (which is what we need for pnpm). For absolute exe paths (process.execPath),
+  // use shell:false to preserve quoting.
+  const needsShell = process.platform === 'win32' && !path.isAbsolute(cmd);
+  const r = spawnSync(cmd, args, { stdio: 'inherit', shell: needsShell, ...opts });
   if (r.status !== 0) die(`command failed: ${cmd} ${args.join(' ')}`);
 }
 
@@ -93,17 +97,19 @@ step('Build @telehubx/installer-tools', () =>
   run('pnpm', ['--filter', '@telehubx/installer-tools', 'build'], { cwd: REPO }));
 
 // ── 3-4. assemble app + tools ────────────────────────────────────────────────
-step('Assemble dist/app/server', () => {
-  cpDir(path.join(REPO, 'apps/server/dist'), path.join(DIST, 'app/server/dist'));
-  cpFile(path.join(REPO, 'apps/server/package.json'), path.join(DIST, 'app/server/package.json'));
-  // node_modules — 必须随包，含 native modules + 非 bundled deps
-  cpDir(path.join(REPO, 'apps/server/node_modules'), path.join(DIST, 'app/server/node_modules'));
+// Use `pnpm deploy --prod` to produce flattened deploy artifacts (no pnpm symlinks).
+// pnpm 把 .pnpm 目录里的真实文件解引用复制过来 → 客户端无 pnpm 也能跑.
+step('Assemble dist/app/server (pnpm deploy --prod)', () => {
+  // Use relative path; spaces in REPO root break spawn-with-shell on Windows
+  const relTarget = path.relative(REPO, path.join(DIST, 'app/server')).replace(/\\/g, '/');
+  rmDir(path.join(DIST, 'app/server'));
+  run('pnpm', ['--filter', '@telehubx/server', 'deploy', '--prod', relTarget], { cwd: REPO });
 });
 
-step('Assemble dist/app/agent', () => {
-  cpDir(path.join(REPO, 'apps/agent/dist'), path.join(DIST, 'app/agent/dist'));
-  cpFile(path.join(REPO, 'apps/agent/package.json'), path.join(DIST, 'app/agent/package.json'));
-  cpDir(path.join(REPO, 'apps/agent/node_modules'), path.join(DIST, 'app/agent/node_modules'));
+step('Assemble dist/app/agent (pnpm deploy --prod)', () => {
+  const relTarget = path.relative(REPO, path.join(DIST, 'app/agent')).replace(/\\/g, '/');
+  rmDir(path.join(DIST, 'app/agent'));
+  run('pnpm', ['--filter', '@telehubx/agent', 'deploy', '--prod', relTarget], { cwd: REPO });
 });
 
 step('Assemble dist/app/dashboard', () => {
