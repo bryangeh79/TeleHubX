@@ -101,6 +101,17 @@ export class AccountsController {
     return this.service.heartbeat(id);
   }
 
+  /**
+   * 租户主动请求重置该账号 GramJS 连接。
+   * 用于 wedged client 自助修复：销毁旧实例 + 用同 session 重建，约 30s 内 agent 执行。
+   */
+  @Post(':id/reset-connection')
+  @HttpCode(HttpStatus.OK)
+  async resetConnection(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    const acct = await this.service.requestReset(id, callerTenantId(user));
+    return { ok: true, requestedAt: acct.resetRequestedAt };
+  }
+
   @Post('import')
   importAccounts(@CurrentUser() user: AuthUser, @Body() body: { accounts: any[] }) {
     return this.service.importFromCsv(body.accounts, callerTenantId(user));

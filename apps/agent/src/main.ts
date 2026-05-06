@@ -43,6 +43,8 @@ interface ApiAccount {
     systemLangCode: string;
   } | null;
   tgUserId?: string | null;
+  /** 租户主动请求重置该账号的时间戳。> slot.connectedAt 时 agent 触发 reconnect。 */
+  resetRequestedAt?: string | null;
 }
 
 const FALLBACK_FINGERPRINT = {
@@ -67,6 +69,8 @@ interface ConnectedSlot {
   client: import('telegram').TelegramClient;
   keepOnline: KeepOnlineService;
   role: ApiAccount['role'];
+  /** epoch ms 时刻：当前 client 实例创建并 connect 的时间。 */
+  connectedAt: number;
 }
 
 const SERVER_URL = (process.env.SERVER_URL ?? 'http://localhost:9800').replace(/\/$/, '');
@@ -311,7 +315,7 @@ async function bootstrap(): Promise<void> {
     const keepOnline = new KeepOnlineService();
     keepOnline.start(client);
 
-    slots.set(account.id, { client, keepOnline, role: account.role });
+    slots.set(account.id, { client, keepOnline, role: account.role, connectedAt: Date.now() });
     logger.info(`[connect] ${account.id.slice(0, 8)} role=${account.role} phone=${account.phoneNumber} proxy=${proxy ? proxy.ip + ':' + proxy.port : '(direct)'} ✓`);
 
     // 懒迁移: tgUserId 为空就 getMe() 回填 + 加进白名单
@@ -380,6 +384,24 @@ async function bootstrap(): Promise<void> {
       } catch (err: unknown) {
         // non-fatal — server may briefly be unavailable; next tick retries
         logger.warn(`[heartbeat] ${id.slice(0, 8)} ${err instanceof Error ? err.message : err}`);
+      }
+    }
+
+    // 租户主动重置请求：account.resetRequestedAt > slot.connectedAt 时销毁老 client + connect 新的
+    // 用同 session, 不重新 auth. 用于 wedged 客户端自助修复.
+    for (const fresh of wantConnected) {
+      if (!fresh.resetRequestedAt) continue;
+      const slot = slots.get(fresh.id);
+      if (!slot) continue;
+      const reqMs = new Date(fresh.resetRequestedAt).getTime();
+      if (!Number.isFinite(reqMs) || reqMs <= slot.connectedAt) continue;
+      logger.info(`[reset] ${fresh.id.slice(0, 8)} acting on user reset request (requestedAt=${fresh.resetRequestedAt})`);
+      try {
+        await disconnect(fresh.id);
+        await connect(fresh);
+        logger.info(`[reset] ${fresh.id.slice(0, 8)} ✓ fresh client built`);
+      } catch (err: unknown) {
+        logger.error(`[reset] ${fresh.id.slice(0, 8)} failed: ${err instanceof Error ? err.message : err}`);
       }
     }
   }

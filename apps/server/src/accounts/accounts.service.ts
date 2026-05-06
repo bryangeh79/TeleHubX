@@ -129,6 +129,20 @@ export class AccountsService implements OnModuleInit {
     return this.findOne(id);
   }
 
+  /**
+   * 租户主动请求重置该账号的 GramJS 客户端实例。
+   * 只设置 resetRequestedAt 时间戳；agent 在 syncFromDb 轮询时看到
+   * resetRequestedAt > slot.connectedAt 触发 reconnectAccount。
+   * 不重新 auth、不重写 sessionString —— 仅销毁旧 client + 用同 session 新建。
+   */
+  async requestReset(id: string, callerTenantId: string | null = null): Promise<Account> {
+    const account = await this.findOneScoped(id, callerTenantId);
+    account.resetRequestedAt = new Date();
+    await this.repo.save(account);
+    this.logger.log(`[reset] account ${id.slice(0, 8)} reset requested (tenant=${callerTenantId ?? 'super_admin'})`);
+    return account;
+  }
+
   async remove(id: string, callerTenantId: string | null = null): Promise<void> {
     const account = await this.findOneScoped(id, callerTenantId);
     await this.slots.releaseFromAccount(id);

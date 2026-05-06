@@ -23,6 +23,7 @@ import {
   LogoutOutlined,
   TeamOutlined,
   SettingOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import GroupsDrawer from './groups/GroupsDrawer';
 import GroupSettingsModal from './groups/GroupSettingsModal';
@@ -187,6 +188,21 @@ export default function AccountsPage() {
       await reload();
     } catch (err: any) {
       antdMessage.error(err?.response?.data?.message ?? t('msg.deleteFailed'));
+    }
+  };
+
+  /**
+   * 重置该账号的 GramJS 客户端连接（用于 wedged client 自助修复）。
+   * 仅设标志位，agent 在 ≤30s 下次 poll 时销毁旧实例 + 用同 session 新建。
+   * 不重新登录，不动 sessionString。
+   */
+  const handleResetConnection = async (slot: ApiSlot) => {
+    if (!slot.account) return;
+    try {
+      await accountsApi.resetConnection(slot.account.id);
+      antdMessage.success(t('account.resetConnSent'));
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? t('msg.opFailed'));
     }
   };
 
@@ -393,7 +409,7 @@ export default function AccountsPage() {
     {
       title: t('page.accounts.col.actions'),
       key: 'actions',
-      width: 220,
+      width: 320,
       render: (_, slot) => {
         if (slot.status === 'occupied' && slot.account) {
           return (
@@ -401,6 +417,19 @@ export default function AccountsPage() {
               <Button size="small" onClick={() => navigate(`/accounts/${slot.account!.id}`)}>
                 {t('page.accounts.action.detail')}
               </Button>
+              <Popconfirm
+                title={t('account.resetConnConfirm')}
+                description={t('account.resetConnDesc')}
+                okText={t('common.confirm')}
+                cancelText={t('common.cancel')}
+                onConfirm={() => handleResetConnection(slot)}
+              >
+                <Tooltip title={t('account.resetConnTip')}>
+                  <Button size="small" icon={<ThunderboltOutlined />}>
+                    {t('account.btnResetConn')}
+                  </Button>
+                </Tooltip>
+              </Popconfirm>
               <Popconfirm
                 title={`${t('page.accounts.action.release')} No.${slot.no}?`}
                 okText={t('common.delete')}

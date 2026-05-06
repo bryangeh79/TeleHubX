@@ -104,6 +104,15 @@ export class Account {
   @Column({ type: 'varchar', length: 256, nullable: true })
   quarantineReason: string | null;
 
+  /**
+   * 租户主动请求重置该账号 GramJS 客户端的时间戳。
+   * agent 在 syncFromDb 轮询里看到 resetRequestedAt > slot.connectedAt 时，
+   * 触发 reconnectAccount() 销毁旧 client + 重建。
+   * 不需要清字段 —— 比时间戳天然幂等。
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  resetRequestedAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

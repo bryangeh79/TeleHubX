@@ -44,6 +44,7 @@ export const accountsApi = {
   reportHealth: (id: string, healthScore: number, remark?: string) =>
     api.post(`/accounts/${id}/health`, { healthScore, remark }),
   heartbeat: (id: string) => api.post(`/accounts/${id}/heartbeat`),
+  resetConnection: (id: string) => api.post(`/accounts/${id}/reset-connection`),
   import: (accounts: any[]) => api.post('/accounts/import', { accounts }),
   healthStats: () => api.get('/accounts/health-stats'),
   // BindWizard endpoints
