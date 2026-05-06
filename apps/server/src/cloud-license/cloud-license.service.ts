@@ -6,6 +6,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { Account } from '../accounts/account.entity';
 import { Task, TaskStatus } from '../tasks/task.entity';
+import { getDataPaths } from '../common/paths';
 import { CloudLicenseClient, CloudLicenseError } from './cloud-license-client';
 import {
   LicenseStorage,
@@ -97,11 +98,9 @@ export class CloudLicenseService implements OnModuleInit, OnModuleDestroy {
       ?? 'https://telehubx-license.starbright-solutions.com';
     this.client = new CloudLicenseClient(this.baseUrl);
 
-    const dataDir = path.resolve(
-      config.get<string>('TELEHUBX_DATA_DIR') ?? path.resolve(__dirname, '..', '..', '..', '..', 'data'),
-    );
-    this.machineFp = getOrCreateMachineFingerprint(dataDir);
-    this.storage = new LicenseStorage(path.join(dataDir, 'cloud-license.bin'), this.machineFp);
+    const paths = getDataPaths(config);
+    this.machineFp = getOrCreateMachineFingerprint(paths.root);
+    this.storage = new LicenseStorage(paths.licenseFile, this.machineFp);
 
     this.verifyIntervalMs = Number(config.get('LICENSE_VERIFY_INTERVAL_MS')) || VERIFY_INTERVAL_MS_DEFAULT;
     this.heartbeatIntervalMs = Number(config.get('LICENSE_HEARTBEAT_INTERVAL_MS')) || HEARTBEAT_INTERVAL_MS_DEFAULT;

@@ -6,6 +6,7 @@ import { CloudLicenseController } from './cloud-license.controller';
 import { CloudLicenseService } from './cloud-license.service';
 import { CloudLicenseAdminController } from './cloud-license-admin.controller';
 import { CloudLicenseAdminService } from './cloud-license-admin.service';
+import { LicenseGuard } from './license.guard';
 
 /**
  * Global so AccountsService and TasksService can inject CloudLicenseService
@@ -15,7 +16,7 @@ import { CloudLicenseAdminService } from './cloud-license-admin.service';
 @Module({
   imports: [TypeOrmModule.forFeature([Account, Task])],
   controllers: [CloudLicenseController, CloudLicenseAdminController],
-  providers: [CloudLicenseService, CloudLicenseAdminService],
-  exports: [CloudLicenseService],
+  providers: [CloudLicenseService, CloudLicenseAdminService, LicenseGuard],
+  exports: [CloudLicenseService, LicenseGuard],
 })
 export class CloudLicenseModule {}
