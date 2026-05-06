@@ -38,8 +38,8 @@ const ABCD_PROMPT = `你是一个 Telegram 群聊剧本生成器。请生成一�
 @Injectable()
 export class ChatScriptsService {
   private readonly logger = new Logger(ChatScriptsService.name);
-  private openai: OpenAI;
-  private llmModel: string;
+  private openai: OpenAI | null = null;
+  private llmModel: string = 'gpt-4o-mini';
 
   constructor(
     @InjectRepository(ChatScript)
@@ -68,9 +68,11 @@ export class ChatScriptsService {
       });
       this.llmModel = 'gemini-2.0-flash';
     } else {
-      this.logger.warn('No valid LLM API key found (tried OPENAI_API_KEY, DEEPSEEK_API_KEY, GEMINI_API_KEY). ChatScript seeding will return empty.');
-      this.openai = new OpenAI({ apiKey: '' });
-      this.llmModel = 'gpt-4o-mini';
+      // Issue #14 vmfix4: no LLM key is fine. Server boots; LLM-backed
+      // ChatScript seeding becomes a no-op. Tenant can configure an AI key
+      // later via dashboard. Newer openai SDK throws on empty apiKey at
+      // construction, so we keep this.openai = null instead of instantiating.
+      this.logger.warn('No LLM API key found (OPENAI_API_KEY / DEEPSEEK_API_KEY / GEMINI_API_KEY). ChatScript LLM seeding disabled — configure an AI key in the dashboard to enable.');
     }
   }
 
@@ -350,6 +352,10 @@ export class ChatScriptsService {
     expectedRounds: number,
     allowedRoles: string,
   ): Promise<ScriptLine[] | null> {
+    if (!this.openai) {
+      this.logger.warn('callLlm skipped: no LLM provider configured');
+      return null;
+    }
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const response = await this.openai.chat.completions.create({
