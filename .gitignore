@@ -8,6 +8,9 @@ logs/
 data/contexts/
 data/assets/
 data/script-packs/
+data/cloud-license.bin
+data/machine-fingerprint.txt
+.claude/
 *.exe
 *.iss
 !installer.iss
