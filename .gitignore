@@ -15,6 +15,7 @@ data/machine-fingerprint.txt
 *.iss
 !installer.iss
 !installer/*.iss
+installer/telehubx-shortpath.iss
 .npm/
 Chat History/
 example.env

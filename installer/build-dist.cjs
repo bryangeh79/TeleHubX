@@ -99,18 +99,72 @@ step('Build @telehubx/installer-tools', () =>
 // ── 3-4. assemble app + tools ────────────────────────────────────────────────
 // Use `pnpm deploy --prod` to produce flattened deploy artifacts (no pnpm symlinks).
 // pnpm 把 .pnpm 目录里的真实文件解引用复制过来 → 客户端无 pnpm 也能跑.
-step('Assemble dist/app/server (pnpm deploy --prod)', () => {
-  // Use relative path; spaces in REPO root break spawn-with-shell on Windows
-  const relTarget = path.relative(REPO, path.join(DIST, 'app/server')).replace(/\\/g, '/');
-  rmDir(path.join(DIST, 'app/server'));
-  run('pnpm', ['--filter', '@telehubx/server', 'deploy', '--prod', relTarget], { cwd: REPO });
-});
+// Prune dev/runtime artifacts from a pnpm-deployed package directory.
+// Removes both the deploy root junk and the recursive @telehubx/<pkg>
+// self-reference under node_modules/.pnpm/.
+const PRUNE_DIRS  = ['installer', 'logs', 'src', 'scripts', 'test', 'data'];
+const PRUNE_FILES = ['tsconfig.json', 'tsconfig.tsbuildinfo', 'package-lock.json', 'nest-cli.json'];
 
-step('Assemble dist/app/agent (pnpm deploy --prod)', () => {
-  const relTarget = path.relative(REPO, path.join(DIST, 'app/agent')).replace(/\\/g, '/');
-  rmDir(path.join(DIST, 'app/agent'));
-  run('pnpm', ['--filter', '@telehubx/agent', 'deploy', '--prod', relTarget], { cwd: REPO });
-});
+function pruneDeployTarget(targetDir, pkgName) {
+  if (!fs.existsSync(targetDir)) return;
+
+  const targets = [targetDir];
+  // pnpm deploy creates a self-reference at node_modules/.pnpm/node_modules/<pkg>/
+  // which contains a copy of the source tree (incl. stowaway dirs). Prune it too.
+  const selfRef = path.join(targetDir, 'node_modules', '.pnpm', 'node_modules', pkgName);
+  if (fs.existsSync(selfRef)) targets.push(selfRef);
+
+  for (const t of targets) {
+    for (const d of PRUNE_DIRS) {
+      const p = path.join(t, d);
+      if (fs.existsSync(p)) {
+        try { fs.rmSync(p, { recursive: true, force: true }); }
+        catch (e) { warn(`prune skip ${path.relative(REPO, p)}: ${e.message}`); }
+      }
+    }
+    for (const f of PRUNE_FILES) {
+      const p = path.join(t, f);
+      if (fs.existsSync(p)) {
+        try { fs.unlinkSync(p); } catch { /* ignore */ }
+      }
+    }
+  }
+}
+
+// SAFETY: pnpm deploy + this workspace destroyed source three times in testing
+// (apps/server/tsconfig.json + apps/agent/src/* deleted). Even with --prod alone
+// (no --node-linker=hoisted), even with target outside workspace tree.
+// Root cause likely: pnpm walks workspace symlinks during deploy and confuses
+// source dirs with deploy targets when both are reachable from cwd.
+//
+// Therefore build-dist.cjs DOES NOT call pnpm deploy.
+// Instead it copies dist/ + package.json only. node_modules production install
+// must be performed separately (out-of-tree) by build.ps1, see Phase 4 README.
+
+function copyAppPackage(appName) {
+  const srcDir  = path.join(REPO, 'apps', appName);
+  const dstDir  = path.join(DIST, 'app', appName);
+  rmDir(dstDir);
+  fs.mkdirSync(dstDir, { recursive: true });
+  // Built code only (we DO NOT touch source dirs)
+  cpDir(path.join(srcDir, 'dist'), path.join(dstDir, 'dist'));
+  cpFile(path.join(srcDir, 'package.json'), path.join(dstDir, 'package.json'));
+  // Production node_modules must be created by build.ps1 via:
+  //   pnpm pack --filter @telehubx/<appName> --out <tmp>
+  //   tar -xf <tarball> -C <tmp>
+  //   cd <dist/app/<appName>> && npm install --omit=dev
+  // (or a docker-based clean install)
+  // build-dist.cjs leaves a NODE_MODULES_REQUIRED.txt marker for clarity:
+  fs.writeFileSync(
+    path.join(dstDir, 'NODE_MODULES_REQUIRED.txt'),
+    'Production node_modules must be installed here before packaging.\n' +
+    'See installer/PHASE4_HANDOFF.md "Step: production deps install".\n',
+    'utf8',
+  );
+}
+
+step('Assemble dist/app/server (safe copy, no pnpm deploy)', () => copyAppPackage('server'));
+step('Assemble dist/app/agent (safe copy, no pnpm deploy)',  () => copyAppPackage('agent'));
 
 step('Assemble dist/app/dashboard', () => {
   cpDir(path.join(REPO, 'apps/dashboard/dist'), path.join(DIST, 'app/dashboard/dist'));

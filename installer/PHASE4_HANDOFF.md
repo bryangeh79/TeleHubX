@@ -160,8 +160,58 @@ node installer/tools/test/safety-test.cjs
 
 | 项 | 状态 | 备注 |
 |----|------|------|
-| postject SEA 注入 | 需要 `pnpm add -Dw postject` | build.ps1 检测但不安装 |
-| Memurai 商业授权 | 待用户确认 | 上线前必须 |
+| postject SEA 注入 | 已 `pnpm add -Dw postject` (Issue #11) | |
+| Memurai 商业授权 + 下载 | 阻塞: CloudFront 403 | 需邮箱注册手动下载，上线前确认 Enterprise 授权 |
 | EV 代码签名 | 未做 | 否则 SmartScreen 警告 |
 | 自动更新 | 未做 | 后续可加 squirrel.windows |
-| pgvector .dll Windows pre-built | 可能需要自编 | 见 runtime/README.md §2.2 |
+| pgvector .dll Windows pre-built | **已找到 (Issue #11)** | 社区构建 `andreiramani/pgvector_pgsql_windows` v0.8.2-pg16；非官方需评估 |
+
+## Critical blockers found in Issue #11 testing
+
+### A. `pnpm deploy` destroys workspace source (3 occurrences)
+
+**Symptom**: Running `pnpm --filter @telehubx/<pkg> deploy --prod <target>` deleted
+`apps/server/tsconfig.json`, `apps/server/src/*`, `apps/agent/src/*`, etc.
+This was reproducible 3 times in a row, with target both inside (`installer/dist`)
+and outside (`%TEMP%/telehubx-deploy-*`) the workspace, with and without
+`--config.node-linker=hoisted`.
+
+**Root cause hypothesis**: pnpm walks workspace symlinks during deploy and confuses
+source dirs with deploy targets when both are reachable from cwd. The first deploy
+in a build-dist run usually succeeds; the second consistently destroys source.
+
+**Mitigation**: `installer/build-dist.cjs` no longer calls `pnpm deploy`. It now:
+- Copies `apps/<pkg>/dist/` and `apps/<pkg>/package.json` into `installer/dist/app/<pkg>/`
+- Writes `NODE_MODULES_REQUIRED.txt` marker (no node_modules)
+- Includes a canary check (`safeDeployAndMove` scaffolding kept for future use)
+
+**Production deps install** (must be done out-of-tree by build.ps1, NOT yet automated):
+```powershell
+# For each app (server, agent), in a clean directory:
+$pkg = 'server'  # or agent
+$tmp = Join-Path $env:TEMP "telehubx-pack-$pkg"
+pnpm pack --filter "@telehubx/$pkg" --pack-destination $tmp
+# Extract pkg.tgz, then:
+cd "$tmp\package"
+npm install --omit=dev
+# Copy node_modules back to installer/dist/app/$pkg/node_modules
+```
+
+This must be implemented and tested in a separate workstream (Issue #12 candidate).
+
+### B. ISCC + pnpm `.pnpm/<long-hash>/` exceeds Windows MAX_PATH
+
+**Symptom**: `Error in installer/telehubx.iss: The system cannot find the path specified.`
+during `Compressing:` of `node_modules\.pnpm\@nestjs+bull-shared@11.0.4_@nestjs+common@11.1.19_class-transformer@0.5.1_class-validator@0.1_<hash>\node_modules\@nestjs\core\injector\opaque-key-factory\interfaces\module-opaque-key-factory.interface.d.ts` (~295 chars).
+
+**Tested workarounds**:
+- `HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled = 1` already set → **does not help** (ISCC.exe lacks the long-path manifest opt-in).
+- Junction `C:\T → installer/dist` + short-path .iss (`Source: "C:\T\app\*"`) → **still fails** because `.pnpm/<package@version>_<peer-hashes>/` is itself >250 chars from the junction root.
+
+**Recommendation**: When deps install is fixed via npm (Blocker A), `npm install --omit=dev`
+produces a flat `node_modules/<pkg>/...` layout (no `.pnpm/<hash>/` deep paths). This
+single change should resolve Blocker B as well.
+
+**Helper artifact added**: `installer/scripts/make-shortpath-iss.cjs` generates
+`installer/telehubx-shortpath.iss` with `C:\T\*` paths for use with the junction
+workaround. Kept in repo for future manual debugging.
