@@ -249,6 +249,27 @@ async function main(): Promise<void> {
       continue;
     }
 
+    // postgres 首次启动先调 init-pgdata 脚本（idempotent）
+    if (svc.name === 'postgres') {
+      const initScript = path.join(env.installPath, 'runtime', 'postgres', 'init-pgdata.cjs');
+      if (existsSync(initScript)) {
+        log.info(`[postgres] running init-pgdata (idempotent)`);
+        const portableNode = path.join(env.installPath, 'runtime', 'node', 'node.exe');
+        const nodeBin = existsSync(portableNode) ? portableNode : process.execPath;
+        const r = require('node:child_process').spawnSync(nodeBin, [initScript], {
+          encoding: 'utf8',
+          env: process.env,
+          windowsHide: true,
+        });
+        if (r.status !== 0) {
+          log.error(`init-pgdata failed (status=${r.status}): ${(r.stderr ?? '').slice(0, 500)}`);
+          process.exit(5);
+        }
+      } else {
+        log.warn(`init-pgdata script missing at ${initScript} — assuming pgdata already initialized`);
+      }
+    }
+
     try { spawnDetached(svc, paths, env); }
     catch (e) {
       log.error(`[${svc.name}] spawn failed: ${(e as Error).message}`);

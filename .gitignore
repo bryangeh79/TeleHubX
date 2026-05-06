@@ -24,3 +24,5 @@ memory/
 !installer/tools/
 installer/tools/dist/
 installer/tools/node_modules/
+installer/dist/
+/vendor/
