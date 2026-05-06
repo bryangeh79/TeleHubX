@@ -58,8 +58,20 @@ function fail(msg) { console.error(`[init-pgdata] FATAL: ${msg}`); process.exit(
 function exists(p) { try { fs.accessSync(p); return true; } catch { return false; } }
 
 function run(exe, args, opts = {}) {
-  const r = spawnSync(exe, args, { encoding: 'utf8', ...opts });
+  const r = spawnSync(exe, args, { encoding: 'utf8', timeout: 120_000, ...opts });
   return { ok: r.status === 0, stdout: r.stdout, stderr: r.stderr, status: r.status };
+}
+
+// psql via TCP needs PGPASSWORD because --auth-host=scram-sha-256.
+// Without it, libpq prompts on stdin; spawnSync has no TTY -> hangs forever.
+// Also pipe stdin from /dev/null equivalent so any prompt fails fast instead of blocking.
+function runPsql(args) {
+  return spawnSync(psqlExe, args, {
+    encoding: 'utf8',
+    timeout: 60_000,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, PGPASSWORD: PG_PASSWORD },
+  });
 }
 
 // ── 1. 已初始化？ ──
@@ -114,31 +126,33 @@ if (!startRes.ok) fail(`pg_ctl start failed: ${startRes.stderr}`);
 try {
   // ── 6. 创建数据库 ──
   log(`creating database "${PG_DATABASE}"...`);
-  const createDb = run(psqlExe, [
+  const createDb = runPsql([
+    '-w',                          // never prompt for password (fail fast if PGPASSWORD missing)
     '-h', '127.0.0.1', '-p', PG_PORT, '-U', PG_USER, '-d', 'postgres',
     '-c', `CREATE DATABASE ${PG_DATABASE} OWNER ${PG_USER};`,
   ]);
-  if (!createDb.ok) {
-    // 可能已存在 — 不致命
-    log(`createdb non-fatal: ${createDb.stderr.trim()}`);
+  if (createDb.status !== 0) {
+    // already-exists is non-fatal
+    log(`createdb non-fatal: ${(createDb.stderr || '').trim()}`);
   }
 
   // ── 7. 启用 pgvector ──
   log('enabling pgvector extension...');
-  const ext = run(psqlExe, [
+  const ext = runPsql([
+    '-w',
     '-h', '127.0.0.1', '-p', PG_PORT, '-U', PG_USER, '-d', PG_DATABASE,
     '-c', 'CREATE EXTENSION IF NOT EXISTS vector;',
   ]);
-  if (!ext.ok) {
-    log(`pgvector non-fatal: ${ext.stderr.trim()}`);
-    log('如果使用知识库 RAG, 请确保 vector.dll 已放入 runtime/postgres/lib/');
+  if (ext.status !== 0) {
+    log(`pgvector non-fatal: ${(ext.stderr || '').trim()}`);
+    log('If using knowledge-base RAG, ensure vector.dll is at runtime/postgres/lib/');
   } else {
     log('pgvector enabled');
   }
 } finally {
-  // ── 8. 停掉临时 postgres ── (supervisor 会重新拉一份长跑的)
+  // ── 8. 停掉临时 postgres ── (supervisor will spawn the long-running instance)
   log('stopping temporary postgres...');
-  run(pgCtlExe, ['-D', pgdataDir, '-m', 'fast', 'stop']);
+  run(pgCtlExe, ['-D', pgdataDir, '-m', 'fast', '-w', 'stop']);
 }
 
 log('init-pgdata done');

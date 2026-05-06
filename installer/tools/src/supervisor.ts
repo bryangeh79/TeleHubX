@@ -293,15 +293,32 @@ async function main(): Promise<void> {
           log.error(`init-pgdata: portable node missing at ${portableNode} (required when running as SEA exe)`);
           process.exit(5);
         }
+        // Hard timeout (3 min) + capture stdio so init-pgdata progress reaches supervisor.log.
+        // Without timeout/captured stdio, a hanging psql password prompt would block
+        // supervisor forever (Issue #14 vmfix1 follow-up).
         const r = require('node:child_process').spawnSync(nodeBin, [initScript], {
           encoding: 'utf8',
           env: subprocessEnv(env),
           windowsHide: true,
+          timeout: 180_000,
+          stdio: ['ignore', 'pipe', 'pipe'],
         });
-        if (r.status !== 0) {
-          log.error(`init-pgdata failed (status=${r.status}): ${(r.stderr ?? '').slice(0, 500)}`);
+        // Forward init-pgdata's stdout/stderr lines into supervisor.log
+        for (const line of (r.stdout ?? '').split(/\r?\n/)) {
+          if (line.trim()) log.info(`  ${line}`);
+        }
+        for (const line of (r.stderr ?? '').split(/\r?\n/)) {
+          if (line.trim()) log.warn(`  ${line}`);
+        }
+        if (r.signal === 'SIGTERM') {
+          log.error(`init-pgdata timed out after 180s (signal=${r.signal})`);
           process.exit(5);
         }
+        if (r.status !== 0) {
+          log.error(`init-pgdata failed (status=${r.status})`);
+          process.exit(5);
+        }
+        log.info(`[postgres] init-pgdata completed`);
       } else {
         log.warn(`init-pgdata script missing at ${initScript} — assuming pgdata already initialized`);
       }
