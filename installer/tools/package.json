@@ -1,0 +1,21 @@
+{
+  "name": "@telehubx/installer-tools",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TeleHubX supervisor / stop tools (Phase 2). Compiled to dist/, later bundled to .exe via Node SEA in Phase 4.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "supervisor": "tsx src/supervisor.ts",
+    "stop": "tsx src/stop.ts",
+    "supervisor:built": "node dist/supervisor.js",
+    "stop:built": "node dist/stop.js",
+    "stop:dry": "cross-env TELEHUBX_STOP_DRY_RUN=1 node dist/stop.js",
+    "supervisor:probe": "cross-env TELEHUBX_RUNTIME_MODE=probe node dist/supervisor.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "cross-env": "^7.0.3",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.5"
+  }
+}
