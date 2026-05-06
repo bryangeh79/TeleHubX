@@ -159,21 +159,35 @@ function taskTypeLabel(t: (k: string) => string, type: string): string {
   return (TASK_TYPE_LABELS as any)[type]?.label ?? type;
 }
 
+/** group 名 → i18n key 映射 */
+const GROUP_I18N_KEY: Record<string, string> = {
+  'Preset':         'taskGroup.preset',
+  'Groups':         'taskGroup.groups',
+  'Groups (Self)':  'taskGroup.groupsSelf',
+  'Group Activity': 'taskGroup.groupActivity',
+  'Lead Hunt':      'taskGroup.leadHunt',
+  'Outreach':       'taskGroup.outreach',
+  'Content':        'taskGroup.content',
+  'Interaction':    'taskGroup.interaction',
+};
+
 /** 把 22 个任务按 group 分组成 antd Select 的 options（带 emoji）。 */
-function buildGroupedTaskOptions() {
+function buildGroupedTaskOptions(t: (k: string) => string) {
   const grouped: Record<string, Array<{ value: string; label: string }>> = {};
   // campaign_single 是「广告投放」自动产生的子任务，不在通用调度里展示/创建
   const HIDDEN_TYPES = new Set(['campaign_single']);
   for (const [k, m] of Object.entries(TASK_TYPE_LABELS)) {
     if (HIDDEN_TYPES.has(k)) continue;
     if (!grouped[m.group]) grouped[m.group] = [];
-    grouped[m.group].push({ value: k, label: `${m.icon}  ${m.label}` });
+    grouped[m.group].push({ value: k, label: `${m.icon}  ${taskTypeLabel(t, k)}` });
   }
   // 保持 group 顺序：按首次出现顺序（Object.entries 在 Node 14+ 稳定按插入顺序）
-  return Object.entries(grouped).map(([groupName, items]) => ({
-    label: groupName,
-    options: items,
-  }));
+  return Object.entries(grouped).map(([groupName, items]) => {
+    const i18nKey = GROUP_I18N_KEY[groupName];
+    const translated = i18nKey ? t(i18nKey) : groupName;
+    const label = (translated && translated !== i18nKey) ? translated : groupName;
+    return { label, options: items };
+  });
 }
 
 /** 颜色 static, label 通过 statusMeta(t) 函数取 4 语. */
@@ -770,7 +784,7 @@ export default function SchedulerPage() {
             style={{ width: 200 }}
             showSearch
             optionFilterProp="label"
-            options={buildGroupedTaskOptions()}
+            options={buildGroupedTaskOptions(t)}
           />
           <Button icon={<ReloadOutlined />} onClick={() => void reload()}>刷新</Button>
         </Space>
@@ -979,7 +993,7 @@ export default function SchedulerPage() {
               placeholder={t('taskModal.typePlaceholder')}
               showSearch
               optionFilterProp="label"
-              options={buildGroupedTaskOptions()}
+              options={buildGroupedTaskOptions(t)}
             />
           </Form.Item>
 

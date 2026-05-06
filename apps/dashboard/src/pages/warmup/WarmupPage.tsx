@@ -358,7 +358,7 @@ export default function WarmupPage() {
         if (!phone) return <Text type="secondary">—</Text>;
         return (
           <Space size={4}>
-            <Text code style={{ fontSize: 12 }}>{phone}</Text>
+            <Text code style={{ fontSize: 14, fontWeight: 500 }}>{phone}</Text>
             <Tooltip title={t('common.copy')}>
               <Button
                 size="small"
