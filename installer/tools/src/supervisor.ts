@@ -12,7 +12,7 @@ import { writePidFile, type PidRecord } from './shared/pid-store';
  * TeleHubX supervisor — 启动器
  *
  * 模式:
- *   prod  : 启动 postgres + memurai + server + agent + dashboard 5 进程
+ *   prod  : 启动 postgres + redis + server + agent + dashboard 5 进程
  *   dev   : 假设 PG/Redis 由 Docker 提供, 仅启动 server + agent + dashboard
  *   probe : 仅探测端口 + 查 license + 开浏览器, 不 spawn 任何进程（无侵入测试）
  *
@@ -21,7 +21,7 @@ import { writePidFile, type PidRecord } from './shared/pid-store';
  */
 
 interface ServiceDef {
-  name: 'postgres' | 'memurai' | 'server' | 'agent' | 'dashboard';
+  name: 'postgres' | 'redis' | 'server' | 'agent' | 'dashboard';
   exe: string;
   args: string[];
   cwd?: string;
@@ -90,9 +90,16 @@ function buildServices(env: SupervisorEnv, paths: DataPaths): ServiceDef[] {
       critical: true,
     },
     {
-      name: 'memurai',
-      exe: path.join(env.installPath, 'runtime', 'memurai', 'memurai.exe'),
-      args: ['--port', String(env.redisPort), '--dir', paths.memuraiDir],
+      name: 'redis',
+      exe: path.join(env.installPath, 'runtime', 'redis', 'redis-server.exe'),
+      // Use bundled config; CLI args override key fields for safety:
+      //   loopback only, configured port, custom dir for RDB.
+      args: [
+        path.join(env.installPath, 'runtime', 'redis', 'redis.conf'),
+        '--bind', '127.0.0.1',
+        '--port', String(env.redisPort),
+        '--dir', paths.redisDataDir,
+      ],
       enabledIn: ['prod'],
       health: () => tcpProbe('127.0.0.1', env.redisPort),
       healthTimeoutMs: 15000,

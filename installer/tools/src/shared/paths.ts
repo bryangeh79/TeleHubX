@@ -8,7 +8,7 @@ import * as path from 'node:path';
 export interface DataPaths {
   root: string;
   pgdataDir: string;
-  memuraiDir: string;
+  redisDataDir: string;
   licenseFile: string;
   machineFingerprintFile: string;
   agentTokenFile: string;
@@ -23,7 +23,7 @@ export function buildDataPaths(dataDir: string): DataPaths {
   const out: DataPaths = {
     root,
     pgdataDir: path.join(root, 'pgdata'),
-    memuraiDir: path.join(root, 'memurai'),
+    redisDataDir: path.join(root, 'redis-data'),
     licenseFile: path.join(root, 'cloud-license.bin'),
     machineFingerprintFile: path.join(root, 'machine-fingerprint.txt'),
     agentTokenFile: path.join(root, 'agent-token.bin'),
@@ -33,7 +33,7 @@ export function buildDataPaths(dataDir: string): DataPaths {
     runDir: path.join(root, 'run'),
   };
   for (const d of [
-    out.root, out.pgdataDir, out.memuraiDir,
+    out.root, out.pgdataDir, out.redisDataDir,
     out.sessionsDir, out.uploadsDir, out.logsDir, out.runDir,
   ]) {
     try { mkdirSync(d, { recursive: true }); } catch { /* ignore */ }

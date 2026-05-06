@@ -63,7 +63,7 @@ Name: "{userappdata}\TeleHubX\data\logs";   Permissions: users-modify
 Name: "{userappdata}\TeleHubX\data\sessions"; Permissions: users-modify
 Name: "{userappdata}\TeleHubX\data\uploads";  Permissions: users-modify
 Name: "{userappdata}\TeleHubX\data\pgdata";   Permissions: users-modify
-Name: "{userappdata}\TeleHubX\data\memurai";  Permissions: users-modify
+Name: "{userappdata}\TeleHubX\data\redis";  Permissions: users-modify
 
 [Icons]
 ; Desktop shortcuts (using TeleHubX logo)

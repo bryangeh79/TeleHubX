@@ -33,13 +33,13 @@ function Die($t)     { Write-Host "[FATAL] $t" -ForegroundColor Red; exit 1 }
 # ---- 1. vendor check ------------------------------------------------------
 Section 'Vendor check'
 $vendor = Join-Path $repoRoot 'vendor'
-$nodeOk = Test-Path (Join-Path $vendor 'node-v20-win-x64\node.exe')
-$pgOk   = Test-Path (Join-Path $vendor 'postgres-16-portable\bin\postgres.exe')
-$mmOk   = Test-Path (Join-Path $vendor 'memurai\memurai.exe')
+$nodeOk  = Test-Path (Join-Path $vendor 'node-v20-win-x64\node.exe')
+$pgOk    = Test-Path (Join-Path $vendor 'postgres-16-portable\bin\postgres.exe')
+$redisOk = Test-Path (Join-Path $vendor 'redis-windows\redis-server.exe')
 Write-Host "  node:     $nodeOk"
 Write-Host "  postgres: $pgOk"
-Write-Host "  memurai:  $mmOk"
-if (-not ($nodeOk -and $pgOk -and $mmOk) -and -not $SkipVendorCheck) {
+Write-Host "  redis:    $redisOk"
+if (-not ($nodeOk -and $pgOk -and $redisOk) -and -not $SkipVendorCheck) {
   Die 'vendor binaries incomplete. Run installer/scripts/fetch-vendor.ps1 first, OR pass -SkipVendorCheck for a dev-mode dist.'
 }
 

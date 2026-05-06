@@ -24,21 +24,21 @@ import { getProcessInfo, killProcessTree, isPidAlive } from './shared/proc-windo
  * 任一步失败 → 跳过 + 写日志 + 不 taskkill。
  *
  * 严禁的操作（代码里没有，工具不允许）:
- *   - taskkill /F /IM node.exe / postgres.exe / redis.exe / memurai.exe
+ *   - taskkill /F /IM node.exe / postgres.exe / redis-server.exe
  *   - Stop-Process -Name node / pkill node / killall node
  *   - 任何按进程名批量杀
  *
- * 反向停止顺序: dashboard → agent → server → memurai → postgres
+ * 反向停止顺序: dashboard → agent → server → redis → postgres
  *
  * dry-run: TELEHUBX_STOP_DRY_RUN=1 → 仅打印将做的事, 不实际 taskkill
  */
 
 /** 服务白名单 — pid 文件 service 字段必须严格匹配此列表 */
-const SERVICE_WHITELIST = ['dashboard', 'agent', 'server', 'memurai', 'postgres'] as const;
+const SERVICE_WHITELIST = ['dashboard', 'agent', 'server', 'redis', 'postgres'] as const;
 type ServiceName = typeof SERVICE_WHITELIST[number];
 
 /** 反向停止顺序（dashboard 先停，避免新请求打到正停的 server） */
-const STOP_ORDER: ServiceName[] = ['dashboard', 'agent', 'server', 'memurai', 'postgres'];
+const STOP_ORDER: ServiceName[] = ['dashboard', 'agent', 'server', 'redis', 'postgres'];
 
 const CREATION_DRIFT_TOLERANCE_MS = 5000;
 

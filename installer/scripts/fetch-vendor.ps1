@@ -1,19 +1,16 @@
-# fetch-vendor.ps1 -- prepare vendor/ binaries (Phase 3.5)
+# fetch-vendor.ps1 -- prepare vendor/ binaries
 #
 # Usage (Windows PowerShell, repo root):
 #   .\installer\scripts\fetch-vendor.ps1
 #
 # Behavior:
-#   1. Download Node v20 LTS Windows x64 to vendor/node-v20-win-x64/node.exe (auto)
-#   2. Print download instructions for Postgres Portable + pgvector (manual)
-#   3. Print download instructions for Memurai (manual, also note license)
+#   1. Auto-download Node v20 LTS Windows x64 -> vendor/node-v20-win-x64/
+#   2. Auto-download Redis-for-Windows v5.0.14.1 -> vendor/redis-windows/
+#      (tporadowski/redis fork; BSD-3-Clause; replaces Memurai)
+#   3. Postgres Portable: prompt manual download (no public direct URL)
+#   4. pgvector: prompt manual download (community Windows port)
 #
-# License note: Memurai Developer is for development/eval only;
-# production deployment requires Memurai Enterprise.
-#
-# This script is intentionally pure ASCII so that Windows PowerShell 5.1
-# parses it correctly regardless of the system code page. Do not introduce
-# arrows, em-dashes, smart quotes, or box-drawing characters here.
+# Pure ASCII source so Windows PowerShell 5.1 parses regardless of code page.
 
 $ErrorActionPreference = 'Stop'
 
@@ -49,7 +46,27 @@ if (Test-Path $NodeExe) {
   Write-Ok "node.exe placed at $NodeExe"
 }
 
-# ---- 2. Postgres Portable v16 + pgvector (manual) -------------------------
+# ---- 2. Redis for Windows (tporadowski/redis) -----------------------------
+Write-Section 'Redis for Windows (tporadowski/redis, BSD-3-Clause)'
+$RedisVersion = 'v5.0.14.1'
+$RedisUrl     = "https://github.com/tporadowski/redis/releases/download/$RedisVersion/Redis-x64-5.0.14.1.zip"
+$RedisDir     = Join-Path $VendorDir 'redis-windows'
+$RedisExe     = Join-Path $RedisDir 'redis-server.exe'
+
+if (Test-Path $RedisExe) {
+  Write-Ok "already present: $RedisExe"
+} else {
+  $tmp = Join-Path $env:TEMP "redis-windows-$RedisVersion.zip"
+  Write-Host "  downloading $RedisUrl ..."
+  Invoke-WebRequest -Uri $RedisUrl -OutFile $tmp -UseBasicParsing
+  Write-Host "  extracting ..."
+  $null = New-Item -ItemType Directory -Force -Path $RedisDir
+  Expand-Archive -LiteralPath $tmp -DestinationPath $RedisDir -Force
+  Remove-Item -Force $tmp
+  Write-Ok "redis-server.exe placed at $RedisExe"
+}
+
+# ---- 3. Postgres Portable v16 + pgvector (manual) -------------------------
 Write-Section 'Postgres Portable v16 + pgvector'
 $PgDir = Join-Path $VendorDir 'postgres-16-portable'
 if (Test-Path (Join-Path $PgDir 'bin\postgres.exe')) {
@@ -63,43 +80,26 @@ if (Test-Path (Join-Path $PgDir 'bin\postgres.exe')) {
   Write-Host "    3) Copy folder into: $VendorDir"
   Write-Host '    4) Verify:    vendor\postgres-16-portable\bin\postgres.exe exists'
   Write-Host ''
-  Write-Host '    pgvector:'
-  Write-Host '       https://github.com/pgvector/pgvector/releases'
-  Write-Host '       download Windows pre-built (or build from source)'
+  Write-Host '    pgvector for PG16:'
+  Write-Host '       https://github.com/andreiramani/pgvector_pgsql_windows/releases/tag/0.8.2_16.1'
+  Write-Host '       (community Windows port; non-official; evaluate before production use)'
   Write-Host '       place files:'
   Write-Host '         vector.dll        into vendor\postgres-16-portable\lib\'
   Write-Host '         vector.control    into vendor\postgres-16-portable\share\extension\'
   Write-Host '         vector--*.sql     into vendor\postgres-16-portable\share\extension\'
 }
 
-# ---- 3. Memurai -----------------------------------------------------------
-Write-Section 'Memurai (Redis-compatible)'
-$MmDir = Join-Path $VendorDir 'memurai'
-if (Test-Path (Join-Path $MmDir 'memurai.exe')) {
-  Write-Ok "already present: $MmDir"
-} else {
-  Write-Warn2 'manual step required (also: confirm license):'
-  Write-Host '    1) Visit https://www.memurai.com/get-memurai'
-  Write-Host '    2) Choose Memurai Developer (free for dev/eval)'
-  Write-Host '       OR Memurai Enterprise (paid, required for production)'
-  Write-Host '    3) Install / extract; copy memurai.exe + memurai-cli.exe'
-  Write-Host "       into: $MmDir"
-  Write-Host ''
-  Write-Host '    LICENSE NOTE: Memurai Developer EULA forbids production use.'
-  Write-Host '    Before shipping installer to customers: confirm Memurai Enterprise.'
-}
-
 # ---- 4. status summary ----------------------------------------------------
 Write-Section 'Summary'
-$nodeOk = Test-Path $NodeExe
-$pgOk   = Test-Path (Join-Path $PgDir 'bin\postgres.exe')
-$mmOk   = Test-Path (Join-Path $MmDir 'memurai.exe')
+$nodeOk  = Test-Path $NodeExe
+$redisOk = Test-Path $RedisExe
+$pgOk    = Test-Path (Join-Path $PgDir 'bin\postgres.exe')
 
-if ($nodeOk) { Write-Ok 'node ready' }     else { Write-Warn2 'node missing' }
-if ($pgOk)   { Write-Ok 'postgres ready' } else { Write-Warn2 'postgres missing -- manual step' }
-if ($mmOk)   { Write-Ok 'memurai ready' }  else { Write-Warn2 'memurai missing -- manual step' }
+if ($nodeOk)  { Write-Ok 'node ready' }     else { Write-Warn2 'node missing' }
+if ($redisOk) { Write-Ok 'redis ready' }    else { Write-Warn2 'redis missing' }
+if ($pgOk)    { Write-Ok 'postgres ready' } else { Write-Warn2 'postgres missing -- manual step' }
 
-if (-not ($nodeOk -and $pgOk -and $mmOk)) {
+if (-not ($nodeOk -and $redisOk -and $pgOk)) {
   Write-Host "`nNot all binaries present yet. After manual steps, re-run this script to verify." -ForegroundColor Yellow
   exit 1
 }

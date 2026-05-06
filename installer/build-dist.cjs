@@ -265,13 +265,27 @@ step('Copy runtime init scripts', () => {
     path.join(REPO, 'installer/runtime/postgres/init-pgdata.cjs'),
     path.join(DIST, 'runtime/postgres/init-pgdata.cjs'),
   );
+  // Bundled redis.conf + license stub (always shipped, even if vendor/redis-windows missing)
+  cpFile(
+    path.join(REPO, 'installer/runtime/redis/redis.conf'),
+    path.join(DIST, 'runtime/redis/redis.conf'),
+  );
+  cpFile(
+    path.join(REPO, 'installer/runtime/redis/LICENSE-tporadowski-redis.txt'),
+    path.join(DIST, 'runtime/redis/LICENSE-tporadowski-redis.txt'),
+  );
 });
 
 step('Copy runtime binaries (from vendor/)', () => {
   const okNode = cpDir(path.join(VENDOR, 'node-v20-win-x64'),     path.join(DIST, 'runtime/node'),     { optional: true });
   const okPg   = cpDir(path.join(VENDOR, 'postgres-16-portable'), path.join(DIST, 'runtime/postgres'), { optional: true });
-  const okMm   = cpDir(path.join(VENDOR, 'memurai'),              path.join(DIST, 'runtime/memurai'),  { optional: true });
-  if (!okNode || !okPg || !okMm) {
+  const okRedis = cpDir(path.join(VENDOR, 'redis-windows'),       path.join(DIST, 'runtime/redis'),    { optional: true });
+  // Bundle the redis.conf from installer/runtime/redis/ into dist/runtime/redis/
+  const cfgSrc = path.join(REPO, 'installer/runtime/redis/redis.conf');
+  if (fs.existsSync(cfgSrc) && okRedis) {
+    cpFile(cfgSrc, path.join(DIST, 'runtime/redis/redis.conf'));
+  }
+  if (!okNode || !okPg || !okRedis) {
     warn('runtime binaries not all present -- dist will only run with TELEHUBX_RUNTIME_MODE=dev');
     warn('see installer/runtime/README.md for binary acquisition');
   }

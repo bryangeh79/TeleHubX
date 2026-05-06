@@ -21,9 +21,11 @@ dist/
 │   │   │   └── vector.dll                 ← pgvector 0.7+
 │   │   ├── share/
 │   │   └── ...
-│   └── memurai/
-│       ├── memurai.exe
-│       └── ...
+│   └── redis/
+│       ├── redis-server.exe                  ← tporadowski/redis 5.0.14.1 (BSD-3-Clause)
+│       ├── redis-cli.exe
+│       ├── redis.conf                        ← bundled (loopback + 6386 + no persist + 64MB LRU)
+│       └── LICENSE-tporadowski-redis.txt
 ├── app/
 ├── tools/
 └── .env
@@ -80,24 +82,34 @@ vendor/postgres-16-portable/
 5. `psql -d telehubx -c 'CREATE EXTENSION IF NOT EXISTS vector;'`
 6. 写 `<dataDir>/pgdata/postgresql.conf`：`listen_addresses='127.0.0.1'`, `port=5436`
 
-## 3. Memurai
+## 3. Redis for Windows (tporadowski/redis)
 
-Memurai 是 Redis API 兼容的 Windows 实现。
+替换原 Memurai 方案 — 见 Issue #12 audit + decision。
 
-下载: https://www.memurai.com/get-memurai
-选 **Memurai Developer**（非生产环境免费） 或 **Memurai for Redis**（商业版）。
+**为什么换**：
+- TeleHubX 实际使用 Redis 仅 3 处（AI 上下文、速率限制、Bot 去重），全是基本 KV
+- 零 BullMQ / 队列 / pub-sub / Lua 使用
+- Memurai Enterprise 商业授权对客户分发产生成本与采购摩擦
+- tporadowski/redis 是 BSD-3-Clause 免费可商用，已在 FAhubX 实战
 
-> ⚠️ **License 注意**：Memurai Developer 仅供开发/测试用。商业部署需要购买 Memurai Enterprise 或 Memurai for Redis 授权。
-> Phase 3 阶段使用 Developer 版即可走通流程；Phase 4/5 上线前需采购正式授权。
+**版本**: v5.0.14.1 (Microsoft archived 2016 后的社区延续)
+**License**: 3-Clause BSD ([`vendor/redis-windows/...`](https://github.com/tporadowski/redis))
+**自动下载**: `installer/scripts/fetch-vendor.ps1` 一键获取
 
 ```
-vendor/memurai/
-├── memurai.exe
-├── memurai-cli.exe
-└── memurai-benchmark.exe (optional)
+vendor/redis-windows/
+├── redis-server.exe         (~1.4 MB)
+├── redis-cli.exe
+├── redis-check-rdb.exe
+├── redis-check-aof.exe
+├── redis-benchmark.exe (optional)
+├── 00-RELEASENOTES          (Redis upstream license)
+└── README.txt
 ```
 
-约 12 MB。
+`installer/runtime/redis/redis.conf` 由 build-dist.cjs 一并复制到
+`dist/runtime/redis/redis.conf`：loopback only / 6386 / **持久化关闭** /
+maxmemory 64mb / allkeys-lru。
 
 ## 4. 总体积
 
@@ -105,12 +117,12 @@ vendor/memurai/
 |------|------|
 | Node v20 LTS (node.exe only) | ~60 MB |
 | Postgres Portable + pgvector | ~120 MB |
-| Memurai Developer | ~12 MB |
+| Redis-for-Windows | ~6 MB |
 | App build (server+agent+dashboard) | ~30 MB |
 | node_modules (server+agent) | ~40 MB |
-| **合计** | **~262 MB** |
+| **合计** | **~256 MB** |
 
-LZMA2 压缩后预计安装包 ~120 MB。
+LZMA2 ultra64 压缩后实测安装包约 **98 MB**。
 
 ## 5. supervisor 自动检测逻辑
 
@@ -119,23 +131,23 @@ LZMA2 压缩后预计安装包 ~120 MB。
 const portableNode = path.join(env.installPath, 'runtime', 'node', 'node.exe');
 const node = existsSync(portableNode) ? portableNode : process.execPath;
 
-// postgres / memurai 在 services 数组里通过 enabledIn=['prod'] 控制
+// postgres / redis 在 services 数组里通过 enabledIn=['prod'] 控制
 // 如果 runtime/postgres/bin/postgres.exe 不存在 → spawn 时报 exe missing → critical 失败
-// 如果 runtime/memurai/memurai.exe 不存在 → 同上
+// 如果 runtime/redis/redis-server.exe 不存在 → 同上
 ```
 
 也就是说：
-- `dev` 模式：跳过 postgres/memurai（假设 Docker 已起），不要求 runtime/ 有这两个目录
-- `prod` 模式：runtime/postgres + runtime/memurai 必须齐全，否则 supervisor abort
+- `dev` 模式：跳过 postgres/redis（假设 Docker 已起），不要求 runtime/ 有这两个目录
+- `prod` 模式：runtime/postgres + runtime/redis 必须齐全，否则 supervisor abort
 
 ## 6. Phase 4 衔接
 
-Phase 4 Inno Setup 脚本的 `[Files]` section 会包含：
+Phase 4 Inno Setup 脚本的 `[Files]` section 包含：
 
 ```pascal
-Source: "runtime\node\*"; DestDir: "{app}\runtime\node"; Flags: recursesubdirs ignoreversion
-Source: "runtime\postgres\*"; DestDir: "{app}\runtime\postgres"; Flags: recursesubdirs ignoreversion
-Source: "runtime\memurai\*"; DestDir: "{app}\runtime\memurai"; Flags: recursesubdirs ignoreversion
+Source: "dist\runtime\node\*";     DestDir: "{app}\runtime\node";     Flags: recursesubdirs ignoreversion
+Source: "dist\runtime\postgres\*"; DestDir: "{app}\runtime\postgres"; Flags: recursesubdirs ignoreversion
+Source: "dist\runtime\redis\*";    DestDir: "{app}\runtime\redis";    Flags: recursesubdirs ignoreversion
 ```
 
 dist 目录组装好后用 ISCC.exe 编译生成 `TeleHubX-Setup-<ver>.exe`。
