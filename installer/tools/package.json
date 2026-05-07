@@ -11,7 +11,8 @@
     "stop:built": "node dist/stop.js",
     "stop:dry": "cross-env TELEHUBX_STOP_DRY_RUN=1 node dist/stop.js",
     "supervisor:probe": "cross-env TELEHUBX_RUNTIME_MODE=probe node dist/supervisor.js",
-    "test:safety": "node test/safety-test.cjs"
+    "test:safety": "node test/safety-test.cjs",
+    "test:smoke":  "node test/smoke-tests.cjs"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
