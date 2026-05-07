@@ -1,4 +1,5 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import * as path from 'node:path';
 
 /**
@@ -134,6 +135,56 @@ function bootstrapUserEnv(installPath: string): string | null {
   }
 }
 
+/**
+ * Bootstrap per-install local auth/session secrets on first run (Issue #14 vmfix5).
+ *
+ * Customer policy: nothing in the installer ships a hardcoded JWT_SECRET,
+ * SESSION_ENCRYPTION_KEY, AGENT_TOKEN, or any other long-lived secret.
+ * Each install gets unique random secrets generated locally on first run,
+ * stored under <dataDir>/secrets/local-secrets.env, persisted across restarts.
+ *
+ * Generated values:
+ *   JWT_SECRET                 — 64 bytes hex  (auth token signing)
+ *   SESSION_ENCRYPTION_KEY     — 32 bytes b64  (AES-256 for TG session/proxy/license)
+ *   AGENT_TOKEN                — 64 bytes hex  (server <-> agent shared secret)
+ *
+ * The file is written to a per-user directory; on Windows %APPDATA% inherits
+ * the running user's ACL by default (owner full control, others denied).
+ *
+ * Returns the absolute path to the secrets file (or null if data dir not
+ * resolvable yet, in which case caller falls back to whatever was loaded).
+ */
+function bootstrapLocalSecrets(dataDir: string): string | null {
+  if (!dataDir) return null;
+  const secretsDir = path.join(dataDir, 'secrets');
+  const secretsFile = path.join(secretsDir, 'local-secrets.env');
+  try {
+    mkdirSync(secretsDir, { recursive: true });
+  } catch {
+    return null;
+  }
+  if (!existsSync(secretsFile)) {
+    const lines = [
+      '# TeleHubX per-install local secrets (auto-generated on first run).',
+      '# DO NOT commit. DO NOT share. DO NOT include in installer artifacts.',
+      '# Regenerating these will invalidate existing user JWTs, encrypted',
+      '# Telegram sessions, encrypted proxy passwords, and agent callback auth.',
+      `# Generated at: ${new Date().toISOString()}`,
+      '',
+      `JWT_SECRET=${randomBytes(64).toString('hex')}`,
+      `SESSION_ENCRYPTION_KEY=${randomBytes(32).toString('base64')}`,
+      `AGENT_TOKEN=${randomBytes(64).toString('hex')}`,
+      '',
+    ].join('\n');
+    try {
+      writeFileSync(secretsFile, lines, { encoding: 'utf8', mode: 0o600 });
+    } catch {
+      return null;
+    }
+  }
+  return secretsFile;
+}
+
 export function loadSupervisorEnv(): SupervisorEnv {
   const installPath = detectInstallPath();
 
@@ -148,7 +199,14 @@ export function loadSupervisorEnv(): SupervisorEnv {
   const dataDirHint = expandWinVars(
     process.env.TELEHUBX_DATA_DIR ?? defaultDataDir(installPath),
   );
+  // Bootstrap & include per-install local secrets (Issue #14 vmfix5).
+  // Generated on first run; file is the FIRST candidate so production paths
+  // get JWT_SECRET / SESSION_ENCRYPTION_KEY / AGENT_TOKEN even when the
+  // user .env contains none of them.
+  const resolvedDataDir = path.resolve(expandWinVars(dataDirHint));
+  const localSecretsFile = bootstrapLocalSecrets(resolvedDataDir);
   const envCandidates: string[] = [
+    ...(localSecretsFile ? [localSecretsFile] : []),     // <dataDir>\secrets\local-secrets.env  (auto-generated)
     ...(userEnv ? [userEnv] : []),                       // %APPDATA%\TeleHubX\.env  (production primary)
     path.join(dataDirHint, '..', '.env'),                // <dataDir>\..\.env
     path.join(installPath, '.env'),                      // <installPath>\.env
