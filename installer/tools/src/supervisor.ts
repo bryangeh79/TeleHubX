@@ -195,17 +195,17 @@ function subprocessEnv(env: SupervisorEnv): NodeJS.ProcessEnv {
     CORS_ORIGINS: process.env.CORS_ORIGINS
       ?? `http://127.0.0.1:${env.dashboardPort},http://localhost:${env.dashboardPort}`,
 
-    // vmfix8 (Issue #14): force schema bootstrap on local Windows installer.
-    // TypeOrmModule's onModuleInit runs synchronize() before any feature
-    // module's onModuleInit fires (Nest module init order = import order, and
-    // TypeOrmModule is imported before Tenants/Accounts/etc). So setting
-    // TYPEORM_SYNC=true ensures the tenants table exists before
-    // TenantsService.onModuleInit's first findOneBy().
+    // vmfix10 (Issue #16): UNCONDITIONALLY force TYPEORM_SYNC=true in prod mode.
+    // vmfix8 used '?? "true"' which respects supervisor's existing process.env
+    // value — but loadSupervisorEnv reads TYPEORM_SYNC from installer .env first,
+    // so any 'TYPEORM_SYNC=false' there silently propagates to children and
+    // schema never gets created. Override is required.
     //
-    // Hosted/SaaS deployments override this via real .env (set TYPEORM_SYNC=false
-    // and run typeorm migrations explicitly). Local installer is single-tenant,
-    // single-machine, so synchronize is the right idempotent bootstrap.
-    TYPEORM_SYNC: process.env.TYPEORM_SYNC ?? 'true',
+    // Hosted/SaaS deployments don't run this supervisor; they invoke server
+    // directly with their own env (where TYPEORM_SYNC is set to false + migrations).
+    // Therefore an unconditional 'true' here is safe for the installer scenario
+    // and only the installer scenario.
+    TYPEORM_SYNC: env.runtimeMode === 'prod' ? 'true' : (process.env.TYPEORM_SYNC ?? 'false'),
   };
 }
 
@@ -221,8 +221,19 @@ function spawnDetached(svc: ServiceDef, paths: DataPaths, env: SupervisorEnv): P
   const fdOut = openSync(logFile, 'a');
   const fdErr = openSync(logFile, 'a');
 
+  // vmfix10 (Issue #15): NEVER pass detached:true on Windows.
+  // detached:true forces DETACHED_PROCESS in CreateProcess which creates a
+  // brand-new console for console-subsystem children (postgres.exe,
+  // redis-server.exe, node.exe). windowsHide cannot combine with
+  // DETACHED_PROCESS — it has no effect, so the new console becomes visible
+  // = the multiple cmd windows Bryan sees on Start.
+  //
+  // Without detached, child uses CREATE_NO_WINDOW (windowsHide=true) which
+  // truly creates no console. supervisor itself runs hidden via wscript+vbs,
+  // so children inherit no-console from a no-console parent. Children outlive
+  // supervisor regardless on Windows (no implicit Job Object cleanup).
   const child = spawn(svc.exe, svc.args, {
-    detached: true,
+    detached: false,
     stdio: ['ignore', fdOut, fdErr],
     cwd: svc.cwd ?? path.dirname(svc.exe),
     env: subprocessEnv(env),
@@ -375,6 +386,7 @@ async function diagnoseServerHealthFailure(
 ): Promise<void> {
   log.error('==== diagnostic dump (server health timed out) ====');
   const rec = readPidFile(paths.runDir, svc.name);
+  let serverDead = false;
   if (rec) {
     const alive = isPidAlive(rec.pid);
     log.error(`pid=${rec.pid} alive=${alive}`);
@@ -382,6 +394,8 @@ async function diagnoseServerHealthFailure(
       const info = getProcessInfo(rec.pid);
       log.error(`live exe: ${info?.exePath ?? '?'}`);
       log.error(`live cmd: ${(info?.cmdLine ?? '').slice(0, 200)}`);
+    } else {
+      serverDead = true;
     }
     log.error(`recorded cmd: ${svc.exe} ${svc.args.join(' ')}`);
     log.error(`cwd: ${svc.cwd ?? path.dirname(svc.exe)}`);
@@ -417,6 +431,13 @@ async function diagnoseServerHealthFailure(
         for (const f of fatals.slice(-10)) log.error(`  ${f}`);
       }
     } catch { /* ignore */ }
+  }
+  // vmfix10 (Issue #16): if server is confirmed dead, remove its stale pid
+  // file immediately so the next Start doesn't see a "ghost" pid file
+  // and skip spawn under reuse logic.
+  if (serverDead) {
+    log.error(`server pid was confirmed dead — removing stale ${svc.name}.pid`);
+    deletePidFile(paths.runDir, svc.name);
   }
   log.error('==== end diagnostic dump ====');
 }
