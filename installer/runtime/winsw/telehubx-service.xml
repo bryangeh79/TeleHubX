@@ -46,4 +46,28 @@
   <env name="TELEHUBX_DATA_DIR"     value="%ProgramData%\TeleHubX\data" />
   <env name="TELEHUBX_RUNTIME_MODE" value="prod" />
   <env name="NODE_ENV"              value="production" />
+
+  <!--
+    Issue #20: PostgreSQL refuses to run under an administrative token.
+    LocalSystem (default service identity) is the most-privileged account on
+    Windows, so postgres.exe exits with "Execution by a user with
+    administrative permissions is not permitted".
+
+    Fix: run the entire TeleHubX service under NT AUTHORITY\LocalService — a
+    well-known built-in non-admin account. No password required, automatic
+    SeServiceLogonRight. Not a member of Administrators, so postgres accepts.
+
+    All children (postgres, redis, server, agent, dashboard) inherit this
+    identity, so the same applies. Outbound HTTPS to the license server
+    works (LocalService can initiate network connections; only inbound is
+    restricted, which we don't need on loopback-only services).
+
+    File access is granted via Inno Setup's icacls calls in [Run]:
+      - %ProgramData%\TeleHubX           => LocalService Full Control
+      - %ProgramFiles%\TeleHubX\runtime  => LocalService Read+Execute
+  -->
+  <serviceaccount>
+    <username>NT AUTHORITY\LocalService</username>
+    <allowservicelogon>true</allowservicelogon>
+  </serviceaccount>
 </service>

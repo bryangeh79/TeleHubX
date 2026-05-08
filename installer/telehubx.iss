@@ -19,7 +19,7 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
 LicenseFile=
-OutputBaseFilename=TeleHubX-Setup-{#AppVersion}-vmfix12
+OutputBaseFilename=TeleHubX-Setup-{#AppVersion}-vmfix13
 OutputDir=Output
 SetupIconFile=assets\telehubx.ico
 WizardImageFile=assets\telehubx-banner.bmp
@@ -85,9 +85,18 @@ Name: "{group}\Uninstall TeleHubX";      Filename: "{uninstallexe}"
 Filename: "{cmd}"; Parameters: "/C if not exist ""{commonappdata}\TeleHubX\.env"" copy /Y ""{app}\.env.template"" ""{commonappdata}\TeleHubX\.env"" >nul"; Flags: runhidden waituntilterminated
 
 ; Issue #19: register the Windows Service via WinSW. After install,
-; service appears in services.msc as "TeleHubX". Start mode = Manual
-; per Bryan's decision (telehubx-service.xml startmode=Manual).
+; service appears in services.msc as "TeleHubX". Start mode = Manual.
+; Issue #20: service identity = NT AUTHORITY\LocalService (non-admin) so
+;            postgres.exe doesn't refuse with admin-user error.
 Filename: "{app}\tools\telehubx-service.exe"; Parameters: "install"; Flags: runhidden waituntilterminated; StatusMsg: "Installing TeleHubX Windows Service..."
+
+; Issue #20: grant LocalService write access to data dir + read+execute to runtime.
+; LocalService is NOT in the Users group, so default ProgramData ACL doesn't
+; include it. We use icacls to grant explicitly. (OI)(CI) makes the grant
+; inherit to subdirectories and files. /T applies recursively.
+Filename: "icacls"; Parameters: """{commonappdata}\TeleHubX"" /grant ""NT AUTHORITY\LocalService:(OI)(CI)F"" /T /Q"; Flags: runhidden waituntilterminated; StatusMsg: "Granting service account access to data directory..."
+Filename: "icacls"; Parameters: """{app}\runtime"" /grant ""NT AUTHORITY\LocalService:(OI)(CI)RX"" /T /Q"; Flags: runhidden waituntilterminated; StatusMsg: "Granting service account access to runtime..."
+Filename: "icacls"; Parameters: """{app}\apps"" /grant ""NT AUTHORITY\LocalService:(OI)(CI)RX"" /T /Q"; Flags: runhidden waituntilterminated; StatusMsg: "Granting service account access to apps..."
 
 ; Optional auto-start on user logon (Tasks: autostart). schtasks runs the
 ; Start VBS, which calls sc start. Disabled by default per Bryan's decision.
