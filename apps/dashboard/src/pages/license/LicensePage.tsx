@@ -84,7 +84,12 @@ export default function LicensePage() {
       const password = values.password ? values.password : null;
       const res = await cloudLicenseApi.activate(values.licenseKey.trim(), email, password);
       const u = res.data?.userEmail ? ` · user=${res.data.userEmail}` : '';
-      antdMessage.success(`Activated · tenant=${res.data.tenantName} plan=${res.data.plan}${u}`);
+      antdMessage.success({
+        content:
+          `Activated · tenant=${res.data.tenantName} plan=${res.data.plan}${u}。` +
+          `本机登录账号已就绪 — 用 ${email ?? '邮箱'} + 你刚填的密码即可登录 dashboard。`,
+        duration: 8,
+      });
       form.resetFields();
       setStatus(res.data);
     } catch (err: any) {
@@ -127,21 +132,42 @@ export default function LicensePage() {
         </Space>
       </div>
 
-      {/* Activation card — visible when not configured OR when locked */}
-      {(!status?.configured || status?.effectiveStatus === 'locked') && (
-        <Card
-          title={<Space><KeyOutlined /> {status?.configured ? 'Re-activate license' : 'Activate this machine'}</Space>}
-          style={{ marginBottom: 16 }}
-        >
-          {!status?.configured && (
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 16 }}
-              message="Activate this installation to start using TeleHubX."
-              description="Enter the License Key, your User ID (Email) and Password from the operator. The key + user are bound to this machine on first activation. To move to another machine, ask the platform admin to unbind first."
-            />
-          )}
+      {/* Activation card — vmfix18 (Issue #25): always visible.
+          Original conditional `(!configured || locked)` hid the form
+          when license was active, which meant operators had no UI to
+          re-trigger provisionLocalUser() (the vmfix17 backend hook
+          that creates/refreshes the local dashboard login user). */}
+      <Card
+        title={
+          <Space>
+            <KeyOutlined />
+            {!status?.configured
+              ? 'Activate this machine'
+              : status?.effectiveStatus === 'locked'
+                ? 'Re-activate license (locked)'
+                : 'Re-activate / refresh local login'}
+          </Space>
+        }
+        style={{ marginBottom: 16 }}
+      >
+        {!status?.configured && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="Activate this installation to start using TeleHubX."
+            description="Enter the License Key, your User ID (Email) and Password from the operator. The key + user are bound to this machine on first activation. To move to another machine, ask the platform admin to unbind first."
+          />
+        )}
+        {status?.configured && status?.effectiveStatus !== 'locked' && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="License 已激活，无需重新绑定 — 这里是「刷新本机登录账号」入口"
+            description="重新填写表单不会重新绑定 License（agent token 不变），但会把本机登录账号的密码同步成你这里填的密码。如果你忘了 dashboard 登录密码：先在 License 服务器上重置，再在这里重填一次同样的 License Key + email + 新密码即可。"
+          />
+        )}
           <Form layout="vertical" form={form} onFinish={handleActivate} autoComplete="off">
             <Form.Item
               name="licenseKey"
@@ -180,7 +206,6 @@ export default function LicensePage() {
             </Form.Item>
           </Form>
         </Card>
-      )}
 
       {/* Status */}
       <Card style={{ marginBottom: 16 }} loading={loading}>

@@ -278,6 +278,13 @@ step('Copy runtime init scripts', () => {
     path.join(REPO, 'installer/runtime/launcher/telehubx-debug.vbs'),
     path.join(DIST, 'tools/telehubx-debug.vbs'),
   );
+  // vmfix18 / Issue #25: HTA loading splash spawned by telehubx-start.vbs
+  // so the operator gets visible feedback during the 2-3 min cold-first
+  // -install window (postgres initdb + Nest boot).
+  cpFile(
+    path.join(REPO, 'installer/runtime/launcher/telehubx-loading.hta'),
+    path.join(DIST, 'tools/telehubx-loading.hta'),
+  );
   // Issue #19: WinSW Windows Service wrapper + service descriptor.
   // WinSW.exe is renamed to telehubx-service.exe so its sibling XML
   // (telehubx-service.xml) is auto-discovered.
@@ -330,10 +337,10 @@ step('Write VERSION.txt', () => {
   catch { /* ignore */ }
   const buildTime = new Date().toISOString();
   const content =
-    `version=vmfix17\n` +
+    `version=vmfix18\n` +
     `commit=${commit}\n` +
     `buildTime=${buildTime}\n` +
-    `artifact=TeleHubX-Setup-1.0.0-vmfix17.exe\n` +
+    `artifact=TeleHubX-Setup-1.0.0-vmfix18.exe\n` +
     `serviceIdentity=NT AUTHORITY\\LocalService\n`;
   fs.writeFileSync(path.join(DIST, 'VERSION.txt'), content, 'utf8');
   log(`   ${content.replace(/\n/g, ' | ').trim()}`);

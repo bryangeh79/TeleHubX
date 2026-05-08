@@ -1,48 +1,32 @@
-' TeleHubX Start (Issue #19 service architecture)
-' Tells SCM to start the TeleHubX service, waits until /health responds,
-' then opens browser to /settings/license. All hidden — runs in user session.
+' TeleHubX Start (vmfix18 / Issue #25)
+'
+' 1) Tells SCM to start the TeleHubX service
+' 2) Spawns telehubx-loading.hta (visible loading window) which itself:
+'    - polls /health for up to 5 min
+'    - shows progress text so the operator sees "things are happening"
+'    - opens the dashboard URL in the default browser when /health 200
+'    - closes itself
+'
+' Splitting the polling/UX into the HTA frees this .vbs from having to
+' know about timing or browser-open. .vbs only does service-start.
 Option Explicit
 On Error Resume Next
 
-Dim shell, http, i, healthOk
+Dim shell, scriptDir, htaPath
 Set shell = CreateObject("WScript.Shell")
 
-' 1) Start the service via SCM. Hidden window, wait until sc returns.
+' 1) Start the service via SCM. Hidden, wait for sc to return.
+'    sc.exe is idempotent: starting an already-running service is a
+'    safe no-op (returns "service already started" exit code 1056).
 shell.Run "sc.exe start TeleHubX", 0, True
 
-' If the service failed to start (e.g. not installed), notify and bail.
-Dim startCheck
-startCheck = shell.Run("sc.exe query TeleHubX", 0, True)
-If Err.Number <> 0 Then
-  MsgBox "TeleHubX service is not installed. Please re-run the installer.", vbCritical, "TeleHubX"
-  WScript.Quit 1
-End If
-On Error Goto 0
+' 2) Resolve sibling .hta path. This .vbs lives in {app}\tools\ next
+'    to telehubx-loading.hta.
+scriptDir = Left(WScript.ScriptFullName, InStrRev(WScript.ScriptFullName, "\"))
+htaPath = scriptDir & "telehubx-loading.hta"
 
-' 2) Poll /health up to 90 seconds.
-Set http = CreateObject("MSXML2.XMLHTTP.6.0")
-healthOk = False
-For i = 1 To 90
-  WScript.Sleep 1000
-  On Error Resume Next
-  http.Open "GET", "http://127.0.0.1:9800/health", False
-  http.Send
-  If Err.Number = 0 And http.Status = 200 Then
-    healthOk = True
-    Exit For
-  End If
-  Err.Clear
-  On Error Goto 0
-Next
-
-' 3) Open browser regardless — license page works even if /health probe
-'    happened to time out (dashboard reverse-proxies to server eventually).
-shell.Run "rundll32.exe url.dll,FileProtocolHandler http://127.0.0.1:9601/settings/license", 0, False
-
-' 4) If health never came up, surface a friendly hint instead of silent fail.
-If Not healthOk Then
-  shell.Run "rundll32.exe url.dll,FileProtocolHandler file:///" & _
-    Replace(shell.ExpandEnvironmentStrings("%ProgramData%\TeleHubX\data\logs\supervisor.log"), "\", "/"), 0, False
-End If
+' 3) Spawn the loading window (visible, NOT waiting). mshta.exe is
+'    built into Windows (since XP). The HTA owns its own lifetime.
+shell.Run "mshta.exe """ & htaPath & """", 1, False
 
 WScript.Quit 0
