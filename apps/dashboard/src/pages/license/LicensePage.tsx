@@ -23,7 +23,7 @@ interface LicenseStatus {
   maxAccounts: number | null;
   expiresAt: string | null;
   status: 'active' | 'revoked' | 'suspended' | 'expired' | 'unknown';
-  effectiveStatus: 'active' | 'grace' | 'locked' | 'unconfigured';
+  effectiveStatus: 'active' | 'grace' | 'locked' | 'unconfigured' | 'unknown';
   activatedAt: string | null;
   lastVerifyAt: string | null;
   lastVerifyOkAt: string | null;
@@ -34,12 +34,23 @@ interface LicenseStatus {
   serverBaseUrl: string;
 }
 
+// Issue #22 (vmfix15): include 'unknown' explicitly + a runtime fallback
+// (resolveEff below) so any future status string the backend invents won't
+// crash the page with `Cannot read properties of undefined (reading 'color')`.
 const EFFECTIVE_META: Record<LicenseStatus['effectiveStatus'], { color: any; label: string; icon: any }> = {
   active:        { color: 'success', label: 'Active',        icon: <CheckCircleOutlined /> },
   grace:         { color: 'warning', label: 'Grace period',  icon: <ThunderboltOutlined /> },
   locked:        { color: 'error',   label: 'Locked',        icon: <CloseCircleOutlined /> },
   unconfigured:  { color: 'default', label: 'Not activated', icon: <KeyOutlined /> },
+  unknown:       { color: 'default', label: 'Status unknown',icon: <KeyOutlined /> },
 };
+
+const FALLBACK_EFF = EFFECTIVE_META.unconfigured;
+
+function resolveEff(s: LicenseStatus | null): typeof FALLBACK_EFF {
+  if (!s) return FALLBACK_EFF;
+  return EFFECTIVE_META[s.effectiveStatus] ?? FALLBACK_EFF;
+}
 
 function fmtTime(iso: string | null) {
   return iso ? dayjs(iso).format('YYYY-MM-DD HH:mm:ss') : '—';
@@ -97,7 +108,7 @@ export default function LicensePage() {
     }
   };
 
-  const eff = status ? EFFECTIVE_META[status.effectiveStatus] : EFFECTIVE_META.unconfigured;
+  const eff = resolveEff(status);
 
   return (
     <div>
