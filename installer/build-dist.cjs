@@ -319,6 +319,26 @@ step('Copy .env.template', () => {
   cpFile(path.join(REPO, 'installer/.env.template'), path.join(DIST, '.env'));
 });
 
+// vmfix14 (Issue #21): write VERSION.txt so Bryan can verify in 1 command
+// which build is actually installed on the VM. Stale binaries / R2 cache /
+// half-applied installs are a recurring source of "I changed it but it's not
+// in the artifact" confusion.
+step('Write VERSION.txt', () => {
+  const { execSync } = require('node:child_process');
+  let commit = 'unknown';
+  try { commit = execSync('git rev-parse --short HEAD', { cwd: REPO, encoding: 'utf8' }).trim(); }
+  catch { /* ignore */ }
+  const buildTime = new Date().toISOString();
+  const content =
+    `version=vmfix14\n` +
+    `commit=${commit}\n` +
+    `buildTime=${buildTime}\n` +
+    `artifact=TeleHubX-Setup-1.0.0-vmfix14.exe\n` +
+    `serviceIdentity=NT AUTHORITY\\LocalService\n`;
+  fs.writeFileSync(path.join(DIST, 'VERSION.txt'), content, 'utf8');
+  log(`   ${content.replace(/\n/g, ' | ').trim()}`);
+});
+
 step('Write dist/README.md', () => {
   const md = `# TeleHubX dist (standalone bundle)\n\n` +
     `Layout:\n` +

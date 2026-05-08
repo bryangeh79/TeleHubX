@@ -19,7 +19,7 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
 LicenseFile=
-OutputBaseFilename=TeleHubX-Setup-{#AppVersion}-vmfix13
+OutputBaseFilename=TeleHubX-Setup-{#AppVersion}-vmfix14
 OutputDir=Output
 SetupIconFile=assets\telehubx.ico
 WizardImageFile=assets\telehubx-banner.bmp
@@ -54,6 +54,8 @@ Source: "dist\runtime\*";   DestDir: "{app}\runtime";   Flags: recursesubdirs ig
 Source: "assets\telehubx.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
 ; .env template (no secrets) — copied at first run if user .env doesn't exist
 Source: "dist\.env";        DestDir: "{app}";           DestName: ".env.template"; Flags: ignoreversion
+; vmfix14 (Issue #21): VERSION.txt for installer-version verification gate
+Source: "dist\VERSION.txt"; DestDir: "{app}";           Flags: ignoreversion
 
 [Dirs]
 ; Ensure data dir exists for current user
@@ -120,6 +122,87 @@ Type: dirifempty; Name: "{app}"
 [Code]
 var
   DataDeletePage: TInputOptionWizardPage;
+
+// vmfix14 (Issue #21): aggressively remove any pre-existing TeleHubX service
+// before file replacement so the new install isn't a no-op merge with the old
+// service registration. Bryan's vmfix13 install showed StartName still as
+// LocalSystem because the old service registration survived.
+function RemoveExistingService(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  // Stop first (ignore errors — service may not exist or already stopped)
+  Exec(ExpandConstant('{cmd}'), '/c sc.exe stop TeleHubX', '', SW_HIDE,
+       ewWaitUntilTerminated, ResultCode);
+  Sleep(2000);
+  // Try WinSW uninstall first if present (graceful)
+  if FileExists(ExpandConstant('{app}\tools\telehubx-service.exe')) then begin
+    Exec(ExpandConstant('{app}\tools\telehubx-service.exe'), 'uninstall', '',
+         SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Sleep(1000);
+  end;
+  // Authoritative deletion via SCM (works even if WinSW exe is gone)
+  Exec(ExpandConstant('{cmd}'), '/c sc.exe delete TeleHubX', '', SW_HIDE,
+       ewWaitUntilTerminated, ResultCode);
+  Sleep(1500);
+  Result := True;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  RemoveExistingService();
+  Result := '';
+end;
+
+// vmfix14 (Issue #21): after WinSW install, FORCE service identity to
+// LocalService via sc.exe — WinSW v2 <serviceaccount> XML doesn't always
+// apply for built-in accounts on all Windows versions. sc config is
+// authoritative regardless. Then verify with sc qc and fail loudly if the
+// fix didn't take effect (otherwise PostgreSQL will refuse to start).
+procedure ApplyAndVerifyServiceAccount();
+var
+  ResultCode: Integer;
+  Output: AnsiString;
+  TmpFile: String;
+  OutputStr: String;
+begin
+  // Step 1: force StartName via sc config
+  Exec(ExpandConstant('{cmd}'),
+       '/c sc.exe config TeleHubX obj= "NT AUTHORITY\LocalService"',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  if ResultCode <> 0 then begin
+    MsgBox(
+      'WARNING: sc config returned exit code ' + IntToStr(ResultCode) + '.' #13#10 +
+      'TeleHubX service may still run as LocalSystem. PostgreSQL will refuse ' +
+      'to start. Please report this to TeleHubX support.',
+      mbError, MB_OK);
+  end;
+
+  // Step 2: verify via sc qc
+  TmpFile := ExpandConstant('{tmp}\sc-qc-telehubx.txt');
+  Exec(ExpandConstant('{cmd}'),
+       '/c sc.exe qc TeleHubX > "' + TmpFile + '" 2>&1',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  if LoadStringFromFile(TmpFile, Output) then begin
+    OutputStr := String(Output);
+    if Pos('NT AUTHORITY\LocalService', OutputStr) > 0 then begin
+      // OK — service is correctly configured
+    end else begin
+      MsgBox(
+        'CRITICAL: TeleHubX service identity is NOT LocalService.' #13#10 +
+        'PostgreSQL will refuse to start under the current identity.' #13#10#13#10 +
+        'sc qc TeleHubX output:' #13#10 + OutputStr,
+        mbError, MB_OK);
+    end;
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then begin
+    ApplyAndVerifyServiceAccount();
+  end;
+end;
 
 procedure InitializeWizard;
 begin
