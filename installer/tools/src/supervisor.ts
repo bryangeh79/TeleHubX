@@ -216,24 +216,19 @@ async function serverHealthProbe(appPort: number): Promise<boolean> {
   return httpProbe(`http://127.0.0.1:${appPort}/api/v1/health`);
 }
 
+// vmfix12 / Issue #19: track active children so SIGTERM handler can kill them
+const activeChildren = new Map<string, import('node:child_process').ChildProcess>();
+
 // ── spawn helpers ──────────────────────────────────────────────────────────
 function spawnDetached(svc: ServiceDef, paths: DataPaths, env: SupervisorEnv): PidRecord {
   const logFile = path.join(paths.logsDir, `${svc.name}.log`);
   const fdOut = openSync(logFile, 'a');
   const fdErr = openSync(logFile, 'a');
 
-  // vmfix11 (Issue #15+#17): hidden children + long-lived supervisor.
-  //   detached:true  + windowsHide:true → console window APPEARS (CREATE_NO_WINDOW
-  //                                       ignored when DETACHED_PROCESS set, MSDN)
-  //   detached:false + windowsHide:true → no window BUT child dies when parent exits
-  //                                       (Issue #17 symptom: children vanished)
-  //
-  // Resolution: detached:false + windowsHide:true (no console), AND supervisor
-  // STAYS ALIVE for the lifetime of its children. Without child.unref() and
-  // without process.exit() at end of main(), the event loop remains active
-  // because of the spawned child references. Children are hidden and tied
-  // to supervisor's lifetime — when stop tool kills the children, supervisor
-  // observes via 'exit' events and exits too.
+  // Issue #19 (vmfix12): supervisor runs as a Windows Service via WinSW.
+  // SCM owns lifecycle; supervisor stays alive for service duration.
+  // detached:false + windowsHide:true = hidden, tied to supervisor.
+  // No console window EVER (services execute in session 0).
   const child = spawn(svc.exe, svc.args, {
     detached: false,
     stdio: ['ignore', fdOut, fdErr],
@@ -241,10 +236,15 @@ function spawnDetached(svc: ServiceDef, paths: DataPaths, env: SupervisorEnv): P
     env: subprocessEnv(env),
     windowsHide: true,
   });
-  // NOTE: NO child.unref() — keeping parent's event loop tied to child so
-  // supervisor stays alive as long as ANY child is alive.
 
   if (!child.pid) throw new Error(`Failed to spawn ${svc.name}`);
+
+  // Track for SIGTERM handler. Key by service name.
+  activeChildren.set(svc.name, child);
+  child.on('exit', (code, signal) => {
+    log.info(`[${svc.name}] child exited code=${code} signal=${signal}`);
+    activeChildren.delete(svc.name);
+  });
 
   const rec: PidRecord = {
     service: svc.name,
@@ -255,9 +255,20 @@ function spawnDetached(svc: ServiceDef, paths: DataPaths, env: SupervisorEnv): P
     startedAt: Date.now(),
     cwd: svc.cwd,
   };
-  writePidFile(paths.runDir, svc.name, rec);
-  log.info(`[${svc.name}] spawned pid=${child.pid} exe=${svc.exe}`);
+  // vmfix12 (Issue #18 audit finding): pid file written ONLY after readiness
+  // probe passes. Caller commits pid via commitPidFile() below. We log the
+  // spawn here so the trail is visible even on early failure.
+  log.info(`[${svc.name}] spawned pid=${child.pid} exe=${svc.exe} (pid file deferred until ready)`);
   return rec;
+}
+
+/**
+ * Commit the pid file only after readiness has been verified. Prevents the
+ * Issue #18 symptom where pid files lingered for processes that died at start.
+ */
+function commitPidFile(svc: ServiceDef, rec: PidRecord, paths: DataPaths): void {
+  writePidFile(paths.runDir, svc.name, rec);
+  log.info(`[${svc.name}] pid file committed: ${path.join(paths.runDir, svc.name + '.pid')}`);
 }
 
 // ── bootstrap lock (vmfix6 §4) ─────────────────────────────────────────────
@@ -317,10 +328,43 @@ function releaseBootstrapLock(): void {
   acquiredLockPath = null;
 }
 
-// Ensure lock is released on any abnormal exit
+// vmfix12 / Issue #19: graceful shutdown hooks for service mode.
+// WinSW sends Ctrl+Break (and Ctrl+C as fallback) when SCM stops the service.
+// Node maps both to SIGINT/SIGTERM/SIGBREAK. We kill all spawned children
+// in reverse order so dashboard/agent stop before server before redis before
+// postgres (avoids client-disconnect noise).
+function gracefulShutdown(signal: string): void {
+  log.info(`==== supervisor received ${signal} — stopping children ====`);
+  const reverseOrder = ['dashboard', 'agent', 'server', 'redis', 'postgres'];
+  for (const name of reverseOrder) {
+    const child = activeChildren.get(name);
+    if (!child) continue;
+    try {
+      log.info(`[shutdown] killing ${name} pid=${child.pid}`);
+      // SIGTERM-equivalent on Windows (Node maps to taskkill /F internally
+      // when not using process group). We use kill() which translates.
+      child.kill();
+    } catch (e) {
+      log.warn(`[shutdown] kill ${name} failed: ${(e as Error).message}`);
+    }
+  }
+  releaseBootstrapLock();
+  // Give children up to 25 seconds to exit, then force-exit (WinSW will
+  // hard-kill us at 30 seconds anyway).
+  const deadline = Date.now() + 25_000;
+  const tick = setInterval(() => {
+    if (activeChildren.size === 0 || Date.now() > deadline) {
+      clearInterval(tick);
+      log.info(`==== supervisor exit (children remaining=${activeChildren.size}) ====`);
+      process.exit(0);
+    }
+  }, 500);
+}
+
 process.on('exit',    () => releaseBootstrapLock());
-process.on('SIGINT',  () => { releaseBootstrapLock(); process.exit(130); });
-process.on('SIGTERM', () => { releaseBootstrapLock(); process.exit(143); });
+process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGBREAK' as NodeJS.Signals, () => gracefulShutdown('SIGBREAK'));
 process.on('uncaughtException', (e) => {
   log.error(`uncaught: ${e.stack ?? e}`);
   releaseBootstrapLock();
@@ -670,24 +714,42 @@ async function main(): Promise<void> {
         adopted = tryAdoptListeningService(svc, paths, env, env.redisPort);
       }
       if (!adopted) {
-        try { spawnDetached(svc, paths, env); }
+        let rec: PidRecord | null = null;
+        try { rec = spawnDetached(svc, paths, env); }
         catch (e) {
           log.error(`[${svc.name}] spawn failed: ${(e as Error).message}`);
-          if (svc.critical) process.exit(3);
+          // vmfix12 (Issue #19): in service mode, do NOT process.exit(N) —
+          // SCM treats supervisor exit as service crash and triggers restart
+          // loop per onfailure policy. Better to log and continue: the
+          // service ends up "Running but unhealthy" which Bryan can debug
+          // via the Debug shortcut without endless SCM restarts.
+          if (svc.critical) {
+            log.error(`critical service ${svc.name} could not spawn — supervisor staying alive for diagnostics`);
+          }
           continue;
         }
-      }
-    }
 
-    const ready = await waitFor(svc.health, svc.name, svc.healthTimeoutMs, 1000);
-    if (!ready) {
-      log.warn(`[${svc.name}] health probe timed out after ${svc.healthTimeoutMs}ms`);
-      if (svc.name === 'server') {
-        await diagnoseServerHealthFailure(svc, path.join(paths.runDir, 'server.pid'), paths, env);
-      }
-      if (svc.critical) {
-        log.error(`aborting: critical service ${svc.name} not healthy`);
-        process.exit(4);
+        // Wait for readiness BEFORE committing pid file.
+        const ready = await waitFor(svc.health, svc.name, svc.healthTimeoutMs, 1000);
+        if (!ready) {
+          log.warn(`[${svc.name}] health probe timed out after ${svc.healthTimeoutMs}ms`);
+          if (svc.name === 'server') {
+            await diagnoseServerHealthFailure(svc, path.join(paths.runDir, 'server.pid'), paths, env);
+          }
+          if (svc.critical) {
+            log.error(`[${svc.name}] critical service unhealthy — leaving pid uncommitted; supervisor stays alive for diagnostics (Debug shortcut)`);
+          }
+          // Do not commit pid file for an unhealthy service.
+          continue;
+        }
+        // Healthy — commit pid file now. (Issue #18 fix: no premature pid commit.)
+        commitPidFile(svc, rec, paths);
+      } else {
+        // Adopted services already have a pid file written by tryAdoptListeningService.
+        const ready = await waitFor(svc.health, svc.name, svc.healthTimeoutMs, 1000);
+        if (!ready) {
+          log.warn(`[${svc.name}] adopted instance failed health probe`);
+        }
       }
     }
   }

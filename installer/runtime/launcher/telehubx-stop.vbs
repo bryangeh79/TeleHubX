@@ -1,13 +1,18 @@
-' TeleHubX silent stop launcher (Issue #14 vmfix8)
+' TeleHubX Stop (Issue #19 service architecture)
+' Tells SCM to stop the TeleHubX service. SCM signals supervisor, which kills
+' its children in order. Stop tool's 6-step PID validation still applies if
+' any orphan child survives (unlikely with detached:false + supervisor as
+' parent in service session 0).
 Option Explicit
-Dim WshShell, fso, scriptDir, exe
-Set WshShell = CreateObject("WScript.Shell")
-Set fso = CreateObject("Scripting.FileSystemObject")
-scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
-exe = scriptDir & "\telehubx-stop.exe"
-If Not fso.FileExists(exe) Then
-  WScript.Echo "telehubx-stop.exe not found at " & exe
-  WScript.Quit 1
-End If
-' Run hidden (0), wait for completion (True) so user knows when it's done.
-WshShell.Run """" & exe & """", 0, True
+Dim shell
+Set shell = CreateObject("WScript.Shell")
+' Hidden window, wait until sc returns. SCM enforces graceful 30s timeout
+' (configured in telehubx-service.xml stoptimeout).
+shell.Run "sc.exe stop TeleHubX", 0, True
+
+' After SCM reports stopped, run our orphan-cleanup stop tool to catch any
+' detached child that escaped service-managed teardown (rare). 6-step PID
+' safety still gates every kill — no broad kill possible.
+shell.Run """%ProgramFiles%\TeleHubX\tools\telehubx-stop.exe""", 0, True
+
+WScript.Quit 0

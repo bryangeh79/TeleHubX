@@ -25,7 +25,10 @@ if (!APPDATA) {
   console.error('FATAL: APPDATA not set — this test runs Windows only');
   process.exit(2);
 }
-const RUN_DIR = path.join(APPDATA, 'TeleHubX', 'data', 'run');
+// Use a sandbox data dir under APPDATA for the test so we don't touch the
+// real %ProgramData%\TeleHubX (which is the production default in vmfix12+).
+const TEST_DATA_DIR = path.join(APPDATA, 'TeleHubX-safety-test', 'data');
+const RUN_DIR = path.join(TEST_DATA_DIR, 'run');
 const STOP_JS = path.resolve(__dirname, '..', 'dist', 'stop.js');
 
 if (!fs.existsSync(STOP_JS)) {
@@ -90,10 +93,15 @@ function cleanRunDir() {
 }
 
 function runRealStop() {
-  // NEVER pass dry-run here — we must verify the real path doesn't kill
+  // NEVER pass dry-run here — we must verify the real path doesn't kill.
+  // Override TELEHUBX_DATA_DIR so stop reads our sandbox run dir (vmfix12).
   return spawnSync(process.execPath, [STOP_JS], {
     encoding: 'utf8',
-    env: { ...process.env, TELEHUBX_STOP_DRY_RUN: '0' },
+    env: {
+      ...process.env,
+      TELEHUBX_STOP_DRY_RUN: '0',
+      TELEHUBX_DATA_DIR: TEST_DATA_DIR,
+    },
   });
 }
 

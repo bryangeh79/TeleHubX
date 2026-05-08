@@ -19,7 +19,7 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
 LicenseFile=
-OutputBaseFilename=TeleHubX-Setup-{#AppVersion}-vmfix11
+OutputBaseFilename=TeleHubX-Setup-{#AppVersion}-vmfix12
 OutputDir=Output
 SetupIconFile=assets\telehubx.ico
 WizardImageFile=assets\telehubx-banner.bmp
@@ -57,40 +57,52 @@ Source: "dist\.env";        DestDir: "{app}";           DestName: ".env.template
 
 [Dirs]
 ; Ensure data dir exists for current user
-Name: "{userappdata}\TeleHubX\data";        Permissions: users-modify
-Name: "{userappdata}\TeleHubX\data\run";    Permissions: users-modify
-Name: "{userappdata}\TeleHubX\data\logs";   Permissions: users-modify
-Name: "{userappdata}\TeleHubX\data\sessions"; Permissions: users-modify
-Name: "{userappdata}\TeleHubX\data\uploads";  Permissions: users-modify
-Name: "{userappdata}\TeleHubX\data\pgdata";   Permissions: users-modify
-Name: "{userappdata}\TeleHubX\data\redis";  Permissions: users-modify
+Name: "{commonappdata}\TeleHubX\data";        Permissions: users-modify
+Name: "{commonappdata}\TeleHubX\data\run";    Permissions: users-modify
+Name: "{commonappdata}\TeleHubX\data\logs";   Permissions: users-modify
+Name: "{commonappdata}\TeleHubX\data\sessions"; Permissions: users-modify
+Name: "{commonappdata}\TeleHubX\data\uploads";  Permissions: users-modify
+Name: "{commonappdata}\TeleHubX\data\pgdata";   Permissions: users-modify
+Name: "{commonappdata}\TeleHubX\data\redis-data";  Permissions: users-modify
 
 [Icons]
 ; Desktop shortcuts (using TeleHubX logo)
-; vmfix8: shortcuts launch via wscript.exe + .vbs so the supervisor.exe console
-; subsystem doesn't flash a window. .vbs Run(..., 0, ...) hides the child.
-Name: "{commondesktop}\Start TeleHubX";  Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-start.vbs"""; WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Tasks: desktopicon; Comment: "Start TeleHubX"
-Name: "{commondesktop}\Stop TeleHubX";   Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-stop.vbs""";  WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Tasks: desktopicon; Comment: "Stop TeleHubX"
+; Issue #19: shortcuts call sc.exe via VBS (hidden) for service-managed lifecycle.
+; Start.vbs: sc start TeleHubX -> wait /health -> open browser
+; Stop.vbs: sc stop TeleHubX
+; Debug.vbs: visible PowerShell tailing supervisor.log + status
+Name: "{commondesktop}\Start TeleHubX";  Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-start.vbs"""; WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Tasks: desktopicon; Comment: "Start TeleHubX (manages Windows service)"
+Name: "{commondesktop}\Stop TeleHubX";   Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-stop.vbs""";  WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Tasks: desktopicon; Comment: "Stop TeleHubX (stops Windows service)"
 
 ; Start menu group
 Name: "{group}\Start TeleHubX";          Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-start.vbs"""; WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"
 Name: "{group}\Stop TeleHubX";           Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-stop.vbs""";  WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"
+Name: "{group}\TeleHubX Debug";          Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-debug.vbs"""; WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Comment: "Show service status + tail logs"
 Name: "{group}\Uninstall TeleHubX";      Filename: "{uninstallexe}"
 
 [Run]
-; First-run env init: copy .env.template to %APPDATA%\TeleHubX\.env if absent
-Filename: "{cmd}"; Parameters: "/C if not exist ""{userappdata}\TeleHubX\.env"" copy /Y ""{app}\.env.template"" ""{userappdata}\TeleHubX\.env"" >nul"; Flags: runhidden waituntilterminated
+; Issue #19: first-run env init at %ProgramData%\TeleHubX (machine-wide)
+Filename: "{cmd}"; Parameters: "/C if not exist ""{commonappdata}\TeleHubX\.env"" copy /Y ""{app}\.env.template"" ""{commonappdata}\TeleHubX\.env"" >nul"; Flags: runhidden waituntilterminated
 
-; Optional: set up logon-triggered scheduled task for auto-start
-Filename: "schtasks"; Parameters: "/Create /TN ""TeleHubX Autostart"" /TR ""\""{app}\tools\{#AppExeName}\"""" /SC ONLOGON /RL HIGHEST /F"; Flags: runhidden waituntilterminated; Tasks: autostart
+; Issue #19: register the Windows Service via WinSW. After install,
+; service appears in services.msc as "TeleHubX". Start mode = Manual
+; per Bryan's decision (telehubx-service.xml startmode=Manual).
+Filename: "{app}\tools\telehubx-service.exe"; Parameters: "install"; Flags: runhidden waituntilterminated; StatusMsg: "Installing TeleHubX Windows Service..."
 
-; Offer to start TeleHubX immediately after install completes
-Filename: "{app}\tools\{#AppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+; Optional auto-start on user logon (Tasks: autostart). schtasks runs the
+; Start VBS, which calls sc start. Disabled by default per Bryan's decision.
+Filename: "schtasks"; Parameters: "/Create /TN ""TeleHubX Autostart"" /TR ""wscript.exe \""{app}\tools\telehubx-start.vbs\"""" /SC ONLOGON /RL HIGHEST /F"; Flags: runhidden waituntilterminated; Tasks: autostart
+
+; Offer to start TeleHubX immediately after install
+Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-start.vbs"""; Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-; Always try a clean stop first (before files vanish)
-Filename: "{app}\tools\{#StopExeName}"; Flags: runhidden waituntilterminated; RunOnceId: "StopBeforeUninstall"
-; Remove autostart task (if it exists; ignore failure)
+; Issue #19: stop + unregister the Windows Service before files vanish
+Filename: "{app}\tools\telehubx-service.exe"; Parameters: "stop";      Flags: runhidden waituntilterminated; RunOnceId: "StopService"
+Filename: "{app}\tools\telehubx-service.exe"; Parameters: "uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "UninstallService"
+; Belt-and-suspenders orphan cleanup (6-step PID safety still gates every kill)
+Filename: "{app}\tools\{#StopExeName}"; Flags: runhidden waituntilterminated; RunOnceId: "OrphanCleanup"
+; Remove autostart task (ignore if absent)
 Filename: "schtasks"; Parameters: "/Delete /TN ""TeleHubX Autostart"" /F"; Flags: runhidden waituntilterminated skipifdoesntexist; RunOnceId: "RemoveAutostart"
 
 [UninstallDelete]
@@ -106,7 +118,7 @@ begin
     'Data folder',
     'How should TeleHubX data be handled on uninstall?',
     'TeleHubX stores license, account sessions, knowledge base files and historical leads in:'#13#10 +
-    '   ' + ExpandConstant('{userappdata}') + '\TeleHubX'#13#10#13#10 +
+    '   ' + ExpandConstant('{commonappdata}') + '\TeleHubX'#13#10#13#10 +
     'On uninstall, do you want to keep this folder for a future re-install?',
     True, False);
   DataDeletePage.Add('Keep data folder (recommended — safe to re-install later)');
@@ -125,7 +137,7 @@ var
 begin
   if CurUninstallStep = usPostUninstall then
   begin
-    DataPath := ExpandConstant('{userappdata}\TeleHubX');
+    DataPath := ExpandConstant('{commonappdata}\TeleHubX');
     if DirExists(DataPath) then
     begin
       // We don't have access to the install-time DataDeletePage choice here, so always

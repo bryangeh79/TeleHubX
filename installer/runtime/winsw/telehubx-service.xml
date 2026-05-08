@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  TeleHubX Windows Service descriptor for WinSW v2.x.
+  Issue #19: replaces the shortcut/VBS/Node-supervisor lifecycle with
+  Service Control Manager ownership. SCM handles hidden execution,
+  auto-restart on crash, clean stop semantics.
+
+  WinSW substitutes %BASE% with the directory containing this XML.
+  We place winsw.exe + this XML + supervisor.exe at <install>\tools\.
+-->
+<service>
+  <id>TeleHubX</id>
+  <name>TeleHubX</name>
+  <description>TeleHubX server / agent / dashboard supervisor (postgres + redis bundled).</description>
+
+  <executable>%BASE%\telehubx-supervisor.exe</executable>
+
+  <!-- Bryan's decision: demand/manual start, not auto on boot.
+       Customer clicks Start TeleHubX shortcut to begin a session. -->
+  <startmode>Manual</startmode>
+
+  <!-- Auto-restart on crash, with backoff to avoid thrash -->
+  <onfailure action="restart" delay="10 sec" />
+  <onfailure action="restart" delay="30 sec" />
+  <onfailure action="none"  />
+  <resetfailure>1 hour</resetfailure>
+
+  <!-- Stop signal: WinSW sends Ctrl+Break (and Ctrl+C as fallback) so
+       supervisor can run its SIGTERM handler before being killed.
+       stoptimeout = how long WinSW waits for graceful shutdown. -->
+  <stoptimeout>30 sec</stoptimeout>
+  <stopparentprocessfirst>true</stopparentprocessfirst>
+
+  <!-- WinSW manages its own log files. supervisor + children also write
+       to data/logs/ via TELEHUBX_DATA_DIR; this is just WinSW's transcript
+       of service start/stop events. -->
+  <logpath>%ProgramData%\TeleHubX\data\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>4</keepFiles>
+  </log>
+
+  <!-- Environment passed to supervisor.exe.
+       Per-machine data dir per Issue #18 decision. -->
+  <env name="TELEHUBX_INSTALL_PATH" value="%BASE%\.." />
+  <env name="TELEHUBX_DATA_DIR"     value="%ProgramData%\TeleHubX\data" />
+  <env name="TELEHUBX_RUNTIME_MODE" value="prod" />
+  <env name="NODE_ENV"              value="production" />
+</service>

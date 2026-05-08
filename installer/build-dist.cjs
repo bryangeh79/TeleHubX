@@ -265,7 +265,7 @@ step('Copy runtime init scripts', () => {
     path.join(REPO, 'installer/runtime/postgres/init-pgdata.cjs'),
     path.join(DIST, 'runtime/postgres/init-pgdata.cjs'),
   );
-  // vmfix8: silent VBS launchers placed alongside SEA exes in dist/tools/
+  // vmfix8 / Issue #19: silent VBS launchers + Debug shortcut in dist/tools/
   cpFile(
     path.join(REPO, 'installer/runtime/launcher/telehubx-start.vbs'),
     path.join(DIST, 'tools/telehubx-start.vbs'),
@@ -273,6 +273,21 @@ step('Copy runtime init scripts', () => {
   cpFile(
     path.join(REPO, 'installer/runtime/launcher/telehubx-stop.vbs'),
     path.join(DIST, 'tools/telehubx-stop.vbs'),
+  );
+  cpFile(
+    path.join(REPO, 'installer/runtime/launcher/telehubx-debug.vbs'),
+    path.join(DIST, 'tools/telehubx-debug.vbs'),
+  );
+  // Issue #19: WinSW Windows Service wrapper + service descriptor.
+  // WinSW.exe is renamed to telehubx-service.exe so its sibling XML
+  // (telehubx-service.xml) is auto-discovered.
+  cpFile(
+    path.join(REPO, 'vendor/winsw/winsw.exe'),
+    path.join(DIST, 'tools/telehubx-service.exe'),
+  );
+  cpFile(
+    path.join(REPO, 'installer/runtime/winsw/telehubx-service.xml'),
+    path.join(DIST, 'tools/telehubx-service.xml'),
   );
   // Bundled redis.conf + license stub (always shipped, even if vendor/redis-windows missing)
   cpFile(
