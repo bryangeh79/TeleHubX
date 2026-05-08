@@ -114,7 +114,7 @@ function buildServices(env: SupervisorEnv, paths: DataPaths): ServiceDef[] {
       args: [path.join(env.installPath, 'apps', 'server', 'dist', 'main.js')],
       cwd: path.join(env.installPath, 'apps', 'server'),
       enabledIn: ['dev', 'prod'],
-      health: () => httpProbe(`http://127.0.0.1:${env.appPort}/health`),
+      health: () => serverHealthProbe(env.appPort),
       healthTimeoutMs: 60000,
       critical: true,
     },
@@ -189,7 +189,19 @@ function subprocessEnv(env: SupervisorEnv): NodeJS.ProcessEnv {
     // Redis
     REDIS_HOST: process.env.REDIS_HOST ?? '127.0.0.1',
     REDIS_PORT: String(env.redisPort),
+
+    // vmfix7 (Issue #14): default CORS_ORIGINS for the bundled local dashboard
+    // so server's prod-mode CORS guard never refuses the only legit origin.
+    // Server also auto-defaults this if missing; we set it here as belt-and-suspenders.
+    CORS_ORIGINS: process.env.CORS_ORIGINS
+      ?? `http://127.0.0.1:${env.dashboardPort},http://localhost:${env.dashboardPort}`,
   };
+}
+
+/** Try /health first (no global prefix), fall back to /api/v1/health. */
+async function serverHealthProbe(appPort: number): Promise<boolean> {
+  if (await httpProbe(`http://127.0.0.1:${appPort}/health`)) return true;
+  return httpProbe(`http://127.0.0.1:${appPort}/api/v1/health`);
 }
 
 // ── spawn helpers ──────────────────────────────────────────────────────────
@@ -362,7 +374,8 @@ async function diagnoseServerHealthFailure(
   log.error(`port ${env.pgPort} listening:  ${await tcpProbe('127.0.0.1', env.pgPort, 500)}`);
   log.error(`port ${env.redisPort} listening:  ${await tcpProbe('127.0.0.1', env.redisPort, 500)}`);
 
-  // Tail the relevant logs
+  // Tail the relevant logs. server.log gets the synchronous milestone/fatal
+  // lines from main.ts vmfix7 emit(); app-* and error-* are winston rotation files.
   for (const tail of [
     path.join(paths.logsDir, 'server.log'),
     path.join(paths.logsDir, `app-${new Date().toISOString().slice(0, 10)}.log`),
@@ -374,6 +387,12 @@ async function diagnoseServerHealthFailure(
       const lastN = lines.slice(Math.max(0, lines.length - 80));
       log.error(`---- ${path.basename(tail)} (last ${lastN.length} lines) ----`);
       for (const l of lastN) if (l.trim()) log.error(`  ${l}`);
+      // Highlight any FATAL lines so they're easy to spot in supervisor.log
+      const fatals = lines.filter(l => /\[FATAL\]/.test(l));
+      if (fatals.length) {
+        log.error(`---- ${path.basename(tail)} FATAL lines (${fatals.length}) ----`);
+        for (const f of fatals.slice(-10)) log.error(`  ${f}`);
+      }
     } catch { /* ignore */ }
   }
   log.error('==== end diagnostic dump ====');
