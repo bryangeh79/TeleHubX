@@ -192,9 +192,20 @@ function subprocessEnv(env: SupervisorEnv): NodeJS.ProcessEnv {
 
     // vmfix7 (Issue #14): default CORS_ORIGINS for the bundled local dashboard
     // so server's prod-mode CORS guard never refuses the only legit origin.
-    // Server also auto-defaults this if missing; we set it here as belt-and-suspenders.
     CORS_ORIGINS: process.env.CORS_ORIGINS
       ?? `http://127.0.0.1:${env.dashboardPort},http://localhost:${env.dashboardPort}`,
+
+    // vmfix8 (Issue #14): force schema bootstrap on local Windows installer.
+    // TypeOrmModule's onModuleInit runs synchronize() before any feature
+    // module's onModuleInit fires (Nest module init order = import order, and
+    // TypeOrmModule is imported before Tenants/Accounts/etc). So setting
+    // TYPEORM_SYNC=true ensures the tenants table exists before
+    // TenantsService.onModuleInit's first findOneBy().
+    //
+    // Hosted/SaaS deployments override this via real .env (set TYPEORM_SYNC=false
+    // and run typeorm migrations explicitly). Local installer is single-tenant,
+    // single-machine, so synchronize is the right idempotent bootstrap.
+    TYPEORM_SYNC: process.env.TYPEORM_SYNC ?? 'true',
   };
 }
 
@@ -302,11 +313,22 @@ process.on('uncaughtException', (e) => {
   process.exit(99);
 });
 
-// ── stale pid cleanup (vmfix6 §5) ──────────────────────────────────────────
+// ── stale pid cleanup + service-reuse detection (vmfix6 §5 / vmfix8 §5) ────
 const STALE_SERVICE_NAMES = ['postgres', 'redis', 'server', 'agent', 'dashboard'];
 
-function cleanStalePidFiles(runDir: string, installPath: string): void {
-  if (!existsSync(runDir)) return;
+/**
+ * Returns a Set of service names that are already running and owned by this
+ * TeleHubX install. Caller must skip spawning these.
+ *
+ * Side effects:
+ *   - removes pid files for dead PIDs
+ *   - removes pid files for alive PIDs that now belong to foreign processes
+ *     (never kills them — broad-kill prohibited)
+ *   - leaves pid files for alive+ours and reports as already-running
+ */
+function cleanStalePidFiles(runDir: string, installPath: string): Set<string> {
+  const alreadyRunning = new Set<string>();
+  if (!existsSync(runDir)) return alreadyRunning;
   for (const svc of STALE_SERVICE_NAMES) {
     const rec = readPidFile(runDir, svc);
     if (!rec) continue;
@@ -315,10 +337,10 @@ function cleanStalePidFiles(runDir: string, installPath: string): void {
       deletePidFile(runDir, svc);
       continue;
     }
-    // PID alive — verify it's still ours (not a recycled foreign process)
     const info = getProcessInfo(rec.pid);
     if (!info) {
-      log.warn(`[stale-pid] ${svc} pid=${rec.pid} alive but unqueryable; leaving pid file (will not kill)`);
+      log.warn(`[stale-pid] ${svc} pid=${rec.pid} alive but unqueryable; treating as not ours; removing pid file (will not kill)`);
+      deletePidFile(runDir, svc);
       continue;
     }
     const live = (info.exePath ?? '').toLowerCase();
@@ -329,10 +351,10 @@ function cleanStalePidFiles(runDir: string, installPath: string): void {
       deletePidFile(runDir, svc);
       continue;
     }
-    log.info(`[stale-pid] ${svc} pid=${rec.pid} still ours and alive — already running`);
+    log.info(`[reuse] ${svc} pid=${rec.pid} already running and ours — will skip spawn`);
+    alreadyRunning.add(svc);
   }
 
-  // Sweep any unknown .pid files leftover from older builds
   for (const f of readdirSync(runDir)) {
     if (f.endsWith('.pid')) {
       const name = f.slice(0, -4);
@@ -341,6 +363,7 @@ function cleanStalePidFiles(runDir: string, installPath: string): void {
       }
     }
   }
+  return alreadyRunning;
 }
 
 // ── server health timeout diagnostics (vmfix6 §6) ──────────────────────────
@@ -421,7 +444,10 @@ async function getLicenseStatus(env: SupervisorEnv): Promise<string> {
 }
 
 function openBrowser(url: string): void {
-  spawn('cmd', ['/c', 'start', '""', url], {
+  // vmfix8: rundll32 url.dll,FileProtocolHandler launches the URL via shell
+  // association without flashing a cmd console window. cmd /c start "" url
+  // briefly shows a console even with windowsHide.
+  spawn('rundll32.exe', ['url.dll,FileProtocolHandler', url], {
     detached: true,
     stdio: 'ignore',
     windowsHide: true,
@@ -507,8 +533,8 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // Stale pid cleanup (vmfix6 §5)
-  cleanStalePidFiles(paths.runDir, env.installPath);
+  // Stale pid cleanup + already-running detection (vmfix6 §5 + vmfix8 §5)
+  const alreadyRunning = cleanStalePidFiles(paths.runDir, env.installPath);
 
   const services = buildServices(env, paths);
 
@@ -539,14 +565,24 @@ async function main(): Promise<void> {
     }
 
     if (svc.name === 'postgres') {
-      runInitPgdata(env);
+      // Skip init-pgdata if postgres is already running and ours (it's
+      // already past init by definition).
+      if (!alreadyRunning.has('postgres')) {
+        runInitPgdata(env);
+      } else {
+        log.info('[postgres] reuse — skipping init-pgdata');
+      }
     }
 
-    try { spawnDetached(svc, paths, env); }
-    catch (e) {
-      log.error(`[${svc.name}] spawn failed: ${(e as Error).message}`);
-      if (svc.critical) process.exit(3);
-      continue;
+    if (alreadyRunning.has(svc.name)) {
+      log.info(`[${svc.name}] reusing already-running instance, no spawn`);
+    } else {
+      try { spawnDetached(svc, paths, env); }
+      catch (e) {
+        log.error(`[${svc.name}] spawn failed: ${(e as Error).message}`);
+        if (svc.critical) process.exit(3);
+        continue;
+      }
     }
 
     const ready = await waitFor(svc.health, svc.name, svc.healthTimeoutMs, 1000);

@@ -56,7 +56,26 @@ export class TenantsService implements OnModuleInit {
    * full schema-per-tenant lands.
    */
   async onModuleInit(): Promise<void> {
-    let tenant = await this.repo.findOneBy({ name: 'default' });
+    // vmfix8 (Issue #14): if schema bootstrap (TYPEORM_SYNC) didn't create
+    // the tenants table, surface a structured error rather than crashing
+    // bootstrap with a raw QueryFailedError. The installer ships with
+    // TYPEORM_SYNC=true (set by supervisor's subprocessEnv) so this path
+    // should not normally fire.
+    let tenant: import('./tenant.entity').Tenant | null = null;
+    try {
+      tenant = await this.repo.findOneBy({ name: 'default' });
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      const message = (err as Error).message ?? '';
+      if (code === '42P01' || /relation "tenants" does not exist/i.test(message)) {
+        this.logger.error(
+          'tenants table missing — schema bootstrap (TYPEORM_SYNC) did not run. ' +
+          'For installer mode set TYPEORM_SYNC=true. Skipping default tenant seed.',
+        );
+        return;  // do not crash; let server boot so /health + /settings/license still work
+      }
+      throw err;
+    }
     if (!tenant) {
       tenant = await this.repo.save(this.repo.create({
         name: 'default',
@@ -66,8 +85,16 @@ export class TenantsService implements OnModuleInit {
       }));
       this.logger.log(`Bootstrapped default tenant id=${tenant.id}`);
     }
-    // 确保默认 tenant 也有开场白样本（首次启动 / 新增样本时补齐）
-    await this.seedDefaultGreetings(tenant.id);
+    try {
+      await this.seedDefaultGreetings(tenant.id);
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code === '42P01') {
+        this.logger.warn('greeting_templates table missing — skipping greeting seed');
+        return;
+      }
+      throw err;
+    }
   }
 
   /** 给租户种入平台默认开场白（已存在则跳过，幂等安全） */

@@ -19,7 +19,7 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
 LicenseFile=
-OutputBaseFilename=TeleHubX-Setup-{#AppVersion}-vmfix7
+OutputBaseFilename=TeleHubX-Setup-{#AppVersion}-vmfix8
 OutputDir=Output
 SetupIconFile=assets\telehubx.ico
 WizardImageFile=assets\telehubx-banner.bmp
@@ -67,12 +67,14 @@ Name: "{userappdata}\TeleHubX\data\redis";  Permissions: users-modify
 
 [Icons]
 ; Desktop shortcuts (using TeleHubX logo)
-Name: "{commondesktop}\Start TeleHubX";  Filename: "{app}\tools\{#AppExeName}";  IconFilename: "{app}\assets\telehubx.ico"; Tasks: desktopicon; Comment: "Start TeleHubX"
-Name: "{commondesktop}\Stop TeleHubX";   Filename: "{app}\tools\{#StopExeName}"; IconFilename: "{app}\assets\telehubx.ico"; Tasks: desktopicon; Comment: "Stop TeleHubX"
+; vmfix8: shortcuts launch via wscript.exe + .vbs so the supervisor.exe console
+; subsystem doesn't flash a window. .vbs Run(..., 0, ...) hides the child.
+Name: "{commondesktop}\Start TeleHubX";  Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-start.vbs"""; WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Tasks: desktopicon; Comment: "Start TeleHubX"
+Name: "{commondesktop}\Stop TeleHubX";   Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-stop.vbs""";  WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Tasks: desktopicon; Comment: "Stop TeleHubX"
 
 ; Start menu group
-Name: "{group}\Start TeleHubX";          Filename: "{app}\tools\{#AppExeName}";  IconFilename: "{app}\assets\telehubx.ico"
-Name: "{group}\Stop TeleHubX";           Filename: "{app}\tools\{#StopExeName}"; IconFilename: "{app}\assets\telehubx.ico"
+Name: "{group}\Start TeleHubX";          Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-start.vbs"""; WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"
+Name: "{group}\Stop TeleHubX";           Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-stop.vbs""";  WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"
 Name: "{group}\Uninstall TeleHubX";      Filename: "{uninstallexe}"
 
 [Run]

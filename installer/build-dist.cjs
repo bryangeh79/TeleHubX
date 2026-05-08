@@ -265,6 +265,15 @@ step('Copy runtime init scripts', () => {
     path.join(REPO, 'installer/runtime/postgres/init-pgdata.cjs'),
     path.join(DIST, 'runtime/postgres/init-pgdata.cjs'),
   );
+  // vmfix8: silent VBS launchers placed alongside SEA exes in dist/tools/
+  cpFile(
+    path.join(REPO, 'installer/runtime/launcher/telehubx-start.vbs'),
+    path.join(DIST, 'tools/telehubx-start.vbs'),
+  );
+  cpFile(
+    path.join(REPO, 'installer/runtime/launcher/telehubx-stop.vbs'),
+    path.join(DIST, 'tools/telehubx-stop.vbs'),
+  );
   // Bundled redis.conf + license stub (always shipped, even if vendor/redis-windows missing)
   cpFile(
     path.join(REPO, 'installer/runtime/redis/redis.conf'),
