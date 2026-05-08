@@ -8,6 +8,7 @@ import { buildDataPaths, type DataPaths } from './shared/paths';
 import { log, setLogFile } from './shared/log';
 import { writePidFile, readPidFile, deletePidFile, type PidRecord } from './shared/pid-store';
 import { getProcessInfo, isPidAlive } from './shared/proc-windows';
+import { spawnSync as ssync } from 'node:child_process';
 
 /**
  * TeleHubX supervisor — startup orchestrator
@@ -221,17 +222,18 @@ function spawnDetached(svc: ServiceDef, paths: DataPaths, env: SupervisorEnv): P
   const fdOut = openSync(logFile, 'a');
   const fdErr = openSync(logFile, 'a');
 
-  // vmfix10 (Issue #15): NEVER pass detached:true on Windows.
-  // detached:true forces DETACHED_PROCESS in CreateProcess which creates a
-  // brand-new console for console-subsystem children (postgres.exe,
-  // redis-server.exe, node.exe). windowsHide cannot combine with
-  // DETACHED_PROCESS — it has no effect, so the new console becomes visible
-  // = the multiple cmd windows Bryan sees on Start.
+  // vmfix11 (Issue #15+#17): hidden children + long-lived supervisor.
+  //   detached:true  + windowsHide:true → console window APPEARS (CREATE_NO_WINDOW
+  //                                       ignored when DETACHED_PROCESS set, MSDN)
+  //   detached:false + windowsHide:true → no window BUT child dies when parent exits
+  //                                       (Issue #17 symptom: children vanished)
   //
-  // Without detached, child uses CREATE_NO_WINDOW (windowsHide=true) which
-  // truly creates no console. supervisor itself runs hidden via wscript+vbs,
-  // so children inherit no-console from a no-console parent. Children outlive
-  // supervisor regardless on Windows (no implicit Job Object cleanup).
+  // Resolution: detached:false + windowsHide:true (no console), AND supervisor
+  // STAYS ALIVE for the lifetime of its children. Without child.unref() and
+  // without process.exit() at end of main(), the event loop remains active
+  // because of the spawned child references. Children are hidden and tied
+  // to supervisor's lifetime — when stop tool kills the children, supervisor
+  // observes via 'exit' events and exits too.
   const child = spawn(svc.exe, svc.args, {
     detached: false,
     stdio: ['ignore', fdOut, fdErr],
@@ -239,7 +241,8 @@ function spawnDetached(svc: ServiceDef, paths: DataPaths, env: SupervisorEnv): P
     env: subprocessEnv(env),
     windowsHide: true,
   });
-  child.unref();
+  // NOTE: NO child.unref() — keeping parent's event loop tied to child so
+  // supervisor stays alive as long as ANY child is alive.
 
   if (!child.pid) throw new Error(`Failed to spawn ${svc.name}`);
 
@@ -323,6 +326,66 @@ process.on('uncaughtException', (e) => {
   releaseBootstrapLock();
   process.exit(99);
 });
+
+// ── port-occupant adoption (vmfix11 / Issue #17) ───────────────────────────
+/**
+ * If a port is already listening, return the owning process info.
+ * Used to detect e.g. init-pgdata's leftover temp postgres so we can adopt
+ * it (write a pid file for it) instead of trying to spawn another postgres
+ * that would fail with "port already in use".
+ *
+ * Returns null if port not listening or if PowerShell query fails.
+ */
+function getPortOwnerSync(port: number): { pid: number; exePath: string | null; cmdLine: string | null } | null {
+  const r = ssync('powershell', [
+    '-NoProfile', '-NonInteractive', '-Command',
+    `$conn = Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; ` +
+    `if ($conn) { ` +
+    `$p = Get-CimInstance Win32_Process -Filter "ProcessId=$($conn.OwningProcess)" -ErrorAction SilentlyContinue; ` +
+    `if ($p) { [PSCustomObject]@{ pid = [int]$p.ProcessId; exePath = $p.ExecutablePath; cmdLine = $p.CommandLine } | ConvertTo-Json -Compress } }`,
+  ], { encoding: 'utf8', windowsHide: true, timeout: 10_000 });
+  if (r.status !== 0) return null;
+  const text = (r.stdout ?? '').trim();
+  if (!text) return null;
+  try {
+    const o = JSON.parse(text);
+    return { pid: Number(o.pid), exePath: o.exePath ?? null, cmdLine: o.cmdLine ?? null };
+  } catch { return null; }
+}
+
+/**
+ * Try to adopt an already-listening port if it belongs to a process under
+ * our install dir. Returns true if adopted (caller should skip spawn).
+ * Returns false if port is free OR foreign-owned (caller proceeds normally
+ * or will fail at spawn).
+ */
+function tryAdoptListeningService(
+  svc: ServiceDef,
+  paths: DataPaths,
+  env: SupervisorEnv,
+  port: number,
+): boolean {
+  const owner = getPortOwnerSync(port);
+  if (!owner) return false;
+  const live = (owner.exePath ?? '').toLowerCase();
+  const installLower = env.installPath.toLowerCase();
+  if (live.startsWith(installLower) || live === svc.exe.toLowerCase()) {
+    log.info(`[adopt] port ${port} already listening, owner pid=${owner.pid} (${owner.exePath}) — adopting as ${svc.name}`);
+    const rec: PidRecord = {
+      service: svc.name,
+      pid: owner.pid,
+      exe: owner.exePath ?? svc.exe,
+      args: svc.args,
+      installPath: env.installPath,
+      startedAt: Date.now(),
+      cwd: svc.cwd,
+    };
+    writePidFile(paths.runDir, svc.name, rec);
+    return true;
+  }
+  log.warn(`[adopt] port ${port} occupied by FOREIGN process pid=${owner.pid} exe=${owner.exePath}; will not adopt; spawn will likely fail`);
+  return false;
+}
 
 // ── stale pid cleanup + service-reuse detection (vmfix6 §5 / vmfix8 §5) ────
 const STALE_SERVICE_NAMES = ['postgres', 'redis', 'server', 'agent', 'dashboard'];
@@ -586,8 +649,6 @@ async function main(): Promise<void> {
     }
 
     if (svc.name === 'postgres') {
-      // Skip init-pgdata if postgres is already running and ours (it's
-      // already past init by definition).
       if (!alreadyRunning.has('postgres')) {
         runInitPgdata(env);
       } else {
@@ -598,11 +659,23 @@ async function main(): Promise<void> {
     if (alreadyRunning.has(svc.name)) {
       log.info(`[${svc.name}] reusing already-running instance, no spawn`);
     } else {
-      try { spawnDetached(svc, paths, env); }
-      catch (e) {
-        log.error(`[${svc.name}] spawn failed: ${(e as Error).message}`);
-        if (svc.critical) process.exit(3);
-        continue;
+      // vmfix11 (Issue #17): if init-pgdata's temp postgres didn't fully stop,
+      // port may still be listening. Same for redis if a stale instance
+      // survived. Try to adopt the existing process before spawning, which
+      // would otherwise fail with port-in-use.
+      let adopted = false;
+      if (svc.name === 'postgres' && await tcpProbe('127.0.0.1', env.pgPort, 500)) {
+        adopted = tryAdoptListeningService(svc, paths, env, env.pgPort);
+      } else if (svc.name === 'redis' && await tcpProbe('127.0.0.1', env.redisPort, 500)) {
+        adopted = tryAdoptListeningService(svc, paths, env, env.redisPort);
+      }
+      if (!adopted) {
+        try { spawnDetached(svc, paths, env); }
+        catch (e) {
+          log.error(`[${svc.name}] spawn failed: ${(e as Error).message}`);
+          if (svc.critical) process.exit(3);
+          continue;
+        }
       }
     }
 
@@ -632,8 +705,27 @@ async function main(): Promise<void> {
   }
 
   openBrowser(url);
-  log.info('==== supervisor done — services running detached ====');
-  // Lock released by 'exit' handler.
+
+  // vmfix11 (Issues #15+#17): supervisor now STAYS ALIVE for the lifetime of
+  // its children. Without this, detached:false children get terminated when
+  // supervisor exits (Windows behavior). This was the root cause of #17:
+  // pid files appeared briefly then disappeared because supervisor exited
+  // shortly after spawning, taking redis/server/agent/dashboard with it.
+  //
+  // Since we did NOT call child.unref() in spawnDetached, the event loop is
+  // already kept alive by the children's process handles. We just don't
+  // call process.exit().
+  //
+  // Final status line for ops:
+  log.info('==== supervisor STARTUP COMPLETE — staying alive to keep services hidden + supervised ====');
+  log.info(`pid files: ${readdirSync(paths.runDir).filter(f => f.endsWith('.pid')).join(', ')}`);
+
+  // Heartbeat every 5 minutes confirms supervisor is still alive without
+  // log spam. Stop tool / OS shutdown / SIGTERM handles cleanup.
+  setInterval(() => {
+    log.info('[heartbeat] supervisor alive, services running');
+  }, 5 * 60_000);
+  // Lock released by 'exit' handler when supervisor finally exits.
 }
 
 main().catch(e => {

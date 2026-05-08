@@ -110,14 +110,31 @@ function startTempPostgres() {
 
 function stopTempPostgres() {
   if (!tempPostgresRunning) return;
-  log('stopping temporary postgres...');
-  const r = run(pgCtlExe, [
+  log('stopping temporary postgres (fast)...');
+  let r = run(pgCtlExe, [
     '-D', pgdataDir,
     '-m', 'fast', '-w', '-t', '30',
     'stop',
   ]);
   if (r.status !== 0) {
-    log(`pg_ctl stop returned status=${r.status} (non-fatal): ${(r.stderr || '').trim()}`);
+    log(`fast stop failed (status=${r.status}): ${(r.stderr || '').trim()} — retrying with immediate`);
+    r = run(pgCtlExe, [
+      '-D', pgdataDir,
+      '-m', 'immediate', '-w', '-t', '30',
+      'stop',
+    ]);
+    if (r.status !== 0) {
+      log(`immediate stop ALSO failed (status=${r.status}): ${(r.stderr || '').trim()}`);
+      // postmaster.pid may be stuck; remove it so a fresh postgres can start.
+      // We do NOT taskkill anything broadly — just clean the lock file.
+      const pmPid = path.join(pgdataDir, 'postmaster.pid');
+      try {
+        fs.unlinkSync(pmPid);
+        log(`removed stale ${pmPid}`);
+      } catch { /* ignore */ }
+      log('init-pgdata WARNING: temp postgres may still be running on port; ' +
+          'supervisor will attempt port-occupant adoption');
+    }
   }
   tempPostgresRunning = false;
 }
