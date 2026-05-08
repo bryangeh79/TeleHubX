@@ -6,6 +6,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { Account } from '../accounts/account.entity';
 import { Task, TaskStatus } from '../tasks/task.entity';
+import { User, UserRole } from '../auth/user.entity';
+import { AuthService } from '../auth/auth.service';
+import { TenantsService } from '../tenants/tenants.service';
 import { getDataPaths } from '../common/paths';
 import { CloudLicenseClient, CloudLicenseError } from './cloud-license-client';
 import {
@@ -93,6 +96,9 @@ export class CloudLicenseService implements OnModuleInit, OnModuleDestroy {
     config: ConfigService,
     @InjectRepository(Account) private readonly accountRepo: Repository<Account>,
     @InjectRepository(Task) private readonly taskRepo: Repository<Task>,
+    @InjectRepository(User) private readonly userRepo: Repository<User>,
+    private readonly authService: AuthService,
+    private readonly tenantsService: TenantsService,
   ) {
     this.baseUrl = config.get<string>('LICENSE_SERVER_URL')
       ?? 'https://telehubx-license.starbright-solutions.com';
@@ -211,7 +217,85 @@ export class CloudLicenseService implements OnModuleInit, OnModuleDestroy {
       `maxAccounts=${res.maxAccounts} firstBind=${res.firstBind} key=${masked} ` +
       `user=${res.userEmail ?? '<none>'} role=${res.userRole ?? '<none>'}`,
     );
+    // vmfix17 (Issue #24): mirror the License Worker's user record into the
+    // local users table so the operator can immediately log into the
+    // dashboard with the same email + password they entered above. License
+    // Worker is the source of truth for credentials; the local row is a
+    // cache so /auth/login can verify offline.
+    await this.provisionLocalUser(trimmedEmail, passwordIn, res.userRole ?? null);
     return this.status();
+  }
+
+  // ─── vmfix17: License → local User mirror ─────────────────────────────
+
+  private mapRole(roleStr: string | null | undefined): UserRole {
+    const v = String(roleStr ?? '').trim().toUpperCase();
+    if (v === 'SUPER_ADMIN') return UserRole.SUPER_ADMIN;
+    if (v === 'ADMIN')       return UserRole.ADMIN;
+    if (v === 'OPERATOR')    return UserRole.OPERATOR;
+    if (v === 'VIEWER')      return UserRole.VIEWER;
+    // Unknown role string from the License Worker — default to ADMIN since
+    // a fresh activator is presumed to be the operator/owner of the
+    // installation. They can be downgraded by a SUPER_ADMIN later.
+    return UserRole.ADMIN;
+  }
+
+  /**
+   * Create-or-update a local User row that matches the License Worker's
+   * activation response. Failures here MUST NOT propagate — License
+   * activation already succeeded server-side and we don't want to roll
+   * that back over a local DB hiccup. Caller logs success/failure.
+   */
+  private async provisionLocalUser(
+    email: string | null,
+    password: string | null,
+    roleStr: string | null,
+  ): Promise<void> {
+    if (!email || !password) {
+      this.logger.warn(
+        'cloud-license: skip local user provision — email/password missing ' +
+        '(legacy tenant on License Worker has no tenant_user row)',
+      );
+      return;
+    }
+    try {
+      const tenant = await this.tenantsService.getDefault().catch(() => null);
+      const role   = this.mapRole(roleStr);
+      const { passwordHash, passwordSalt } = this.authService.hashPassword(password);
+      const existing = await this.userRepo.findOneBy({ username: email });
+      if (existing) {
+        // Re-activation overwrites local credentials with whatever the
+        // License Worker last accepted. This doubles as a forgotten-password
+        // recovery path: change the password on the License Server, then
+        // re-run activation here.
+        await this.userRepo.update(existing.id, {
+          passwordHash,
+          passwordSalt,
+          role,
+          tenantId: existing.tenantId ?? tenant?.id ?? null,
+          enabled: true,
+        });
+        this.logger.log(`cloud-license: refreshed local user ${email} (role=${role})`);
+      } else {
+        const u = this.userRepo.create({
+          username: email,
+          passwordHash,
+          passwordSalt,
+          role,
+          tenantId: tenant?.id ?? null,
+          enabled: true,
+        });
+        await this.userRepo.save(u);
+        this.logger.log(`cloud-license: provisioned local user ${email} (role=${role})`);
+      }
+    } catch (err: any) {
+      // Don't let local DB problems undo a successful License activation.
+      // Operator can retry activation; activation is idempotent on the
+      // License Worker (firstBind=false on subsequent calls).
+      this.logger.error(
+        `cloud-license: provision local user failed (activation still OK): ${err?.message ?? err}`,
+      );
+    }
   }
 
   /** Force a verify call now (for the dashboard's "refresh" button). */

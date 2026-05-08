@@ -57,8 +57,14 @@ export default function LoginPage() {
         <Alert
           type="info"
           showIcon
-          message="默认账号：admin / admin"
-          description="首次启动自动创建。请通过「设置 → 个人资料 → 修改密码」立刻修改。"
+          message="使用 License 激活时填写的邮箱和密码登录"
+          description={
+            <>
+              没激活过？先到{' '}
+              <a onClick={() => navigate('/settings/license')}>设置 → License</a>{' '}
+              完成激活，激活时设置的密码即为本机登录密码。
+            </>
+          }
           style={{ marginBottom: 16, fontSize: 12 }}
         />
 

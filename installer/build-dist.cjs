@@ -330,10 +330,10 @@ step('Write VERSION.txt', () => {
   catch { /* ignore */ }
   const buildTime = new Date().toISOString();
   const content =
-    `version=vmfix16\n` +
+    `version=vmfix17\n` +
     `commit=${commit}\n` +
     `buildTime=${buildTime}\n` +
-    `artifact=TeleHubX-Setup-1.0.0-vmfix16.exe\n` +
+    `artifact=TeleHubX-Setup-1.0.0-vmfix17.exe\n` +
     `serviceIdentity=NT AUTHORITY\\LocalService\n`;
   fs.writeFileSync(path.join(DIST, 'VERSION.txt'), content, 'utf8');
   log(`   ${content.replace(/\n/g, ' | ').trim()}`);
