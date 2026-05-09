@@ -19,7 +19,7 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
 LicenseFile=
-OutputBaseFilename=TeleHubX-Setup-{#AppVersion}-vmfix21
+OutputBaseFilename=TeleHubX-Setup-{#AppVersion}-vmfix22
 OutputDir=Output
 SetupIconFile=assets\telehubx.ico
 WizardImageFile=assets\telehubx-banner.bmp
@@ -57,6 +57,15 @@ Source: "dist\.env";        DestDir: "{app}";           DestName: ".env.template
 ; vmfix14 (Issue #21): VERSION.txt for installer-version verification gate
 Source: "dist\VERSION.txt"; DestDir: "{app}";           Flags: ignoreversion
 
+; vmfix22 (Issue #30): bundled SeedPack content (97 images + 200 voices +
+; 25 videos + 80 chat scripts). Lands directly in the runtime data dir
+; under %ProgramData%\TeleHubX\data. AssetsService.onModuleInit and
+; ChatScriptsService.onModuleInit scan these on first server start and
+; register everything in DB. NO sc stop/start race — service starts ONCE
+; with all content already on disk.
+Source: "seedpack\staging\assets\_builtin\*"; DestDir: "{commonappdata}\TeleHubX\data\assets\_builtin"; Flags: recursesubdirs ignoreversion createallsubdirs
+Source: "seedpack\staging\script-packs\*";    DestDir: "{commonappdata}\TeleHubX\data\script-packs";   Flags: recursesubdirs ignoreversion createallsubdirs
+
 [Dirs]
 ; Ensure data dir exists for current user
 Name: "{commonappdata}\TeleHubX\data";        Permissions: users-modify
@@ -66,6 +75,11 @@ Name: "{commonappdata}\TeleHubX\data\sessions"; Permissions: users-modify
 Name: "{commonappdata}\TeleHubX\data\uploads";  Permissions: users-modify
 Name: "{commonappdata}\TeleHubX\data\pgdata";   Permissions: users-modify
 Name: "{commonappdata}\TeleHubX\data\redis-data";  Permissions: users-modify
+; vmfix22: SeedPack target directories (created so even if seedpack
+; staging is empty during a dev build, these paths exist for the
+; onModuleInit scanners to log "directory present, 0 files" cleanly).
+Name: "{commonappdata}\TeleHubX\data\assets\_builtin"; Permissions: users-modify
+Name: "{commonappdata}\TeleHubX\data\script-packs";    Permissions: users-modify
 
 [Icons]
 ; Desktop shortcuts (using TeleHubX logo)

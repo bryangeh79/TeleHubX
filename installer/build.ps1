@@ -114,6 +114,21 @@ if (Test-Path $icoSrc) {
   Die 'installer/assets/telehubx.ico not found. Run: installer/scripts/png-to-ico.ps1 first.'
 }
 
+# ---- 6.5. SeedPack staging (vmfix22 / Issue #30) --------------------------
+# Stage curated SeedPack content into installer/seedpack/staging/ so the
+# main installer's [Files] section can embed it. This replaces the old
+# separate TeleHubX-SeedPack-*.exe distribution — bundling everything
+# into one .exe eliminates the sc stop/start race that bit vmfix20-21.
+Section 'SeedPack staging (vmfix22: bundled into main installer)'
+$seedScript = Join-Path $PSScriptRoot 'seedpack\build-seedpack.ps1'
+if (Test-Path $seedScript) {
+  & $seedScript -StagingOnly
+  if ($LASTEXITCODE -ne 0) { Die 'SeedPack staging failed' }
+  Ok 'SeedPack staging done'
+} else {
+  Write-Host '[warn] seedpack/build-seedpack.ps1 not found — main installer will NOT include builtin assets' -ForegroundColor Yellow
+}
+
 # ---- 7. ISCC.exe ----------------------------------------------------------
 if ($SkipISCC) {
   Section 'Skipping ISCC (SkipISCC)'

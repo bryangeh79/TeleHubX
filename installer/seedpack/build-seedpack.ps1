@@ -22,6 +22,11 @@
 [CmdletBinding()]
 param(
   [switch]$SkipISCC,
+  [switch]$StagingOnly,    # vmfix22 (Issue #30): only stage content, skip ISCC.
+                           # Used by main installer build to embed SeedPack
+                           # content into the unified TeleHubX-Setup-*.exe
+                           # so tenants don't need a separate SeedPack install
+                           # (avoids the sc stop/start race entirely).
   [int]$VideosPerCategory = 5
 )
 $ErrorActionPreference = 'Stop'
@@ -115,8 +120,9 @@ $totalMB = [math]::Round($total / 1MB, 1)
 Write-Host "Total staged: $totalMB MB" -ForegroundColor White
 
 # ---- 8. ISCC --------------------------------------------------------------
-if ($SkipISCC) {
-  Section 'Skipping ISCC (SkipISCC)'
+if ($SkipISCC -or $StagingOnly) {
+  if ($StagingOnly) { Section 'Skipping ISCC (StagingOnly — content embedded into main installer)' }
+  else              { Section 'Skipping ISCC (SkipISCC)' }
   Write-Host "Staging at: $staging" -ForegroundColor Yellow
   exit 0
 }

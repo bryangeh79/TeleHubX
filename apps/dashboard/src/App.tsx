@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import DashboardLayout from './components/DashboardLayout';
 import DashboardPage from './pages/DashboardPage';
 import AccountsPage from './pages/accounts/AccountsPage';
@@ -25,14 +25,23 @@ import AssetsPage from './pages/assets/AssetsPage';
 import GroupsPage from './pages/groups/GroupsPage';
 import ChatScriptsPage from './pages/chat-scripts/ChatScriptsPage';
 import LoginPage from './pages/auth/LoginPage';
-import ActivatePage from './pages/auth/ActivatePage';
+// vmfix22 (Issue #30): ActivatePage (legacy local-license activator) is no
+// longer reachable; /activate redirects to /settings/license. Component
+// kept on disk to allow easy revert; removal is a separate cleanup commit.
 
 // BrowserRouter and ConfigProvider live in main.tsx (single source).
 // Wrapping again here threw "You cannot render a <Router> inside another <Router>".
 const App: React.FC = () => (
   <Routes>
     <Route path="/login" element={<LoginPage />} />
-    <Route path="/activate" element={<ActivatePage />} />
+    {/* vmfix22 (Issue #30): /activate was the legacy local-license page
+        (TLHX-{PLAN}-XXXX-... format, Ed25519 signed locally). The current
+        cloud-license system uses /settings/license with format THX-XXXX-
+        XXXX-XXXX issued by the License Worker. Redirect any bookmark /
+        deep-link / older code path here to the right place. */}
+    <Route path="/activate" element={<Navigate to="/settings/license" replace />} />
+    {/* ActivatePage component is kept imported but unrendered for now —
+        deletion is a separate cleanup commit. */}
     <Route path="/" element={<DashboardLayout />}>
       <Route index element={<DashboardPage />} />
       <Route path="accounts" element={<AccountsPage />} />
