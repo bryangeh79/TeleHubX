@@ -13,16 +13,19 @@ $desktop = [System.Environment]::GetFolderPath('Desktop')
 $wsh     = New-Object -ComObject WScript.Shell
 
 function New-Shortcut {
+    # NOTE: do NOT name a parameter "$Args" — that's an automatic variable
+    # in PowerShell function scope (collects unbound positional args) and
+    # will silently shadow / never get bound. Use $ArgList instead.
     param(
         [string]$Name,
         [string]$Target,
-        [string]$Args = '',
+        [string]$ArgList = '',
         [string]$WorkDir = $root,
         [string]$Desc = ''
     )
     $lnk = $wsh.CreateShortcut("$desktop\$Name.lnk")
     $lnk.TargetPath       = $Target
-    if ($Args)    { $lnk.Arguments        = $Args }
+    if ($ArgList) { $lnk.Arguments        = $ArgList }
     if ($WorkDir) { $lnk.WorkingDirectory = $WorkDir }
     if ($Desc)    { $lnk.Description      = $Desc }
     $lnk.Save()
@@ -37,7 +40,7 @@ Write-Host ""
 New-Shortcut `
     -Name    "TeleHubX" `
     -Target  "wscript.exe" `
-    -Args    """$root\Start-TeleHubX-hidden.vbs""" `
+    -ArgList "`"$root\Start-TeleHubX-hidden.vbs`"" `
     -Desc    "Start TeleHubX (backend + dashboard + agent)"
 
 # [Stop TeleHubX] - stopper
