@@ -35,6 +35,14 @@ interface ServiceDef {
   health: () => Promise<boolean>;
   healthTimeoutMs: number;
   critical: boolean;
+  // vmfix19 (Issue #26): when true, this service is started via pg_ctl
+  // (which calls CreateRestrictedToken to drop Administrators membership
+  // before launching postgres.exe). Direct spawn() would inherit the
+  // supervisor's token verbatim, and on Windows configs where that token
+  // happens to carry BUILTIN\Administrators, postgres's own anti-privilege
+  // check (`pgwin32_is_admin()`) refuses to start. pg_ctl is the
+  // PostgreSQL-supported way to drop those privileges in-process.
+  pgCtl?: boolean;
 }
 
 // ── network probes ─────────────────────────────────────────────────────────
@@ -88,12 +96,27 @@ function buildServices(env: SupervisorEnv, paths: DataPaths): ServiceDef[] {
   return [
     {
       name: 'postgres',
-      exe: path.join(env.installPath, 'runtime', 'postgres', 'bin', 'postgres.exe'),
-      args: ['-D', paths.pgdataDir, '-p', String(env.pgPort)],
+      // vmfix19 (Issue #26): launch via pg_ctl so it can drop Administrators
+      // membership (CreateRestrictedToken) before spawning postgres.exe.
+      // Direct postgres.exe spawn was rejected with
+      // "Execution of PostgreSQL by a user with administrative permissions
+      //  is not permitted" when supervisor's token had Administrators (which
+      // can happen on some Windows configs even when SCM identity is set
+      // to LocalService).
+      exe: path.join(env.installPath, 'runtime', 'postgres', 'bin', 'pg_ctl.exe'),
+      args: [
+        'start',
+        '-D', paths.pgdataDir,
+        '-l', path.join(paths.logsDir, 'postgres.log'),  // pg_ctl handles log redirect
+        '-w',                                              // wait for ready
+        '-t', '60',                                        // ready timeout
+        '-o', `-p ${env.pgPort} -h 127.0.0.1`,            // pass-through to postgres
+      ],
       enabledIn: ['prod'],
       health: () => tcpProbe('127.0.0.1', env.pgPort),
       healthTimeoutMs: 30000,
       critical: true,
+      pgCtl: true,
     },
     {
       name: 'redis',
@@ -219,8 +242,95 @@ async function serverHealthProbe(appPort: number): Promise<boolean> {
 // vmfix12 / Issue #19: track active children so SIGTERM handler can kill them
 const activeChildren = new Map<string, import('node:child_process').ChildProcess>();
 
+// vmfix19 (Issue #26): when postgres is started via pg_ctl, supervisor doesn't
+// have a ChildProcess handle (pg_ctl exits after starting postgres in the
+// background). gracefulShutdown calls this function to issue `pg_ctl stop`
+// instead of trying to kill a non-existent child. Set inside spawnPgCtlPostgres.
+let postgresStopHandler: (() => void) | null = null;
+
 // ── spawn helpers ──────────────────────────────────────────────────────────
+
+/**
+ * vmfix19 (Issue #26): spawn postgres via pg_ctl, which drops admin membership
+ * via CreateRestrictedToken before launching postgres.exe. Returns synthetic
+ * PidRecord with the real postgres pid (read from postmaster.pid). pg_ctl
+ * itself is a short-lived helper that exits after postgres is ready, so
+ * supervisor has no ChildProcess for the long-running postgres; instead we
+ * register postgresStopHandler for gracefulShutdown to call pg_ctl stop.
+ */
+function spawnPgCtlPostgres(svc: ServiceDef, paths: DataPaths, env: SupervisorEnv): PidRecord {
+  log.info(`[postgres] starting via pg_ctl (drops admin token before launching postgres)`);
+  const r = spawnSync(svc.exe, svc.args, {
+    encoding: 'utf8',
+    env: subprocessEnv(env),
+    windowsHide: true,
+    timeout: 90_000,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  for (const line of (r.stdout ?? '').split(/\r?\n/)) {
+    if (line.trim()) log.info(`  [pg_ctl] ${line}`);
+  }
+  for (const line of (r.stderr ?? '').split(/\r?\n/)) {
+    if (line.trim()) log.warn(`  [pg_ctl] ${line}`);
+  }
+  if (r.signal === 'SIGTERM') {
+    throw new Error(`pg_ctl start timed out after 90s`);
+  }
+  if (r.status !== 0) {
+    throw new Error(`pg_ctl start failed: status=${r.status}`);
+  }
+
+  // Read real postgres pid from postmaster.pid (line 1).
+  const postmasterPidFile = path.join(paths.pgdataDir, 'postmaster.pid');
+  let pid = 0;
+  try {
+    const head = readFileSync(postmasterPidFile, 'utf8').split(/\r?\n/)[0]?.trim() ?? '';
+    pid = parseInt(head, 10);
+  } catch (e) {
+    throw new Error(`pg_ctl claimed success but could not read ${postmasterPidFile}: ${(e as Error).message}`);
+  }
+  if (!pid || isNaN(pid)) {
+    throw new Error(`pg_ctl claimed success but postmaster.pid first line is not a valid pid`);
+  }
+
+  // Register the stop handler for gracefulShutdown.
+  const pgCtlExe = svc.exe;
+  const pgdataDir = paths.pgdataDir;
+  const cleanEnv = subprocessEnv(env);
+  postgresStopHandler = () => {
+    try {
+      log.info(`[shutdown] pg_ctl stop -m fast (pid=${pid})`);
+      spawnSync(pgCtlExe, ['stop', '-D', pgdataDir, '-m', 'fast', '-w', '-t', '30'], {
+        encoding: 'utf8',
+        env: cleanEnv,
+        windowsHide: true,
+        timeout: 35_000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      log.info(`[shutdown] postgres stopped`);
+    } catch (e) {
+      log.warn(`[shutdown] pg_ctl stop failed: ${(e as Error).message}`);
+    }
+  };
+
+  log.info(`[postgres] spawned pid=${pid} (via pg_ctl) exe=${path.join(env.installPath, 'runtime', 'postgres', 'bin', 'postgres.exe')} (pid file deferred until ready)`);
+  return {
+    service: svc.name,
+    pid,
+    exe: path.join(env.installPath, 'runtime', 'postgres', 'bin', 'postgres.exe'),
+    args: ['-D', paths.pgdataDir, '-p', String(env.pgPort)],
+    installPath: env.installPath,
+    startedAt: Date.now(),
+    cwd: undefined,
+  };
+}
+
 function spawnDetached(svc: ServiceDef, paths: DataPaths, env: SupervisorEnv): PidRecord {
+  // vmfix19 (Issue #26): postgres takes the pg_ctl path.
+  if (svc.pgCtl) {
+    return spawnPgCtlPostgres(svc, paths, env);
+  }
+
   const logFile = path.join(paths.logsDir, `${svc.name}.log`);
   const fdOut = openSync(logFile, 'a');
   const fdErr = openSync(logFile, 'a');
@@ -337,6 +447,15 @@ function gracefulShutdown(signal: string): void {
   log.info(`==== supervisor received ${signal} — stopping children ====`);
   const reverseOrder = ['dashboard', 'agent', 'server', 'redis', 'postgres'];
   for (const name of reverseOrder) {
+    // vmfix19 (Issue #26): postgres is detached (started via pg_ctl) and not
+    // tracked in activeChildren. Use the registered pg_ctl stop handler
+    // for a graceful shutdown that lets postgres clean up postmaster.pid
+    // and avoids stale lock files on the next start.
+    if (name === 'postgres' && postgresStopHandler) {
+      try { postgresStopHandler(); }
+      catch (e) { log.warn(`[shutdown] postgres handler failed: ${(e as Error).message}`); }
+      continue;
+    }
     const child = activeChildren.get(name);
     if (!child) continue;
     try {
@@ -634,6 +753,26 @@ async function main(): Promise<void> {
   log.info(`dataDir=${paths.root}`);
   log.info(`runtimeMode=${env.runtimeMode}`);
   log.info(`ports: app=${env.appPort} dashboard=${env.dashboardPort} pg=${env.pgPort} redis=${env.redisPort}`);
+
+  // vmfix19 (Issue #26): log effective token groups so future regressions
+  // around the postgres "admin permissions" check are diagnosable from logs
+  // alone. Filtered to security-relevant groups (Administrators / SERVICE /
+  // SYSTEM / LOCAL SERVICE). Failure here is non-fatal.
+  try {
+    const groups = ssync('whoami', ['/groups', '/fo', 'list'], {
+      encoding: 'utf8',
+      timeout: 5000,
+      windowsHide: true,
+    }).stdout ?? '';
+    const interesting = groups
+      .split(/\r?\n/)
+      .filter(l => /Administrators|LOCAL SERVICE|NT AUTHORITY\\SERVICE|NT AUTHORITY\\SYSTEM|Mandatory Label/i.test(l))
+      .map(l => l.trim())
+      .filter(Boolean);
+    log.info(`[token] effective groups (filtered): ${interesting.length ? interesting.join(' | ') : '<none matched>'}`);
+  } catch (e) {
+    log.warn(`[token] could not query whoami /groups: ${(e as Error).message}`);
+  }
 
   // probe mode bypasses lock + pid cleanup (read-only)
   if (env.runtimeMode === 'probe') {

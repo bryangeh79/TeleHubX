@@ -1,6 +1,13 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <!--
-  TeleHubX startup splash window (vmfix18 / Issue #25).
+  TeleHubX startup splash window (vmfix18 / Issue #25, vmfix19 charset fix).
+
+  IMPORTANT: This file MUST be saved with a UTF-8 BOM (EF BB BF as the first
+  three bytes). mshta.exe reads the title bar / <hta:application caption>
+  BEFORE the HTML parser sees the <meta charset> tag — that early read uses
+  the system ANSI code page (CP1252) unless a BOM is present. Without BOM,
+  the Chinese title shows as Latin-1 mojibake (e.g. "TeleHubX å¯ åŠ¨ä¸").
+  If you re-edit this file, preserve the BOM.
 
   Spawned by telehubx-start.vbs after `sc.exe start TeleHubX`.
 
@@ -20,6 +27,7 @@
 -->
 <html>
 <head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
   <title>TeleHubX 启动中</title>
   <hta:application
