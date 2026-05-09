@@ -19,6 +19,7 @@ import {
 import { GlobalOutlined } from '@ant-design/icons';
 import { accountsApi, proxiesApi } from '../../services/api';
 import { useT } from '../../i18n';
+import TgApiSetupModal from '../../components/TgApiSetupModal';
 
 const { Title, Text } = Typography;
 
@@ -82,6 +83,12 @@ export default function BindWizard() {
   const [proxies, setProxies] = useState<ProxyOption[]>([]);
   const [proxiesLoading, setProxiesLoading] = useState(false);
 
+  // vmfix23 (Issue #31): TG API self-setup modal — pops when bind/init
+  // returns 503 with code='tg_api_not_configured'. After tenant fills in
+  // credentials and service restarts, we auto-retry the original send-OTP.
+  const [tgSetupOpen, setTgSetupOpen] = useState(false);
+  const [pendingSetup, setPendingSetup] = useState<SetupValues | null>(null);
+
   useEffect(() => {
     void (async () => {
       setProxiesLoading(true);
@@ -138,10 +145,40 @@ export default function BindWizard() {
       if (createdId) {
         await accountsApi.delete(createdId).catch(() => {});
       }
-      message.error(extractMessage(err, 'Failed to send OTP'));
+      // vmfix23 (Issue #31): backend returns 503 with code='tg_api_not_configured'
+      // when TG_API_ID / TG_API_HASH aren't set. Show the self-service modal
+      // and remember the form values so we can auto-retry once the service
+      // has restarted with the new credentials.
+      const code = err?.response?.data?.code;
+      const status = err?.response?.status;
+      if (status === 503 && code === 'tg_api_not_configured') {
+        setPendingSetup(values);
+        setTgSetupOpen(true);
+      } else {
+        message.error(extractMessage(err, 'Failed to send OTP'));
+      }
     } finally {
       setSendingCode(false);
     }
+  };
+
+  /** Called by TgApiSetupModal once /health is back. Re-invoke handleSendCode
+   *  so the operator doesn't have to re-fill the phone number form. */
+  const handleTgApiSetupComplete = async () => {
+    setTgSetupOpen(false);
+    if (pendingSetup) {
+      // Re-fill the form with what they had typed before the modal opened,
+      // then trigger send-OTP again.
+      setupForm.setFieldsValue(pendingSetup);
+      setPendingSetup(null);
+      // Small delay to let the form re-render before the validate call.
+      setTimeout(() => { void handleSendCode(); }, 200);
+    }
+  };
+
+  const handleTgApiSetupCancel = () => {
+    setTgSetupOpen(false);
+    setPendingSetup(null);
   };
 
   /** Step 1: verify OTP (and 2FA password if prompted) */
@@ -447,6 +484,14 @@ export default function BindWizard() {
           ]}
         />
       )}
+
+      {/* vmfix23: self-service TG API setup, triggered when bind/init
+          returns 503 tg_api_not_configured. */}
+      <TgApiSetupModal
+        open={tgSetupOpen}
+        onComplete={handleTgApiSetupComplete}
+        onCancel={handleTgApiSetupCancel}
+      />
     </div>
   );
 }

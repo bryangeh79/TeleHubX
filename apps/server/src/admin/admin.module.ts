@@ -7,6 +7,8 @@ import { LicensesModule } from '../licenses/licenses.module';
 import { TenantsModule } from '../tenants/tenants.module';
 import { AdminController } from './admin.controller';
 import { UsersService } from './users.service';
+import { PlatformSettingsController } from './platform-settings.controller';
+import { PlatformSettingsService } from './platform-settings.service';
 
 @Module({
   imports: [
@@ -15,7 +17,7 @@ import { UsersService } from './users.service';
     LicensesModule,
     AuthModule,
   ],
-  controllers: [AdminController],
-  providers: [UsersService],
+  controllers: [AdminController, PlatformSettingsController],
+  providers: [UsersService, PlatformSettingsService],
 })
 export class AdminModule {}

@@ -90,9 +90,15 @@ export class BindOrchestratorService implements OnModuleDestroy {
 
   async init(accountId: string, phone: string): Promise<BindInitResult> {
     if (!this.configured) {
-      throw new ServiceUnavailableException(
-        'Telegram bind not configured. Set TG_API_ID and TG_API_HASH in environment.',
-      );
+      // vmfix23 (Issue #31): structured error code so dashboard can pop the
+      // self-service config modal instead of showing the raw stack-trace
+      // message. Frontend pattern-matches on `code: 'tg_api_not_configured'`.
+      throw new ServiceUnavailableException({
+        statusCode: 503,
+        code: 'tg_api_not_configured',
+        message: 'Telegram bind not configured. Set TG_API_ID and TG_API_HASH via dashboard Settings.',
+        error: 'Service Unavailable',
+      });
     }
 
     // Verify the account record exists; throws NotFoundException if not
@@ -190,9 +196,15 @@ export class BindOrchestratorService implements OnModuleDestroy {
     password?: string,
   ): Promise<BindVerifyResult | BindVerifyNeedsPassword> {
     if (!this.configured) {
-      throw new ServiceUnavailableException(
-        'Telegram bind not configured. Set TG_API_ID and TG_API_HASH in environment.',
-      );
+      // vmfix23 (Issue #31): structured error code so dashboard can pop the
+      // self-service config modal instead of showing the raw stack-trace
+      // message. Frontend pattern-matches on `code: 'tg_api_not_configured'`.
+      throw new ServiceUnavailableException({
+        statusCode: 503,
+        code: 'tg_api_not_configured',
+        message: 'Telegram bind not configured. Set TG_API_ID and TG_API_HASH via dashboard Settings.',
+        error: 'Service Unavailable',
+      });
     }
 
     const entry = this.active.get(accountId);

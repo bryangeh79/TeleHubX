@@ -215,6 +215,21 @@ export const maintenanceApi = {
   selfTest:         (accountId: string) => api.post(`/maintenance/self-test/${accountId}`),
 };
 
+// vmfix23 (Issue #31): platform-wide settings (TG API for now). ADMIN-level
+// access — the tenant operator of a single-tenant install configures their
+// own TG app credentials without going through SUPER_ADMIN.
+export const platformSettingsApi = {
+  getTgApi: () =>
+    api.get<{ configured: boolean; apiId: number | null; apiHashMasked: string | null }>(
+      '/platform-settings/tg-api',
+    ),
+  saveTgApi: (apiId: number, apiHash: string) =>
+    api.post<{ restarting: boolean; expectedReadyMs: number }>(
+      '/platform-settings/tg-api',
+      { apiId, apiHash },
+    ),
+};
+
 export const adminApi = {
   // tenants
   listTenants: () => api.get('/admin/tenants'),
