@@ -280,17 +280,48 @@ function spawnPgCtlPostgres(svc: ServiceDef, paths: DataPaths, env: SupervisorEn
     throw new Error(`pg_ctl start failed: status=${r.status}`);
   }
 
-  // Read real postgres pid from postmaster.pid (line 1).
+  // vmfix21 (Issue #29): on Windows, pg_ctl can return "server started"
+  // a few hundred ms BEFORE postgres has flushed postmaster.pid to disk.
+  // The earlier vmfix19 implementation did a single read immediately and
+  // failed with ENOENT under that race. Now we retry-read the file with a
+  // short backoff for up to 5 seconds; if it still doesn't appear, fall
+  // back to querying the port owner via netstat (the postgres process IS
+  // listening on env.pgPort by definition since pg_ctl said "server
+  // started" and waitFor it being able to accept connections).
   const postmasterPidFile = path.join(paths.pgdataDir, 'postmaster.pid');
   let pid = 0;
-  try {
-    const head = readFileSync(postmasterPidFile, 'utf8').split(/\r?\n/)[0]?.trim() ?? '';
-    pid = parseInt(head, 10);
-  } catch (e) {
-    throw new Error(`pg_ctl claimed success but could not read ${postmasterPidFile}: ${(e as Error).message}`);
+  const readDeadline = Date.now() + 5_000;
+  while (Date.now() < readDeadline) {
+    try {
+      const head = readFileSync(postmasterPidFile, 'utf8').split(/\r?\n/)[0]?.trim() ?? '';
+      const candidate = parseInt(head, 10);
+      if (candidate && !isNaN(candidate)) {
+        pid = candidate;
+        break;
+      }
+    } catch {
+      // ENOENT or partial write — keep retrying
+    }
+    // Synchronous sleep without external deps. SharedArrayBuffer is in
+    // Node core; this blocks the calling thread for ~150ms then retries.
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150);
+  }
+  if (!pid) {
+    log.warn(
+      `pg_ctl claimed success but ${postmasterPidFile} did not appear within 5s — ` +
+      `falling back to port-owner lookup on ${env.pgPort}`,
+    );
+    const owner = getPortOwnerSync(env.pgPort);
+    if (owner?.pid) {
+      pid = owner.pid;
+      log.info(`[postgres] pid=${pid} resolved via port-owner fallback`);
+    }
   }
   if (!pid || isNaN(pid)) {
-    throw new Error(`pg_ctl claimed success but postmaster.pid first line is not a valid pid`);
+    throw new Error(
+      `pg_ctl claimed success but postgres pid could not be resolved ` +
+      `(postmaster.pid missing AND port ${env.pgPort} has no owner)`,
+    );
   }
 
   // Register the stop handler for gracefulShutdown.
@@ -802,6 +833,47 @@ async function main(): Promise<void> {
 
   // Stale pid cleanup + already-running detection (vmfix6 §5 + vmfix8 §5)
   const alreadyRunning = cleanStalePidFiles(paths.runDir, env.installPath);
+
+  // vmfix21 (Issue #29): defensive orphan-postgres cleanup. SeedPack's
+  // sc stop+start race or any prior crashed sc start can leave 1-N
+  // postgres.exe processes alive while supervisor / SCM has no record
+  // of them. They keep port 5436 bound, so the next pg_ctl start can't
+  // bind, races with postmaster.pid lock, and either loops or fails.
+  // Only kick this in if pid file says "no postgres" but live processes
+  // exist — never kill the postgres we legitimately adopted.
+  if (env.runtimeMode === 'prod' && !alreadyRunning.has('postgres')) {
+    try {
+      const orphans = ssync('powershell', [
+        '-NoProfile', '-NonInteractive', '-Command',
+        'Get-Process postgres -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id',
+      ], { encoding: 'utf8', timeout: 5_000, windowsHide: true });
+      const pids = (orphans.stdout ?? '')
+        .split(/\r?\n/)
+        .map(s => parseInt(s.trim(), 10))
+        .filter(n => n > 0);
+      if (pids.length) {
+        log.warn(`[orphan-cleanup] found ${pids.length} stray postgres process(es): ${pids.join(', ')} — terminating before pg_ctl start`);
+        for (const pid of pids) {
+          try {
+            ssync('taskkill', ['/F', '/PID', String(pid)], {
+              stdio: 'ignore', timeout: 3_000, windowsHide: true,
+            });
+          } catch { /* best-effort */ }
+        }
+        // Postgres deletes postmaster.pid on clean shutdown; force-killed
+        // postgres leaves a stale lock that confuses next start.
+        try {
+          const stalePostmaster = path.join(paths.pgdataDir, 'postmaster.pid');
+          if (existsSync(stalePostmaster)) {
+            unlinkSync(stalePostmaster);
+            log.info(`[orphan-cleanup] removed stale postmaster.pid`);
+          }
+        } catch { /* ignore */ }
+      }
+    } catch (e) {
+      log.warn(`[orphan-cleanup] check failed (non-fatal): ${(e as Error).message}`);
+    }
+  }
 
   const services = buildServices(env, paths);
 

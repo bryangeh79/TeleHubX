@@ -6,7 +6,7 @@
 #define AppName       "TeleHubX SeedPack"
 #define AppVersion    "1.0.0"
 #define AppPublisher  "Starbright Solutions"
-#define BuildTag      "vmfix20"
+#define BuildTag      "vmfix21"
 
 [Setup]
 AppId={{C8F4DA13-2D2B-49FF-A001-9F3A8C6B7E2F}
@@ -50,12 +50,25 @@ Source: "staging\script-packs\*";    DestDir: "{commonappdata}\TeleHubX\data\scr
 Filename: "icacls"; Parameters: """{commonappdata}\TeleHubX\data\assets"" /grant ""NT AUTHORITY\LocalService:(OI)(CI)F"" /T /Q"; Flags: runhidden waituntilterminated; StatusMsg: "Granting service access to assets directory..."
 Filename: "icacls"; Parameters: """{commonappdata}\TeleHubX\data\script-packs"" /grant ""NT AUTHORITY\LocalService:(OI)(CI)F"" /T /Q"; Flags: runhidden waituntilterminated; StatusMsg: "Granting service access to script-packs..."
 
-; Restart the TeleHubX service so AssetsService.onModuleInit +
-; ChatScriptsService.onModuleInit pick up the new files. If the service
-; isn't installed yet (user ran SeedPack BEFORE main installer), these are
-; no-ops with non-fatal exit codes.
-Filename: "{cmd}"; Parameters: "/C sc.exe stop TeleHubX"; Flags: runhidden waituntilterminated; StatusMsg: "Stopping TeleHubX service to refresh seed cache..."
-Filename: "{cmd}"; Parameters: "/C sc.exe start TeleHubX"; Flags: runhidden waituntilterminated; StatusMsg: "Restarting TeleHubX service to register seed assets..."
+; vmfix21 (Issue #29): restart the TeleHubX service so the OnModuleInit
+; hooks pick up the new files. The naive `sc stop` immediately followed
+; by `sc start` (vmfix20 SeedPack) hit a Windows SCM race where postgres
+; would still be in pg_ctl-stop teardown when the new supervisor started,
+; leaving stale postgres.exe processes that bind port 5436 and break
+; pg_ctl on the new supervisor.
+;
+; Fix: 3-step sequence with a fixed sleep between stop and start. We
+; deliberately avoid PowerShell's brace-laden polling loop here because
+; Inno Setup parses any `{` as a constant marker — escaping every brace
+; doubles the script size and is fragile. The fixed 10s sleep is plenty
+; for pg_ctl stop -m fast (typically <1s) to complete its teardown,
+; including postgres process exit and lock file cleanup.
+;
+; If service isn't installed (SeedPack run before main), `sc stop` and
+; `sc start` both return non-zero but we ignore exit codes via cmd /C.
+Filename: "{cmd}"; Parameters: "/C sc.exe stop TeleHubX"; Flags: runhidden waituntilterminated; StatusMsg: "Stopping TeleHubX service..."
+Filename: "{cmd}"; Parameters: "/C timeout /t 10 /nobreak > nul"; Flags: runhidden waituntilterminated; StatusMsg: "Waiting for clean shutdown (10s)..."
+Filename: "{cmd}"; Parameters: "/C sc.exe start TeleHubX"; Flags: runhidden waituntilterminated; StatusMsg: "Starting TeleHubX service to register seed assets..."
 
 [Messages]
 SetupAppTitle=TeleHubX SeedPack 安装
