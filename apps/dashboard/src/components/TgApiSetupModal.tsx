@@ -20,8 +20,13 @@ interface Props {
 }
 
 const HEALTH_URL = '/api/v1/health';
-const RESTART_TIMEOUT_MS = 120_000;
+// vmfix24 (Issue #32): bumped from 120_000. Warm restart needs ~3 min
+// (init-pgdata 2 min + Nest boot 40s); 5 min gives a safety buffer.
+const RESTART_TIMEOUT_MS = 300_000;
 const POLL_INTERVAL_MS = 3_000;
+// vmfix24: when timeout fires, user can extend by another 60s (poll resume)
+// instead of starting over.
+const EXTEND_MS = 60_000;
 
 /**
  * vmfix23 (Issue #31): self-service TG API ID/Hash setup.
@@ -51,17 +56,21 @@ export default function TgApiSetupModal({ open, onComplete, onCancel }: Props) {
     }
   }, [open, form]);
 
-  const startPolling = () => {
+  /** Start polling /health. timeoutMs sets the deadline; on expiry → 'timeout' phase. */
+  const startPolling = (timeoutMs: number) => {
+    if (pollRef.current) { window.clearTimeout(pollRef.current); pollRef.current = null; }
+    if (tickRef.current) { window.clearInterval(tickRef.current); tickRef.current = null; }
+
     const startedAt = Date.now();
-    setSecondsLeft(Math.ceil(RESTART_TIMEOUT_MS / 1000));
+    setSecondsLeft(Math.ceil(timeoutMs / 1000));
     tickRef.current = window.setInterval(() => {
       const elapsed = Date.now() - startedAt;
-      setSecondsLeft(Math.max(0, Math.ceil((RESTART_TIMEOUT_MS - elapsed) / 1000)));
+      setSecondsLeft(Math.max(0, Math.ceil((timeoutMs - elapsed) / 1000)));
     }, 1000);
 
     const poll = async () => {
       const elapsed = Date.now() - startedAt;
-      if (elapsed > RESTART_TIMEOUT_MS) {
+      if (elapsed > timeoutMs) {
         setPhase('timeout');
         if (tickRef.current) window.clearInterval(tickRef.current);
         return;
@@ -82,6 +91,12 @@ export default function TgApiSetupModal({ open, onComplete, onCancel }: Props) {
     pollRef.current = window.setTimeout(poll, POLL_INTERVAL_MS);
   };
 
+  /** vmfix24: user clicks "再等 60 秒" on the timeout state. Resume polling. */
+  const handleExtend = () => {
+    setPhase('restarting');
+    startPolling(EXTEND_MS);
+  };
+
   const handleSubmit = async () => {
     let values: { apiId: number; apiHash: string };
     try {
@@ -92,7 +107,7 @@ export default function TgApiSetupModal({ open, onComplete, onCancel }: Props) {
       await platformSettingsApi.saveTgApi(values.apiId, values.apiHash.trim().toLowerCase());
       antdMessage.success('已保存。服务正在重启...', 3);
       setPhase('restarting');
-      startPolling();
+      startPolling(RESTART_TIMEOUT_MS);
     } catch (err: any) {
       antdMessage.error(err?.response?.data?.message ?? '保存失败');
     } finally {
@@ -280,23 +295,27 @@ export default function TgApiSetupModal({ open, onComplete, onCancel }: Props) {
       {phase === 'timeout' && (
         <div style={{ padding: '20px 0' }}>
           <Alert
-            type="error"
+            type="warning"
             showIcon
-            message="重启超时（2 分钟未响应）"
+            message="重启时间较长（5 分钟未响应）"
             description={
               <>
-                服务可能没起来。请检查：
-                <ul style={{ paddingLeft: 20 }}>
-                  <li>桌面是否有「TeleHubX Debug」快捷方式 — 双击查看日志</li>
-                  <li>手动 <Text code>sc.exe query TeleHubX</Text> 查看服务状态</li>
+                服务大概率正在收尾，可以再等等。如果排查问题：
+                <ul style={{ paddingLeft: 20, marginBottom: 0 }}>
+                  <li>双击桌面「TeleHubX Debug」快捷方式查看实时日志</li>
                   <li>查 <Text code>%ProgramData%\TeleHubX\data\logs\supervisor.log</Text></li>
+                  <li>手动 <Text code>sc.exe query TeleHubX</Text> 看状态</li>
                 </ul>
-                如果服务能起来但 dashboard 还显示这个，刷新页面试试。
               </>
             }
           />
           <div style={{ marginTop: 16, textAlign: 'right' }}>
-            <Button onClick={onCancel}>关闭</Button>
+            <Space>
+              <Button onClick={onCancel}>关闭</Button>
+              <Button type="primary" icon={<ClockCircleOutlined />} onClick={handleExtend}>
+                再等 60 秒
+              </Button>
+            </Space>
           </div>
         </div>
       )}

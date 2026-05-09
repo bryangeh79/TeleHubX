@@ -60,43 +60,84 @@ export class PlatformSettingsService {
       throw new BadRequestException('apiHash must be a 32-character lowercase hex string');
     }
 
-    const envPath = this.resolveEnvPath();
-    this.writeEnvField(envPath, 'TG_API_ID', String(apiId));
-    this.writeEnvField(envPath, 'TG_API_HASH', trimmedHash);
-    this.logger.log(`platform settings: TG_API_ID + TG_API_HASH saved to ${envPath}`);
+    // vmfix24 (Issue #32): write to ALL .env candidates supervisor's
+    // loadSupervisorEnv() reads. The previous vmfix23 implementation only
+    // wrote to %ProgramData%\TeleHubX\.env, but supervisor reads %APPDATA%
+    // \TeleHubX\.env FIRST (which for the LocalService account is at
+    // C:\Windows\ServiceProfiles\LocalService\AppData\Roaming\TeleHubX\.env).
+    // bootstrapUserEnv copies the .env.template into that LocalService
+    // profile location on first boot — and the template ships with
+    // TG_API_ID= (empty), so on every subsequent supervisor boot
+    // process.env.TG_API_ID gets set to "" by the userEnv candidate before
+    // ProgramData\.env is even read, and "if (process.env[k] === undefined)"
+    // skips the override. Net result: my saved value never reached the
+    // BindService.
+    //
+    // Fix: write the new values to EVERY candidate file. First-read wins,
+    // but every reader gets the right value.
+    const writtenTo: string[] = [];
+    for (const p of this.allEnvCandidates()) {
+      try {
+        this.writeEnvField(p, 'TG_API_ID', String(apiId));
+        this.writeEnvField(p, 'TG_API_HASH', trimmedHash);
+        writtenTo.push(p);
+      } catch (e) {
+        this.logger.warn(`platform settings: skipped writing ${p}: ${(e as Error).message}`);
+      }
+    }
+    if (writtenTo.length === 0) {
+      throw new Error('Could not write TG API credentials to any .env candidate path');
+    }
+    this.logger.log(`platform settings: TG_API_ID + TG_API_HASH saved to ${writtenTo.length} file(s): ${writtenTo.join(', ')}`);
 
     this.scheduleDetachedRestart();
 
-    // Frontend should poll /health and expect ready within ~90 s on warm restart.
-    return { restarting: true, expectedReadyMs: 90_000 };
+    // Frontend should poll /health. Warm restart is ~3 minutes (init-pgdata
+    // verify takes ~2 min + Nest boot ~40s). Give 5 minutes of buffer.
+    return { restarting: true, expectedReadyMs: 300_000 };
   }
 
   // ─── internals ───────────────────────────────────────────────────────────
 
-  private resolveEnvPath(): string {
-    // Installer's WinSW XML sets TELEHUBX_INSTALL_PATH; .env lives at <installPath>/.env
-    // (per main installer's [Run] /C copy template -> {commonappdata}\TeleHubX\.env at first
-    //  install.) But supervisor actually writes .env to %ProgramData%\TeleHubX\.env (the
-    // canonical machine-wide location), and child processes read it from there. Try both.
+  /**
+   * Returns the list of .env file paths that supervisor's loadSupervisorEnv()
+   * will read on next boot, in the order they're consulted (first hit wins).
+   * vmfix24 (Issue #32): caller writes to ALL of them so the first reader
+   * picks up the new value regardless of which file it was previously
+   * caching from.
+   *
+   * Mirrors the candidate order in installer/tools/src/shared/env.ts
+   * loadSupervisorEnv() — keep in sync if that file changes.
+   */
+  private allEnvCandidates(): string[] {
     const candidates: string[] = [];
+
+    // 1. Per-user APPDATA path (PRIMARY for supervisor — wins on env load).
+    //    For LocalService this is C:\Windows\ServiceProfiles\LocalService\AppData\Roaming
+    const appdata = process.env.APPDATA;
+    if (appdata) {
+      candidates.push(path.join(appdata, 'TeleHubX', '.env'));
+    }
+
+    // 2. <dataDir>\..\.env  =  C:\ProgramData\TeleHubX\.env
     const dataDir = process.env.TELEHUBX_DATA_DIR;
     if (dataDir) {
-      candidates.push(path.resolve(dataDir, '..', '.env')); // %ProgramData%\TeleHubX\.env
-      candidates.push(path.resolve(dataDir, '.env'));        // %ProgramData%\TeleHubX\data\.env
+      candidates.push(path.resolve(dataDir, '..', '.env'));
+      // 3. <dataDir>\.env  =  C:\ProgramData\TeleHubX\data\.env (alt)
+      candidates.push(path.resolve(dataDir, '.env'));
     }
+
+    // 4. <installPath>\.env  =  C:\Program Files\TeleHubX\.env
     const installPath = process.env.TELEHUBX_INSTALL_PATH;
     if (installPath) {
       candidates.push(path.resolve(installPath, '.env'));
     }
-    // Dev fallback
+
+    // 5. Dev fallback (workspace root)
     candidates.push(path.resolve(process.cwd(), '.env'));
 
-    for (const p of candidates) {
-      if (fs.existsSync(p)) return p;
-    }
-    // None exist — write to the first canonical candidate (creates if missing)
-    if (candidates.length) return candidates[0];
-    throw new Error('No .env path could be determined (no TELEHUBX_DATA_DIR / TELEHUBX_INSTALL_PATH set)');
+    // De-duplicate (in case some env vars resolved to the same path)
+    return Array.from(new Set(candidates));
   }
 
   /**

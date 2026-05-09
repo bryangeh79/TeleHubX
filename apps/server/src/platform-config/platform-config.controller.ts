@@ -148,14 +148,23 @@ export class PlatformConfigController {
   }
 
   // ── 广告号话术 ─────────────────────────────────────────────────────
+  // vmfix24 (Issue #32): override controller-level @Roles(SUPER_ADMIN) for
+  // ad-faq endpoints. The single-tenant install operator (license activator
+  // = ADMIN role per vmfix17 provisionLocalUser) IS the operator of their
+  // own AD bots and must be able to configure their own auto-reply text
+  // without an off-machine SUPER_ADMIN intervening. Underlying storage is
+  // currently global (not per-tenant) — Phase 6 multi-tenant SaaS will
+  // need to refactor this to TenantSettings.adGroupFaq / adPrivateDivert.
 
   @Get('settings/ad-faq')
   @AllowAgent()
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   getAdFaq() {
     return this.svc.getAdFaqConfig();
   }
 
   @Put('settings/ad-faq')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   async setAdFaq(@Body() body: { groupFaq?: string; privateDivert?: string }) {
     await this.svc.setAdFaqConfig(body);
     return { ok: true };
@@ -163,6 +172,7 @@ export class PlatformConfigController {
 
   @Post('settings/ad-faq/reset')
   @HttpCode(HttpStatus.OK)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   async resetAdFaq() {
     await this.svc.setAdFaqConfig({
       groupFaq: DEFAULT_AD_GROUP_FAQ,
