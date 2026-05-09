@@ -109,6 +109,13 @@ function buildSettingItems(t: (k: string) => string): SettingItem[] {
       desc: 'Activate THX license, view plan / quota / expiry, re-verify with the cloud server.',
       navigateTo: '/settings/license',
     },
+    {
+      key: 'tg-api',
+      icon: <ApiOutlined style={{ fontSize: 28, color: '#1677ff' }} />,
+      title: 'Telegram API 凭据',
+      desc: '配置或修改 api_id / api_hash。改了之后服务会自动重启（约 3 分钟）。',
+      navigateTo: '/settings/tg-api',
+    },
   ];
 }
 

@@ -278,14 +278,14 @@ step('Copy runtime init scripts', () => {
     path.join(REPO, 'installer/runtime/launcher/telehubx-debug.vbs'),
     path.join(DIST, 'tools/telehubx-debug.vbs'),
   );
-  // vmfix24 / Issue #25: HTA loading splash spawned by telehubx-start.vbs
+  // vmfix25 / Issue #25: HTA loading splash spawned by telehubx-start.vbs
   // so the operator gets visible feedback during the 2-3 min cold-first
   // -install window (postgres initdb + Nest boot).
   cpFile(
     path.join(REPO, 'installer/runtime/launcher/telehubx-loading.hta'),
     path.join(DIST, 'tools/telehubx-loading.hta'),
   );
-  // vmfix24 (Issue #28): TeleHubX Dashboard shortcut — pure browser-open,
+  // vmfix25 (Issue #28): TeleHubX Dashboard shortcut — pure browser-open,
   // no service interaction. Daily entry point post Auto-start.
   cpFile(
     path.join(REPO, 'installer/runtime/launcher/telehubx-open.vbs'),
@@ -343,10 +343,10 @@ step('Write VERSION.txt', () => {
   catch { /* ignore */ }
   const buildTime = new Date().toISOString();
   const content =
-    `version=vmfix24\n` +
+    `version=vmfix25\n` +
     `commit=${commit}\n` +
     `buildTime=${buildTime}\n` +
-    `artifact=TeleHubX-Setup-1.0.0-vmfix24.exe\n` +
+    `artifact=TeleHubX-Setup-1.0.0-vmfix25.exe\n` +
     `serviceIdentity=NT AUTHORITY\\LocalService\n`;
   fs.writeFileSync(path.join(DIST, 'VERSION.txt'), content, 'utf8');
   log(`   ${content.replace(/\n/g, ' | ').trim()}`);

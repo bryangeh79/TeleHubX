@@ -19,6 +19,7 @@ import CsPage from './pages/cs/CsPage';
 import SettingsHubPage from './pages/settings/SettingsHubPage';
 import MaintenancePage from './pages/maintenance/MaintenancePage';
 import LicensePage from './pages/license/LicensePage';
+import TgApiPage from './pages/settings/TgApiPage';
 import SchedulerPage from './pages/scheduler/SchedulerPage';
 import AdminPage from './pages/admin/AdminPage';
 import AssetsPage from './pages/assets/AssetsPage';
@@ -62,6 +63,8 @@ const App: React.FC = () => (
       <Route path="settings" element={<SettingsHubPage />} />
       <Route path="settings/maintenance" element={<MaintenancePage />} />
       <Route path="settings/license" element={<LicensePage />} />
+      {/* vmfix25 (Issue #33): TG API credentials editor */}
+      <Route path="settings/tg-api" element={<TgApiPage />} />
       <Route path="scheduler" element={<SchedulerPage />} />
       <Route path="admin" element={<AdminPage />} />
       <Route path="assets" element={<AssetsPage />} />

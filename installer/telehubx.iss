@@ -19,7 +19,7 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
 LicenseFile=
-OutputBaseFilename=TeleHubX-Setup-{#AppVersion}-vmfix24
+OutputBaseFilename=TeleHubX-Setup-{#AppVersion}-vmfix25
 OutputDir=Output
 SetupIconFile=assets\telehubx.ico
 WizardImageFile=assets\telehubx-banner.bmp
@@ -161,6 +161,10 @@ Type: dirifempty; Name: "{app}"
 [Code]
 var
   DataDeletePage: TInputOptionWizardPage;
+  // vmfix25 (Issue #33): collect Telegram API credentials at install time
+  // so the service starts with TG_API_ID/HASH already populated. Eliminates
+  // the post-install bind/init -> 503 -> modal -> service restart dance.
+  TgApiPage: TInputQueryWizardPage;
 
 // vmfix14 (Issue #21): aggressively remove any pre-existing TeleHubX service
 // before file replacement so the new install isn't a no-op merge with the old
@@ -236,16 +240,168 @@ begin
   end;
 end;
 
+// vmfix25 (Issue #33): line-replace KEY=value in a .env-style file. If the
+// key exists, replace the line; otherwise append. Preserves all other lines
+// and comments. Creates the file (and parent directory) if missing.
+procedure WriteEnvField(EnvPath, Key, Value: String);
+var
+  Lines: TArrayOfString;
+  i, n: Integer;
+  Found: Boolean;
+  Prefix, Dir: String;
+begin
+  Found := False;
+  Prefix := Key + '=';
+  Dir := ExtractFilePath(EnvPath);
+  if (Dir <> '') and (not DirExists(Dir)) then
+    ForceDirectories(Dir);
+
+  if FileExists(EnvPath) then begin
+    if not LoadStringsFromFile(EnvPath, Lines) then begin
+      SetArrayLength(Lines, 0);
+    end;
+    for i := 0 to GetArrayLength(Lines) - 1 do begin
+      if Pos(Prefix, Lines[i]) = 1 then begin
+        Lines[i] := Prefix + Value;
+        Found := True;
+      end;
+    end;
+    if not Found then begin
+      n := GetArrayLength(Lines);
+      SetArrayLength(Lines, n + 1);
+      Lines[n] := Prefix + Value;
+    end;
+  end else begin
+    SetArrayLength(Lines, 1);
+    Lines[0] := Prefix + Value;
+  end;
+
+  SaveStringsToFile(EnvPath, Lines, False);
+end;
+
+// vmfix25 (Issue #33): read the value of KEY=... from a .env file, or
+// empty string if absent / file missing. Used to pre-populate the wizard
+// page on reinstall so the user doesn't have to re-enter credentials.
+function ReadEnvField(EnvPath, Key: String): String;
+var
+  Lines: TArrayOfString;
+  i: Integer;
+  Prefix: String;
+begin
+  Result := '';
+  Prefix := Key + '=';
+  if not FileExists(EnvPath) then Exit;
+  if not LoadStringsFromFile(EnvPath, Lines) then Exit;
+  for i := 0 to GetArrayLength(Lines) - 1 do begin
+    if Pos(Prefix, Lines[i]) = 1 then begin
+      Result := Copy(Lines[i], Length(Prefix) + 1, Length(Lines[i]));
+      Exit;
+    end;
+  end;
+end;
+
+// vmfix25 helper: validate API ID is purely numeric, 1-9 digits.
+function IsValidApiId(S: String): Boolean;
+var
+  i: Integer;
+begin
+  Result := False;
+  if (Length(S) < 1) or (Length(S) > 9) then Exit;
+  for i := 1 to Length(S) do begin
+    if (S[i] < '0') or (S[i] > '9') then Exit;
+  end;
+  Result := True;
+end;
+
+// vmfix25 helper: validate API Hash is exactly 32 hex chars (lowercase or upper).
+function IsValidApiHash(S: String): Boolean;
+var
+  i: Integer;
+  c: Char;
+begin
+  Result := False;
+  if Length(S) <> 32 then Exit;
+  for i := 1 to 32 do begin
+    c := S[i];
+    if not (((c >= '0') and (c <= '9')) or ((c >= 'a') and (c <= 'f')) or ((c >= 'A') and (c <= 'F'))) then
+      Exit;
+  end;
+  Result := True;
+end;
+
+// Pascal version of toLowerCase (Inno's Lowercase exists but for safety).
+function ToLowerHex(S: String): String;
+var
+  i: Integer;
+  c: Char;
+begin
+  SetLength(Result, Length(S));
+  for i := 1 to Length(S) do begin
+    c := S[i];
+    if (c >= 'A') and (c <= 'F') then
+      Result[i] := Chr(Ord(c) + 32)
+    else
+      Result[i] := c;
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ApiId, ApiHash, ProgDataEnv, AppEnvTpl: String;
 begin
   if CurStep = ssPostInstall then begin
     ApplyAndVerifyServiceAccount();
+
+    // vmfix25 (Issue #33): if user supplied TG API credentials in the
+    // wizard, persist them to BOTH:
+    //   1. %ProgramData%\TeleHubX\.env       (read by supervisor candidate #3)
+    //   2. {app}\.env.template               (so bootstrapUserEnv copies the
+    //                                          right values into LocalService
+    //                                          userEnv on first service boot)
+    // Empty fields = user chose "configure later via dashboard"; don't write
+    // (preserve any existing values in .env from a previous install).
+    if TgApiPage <> nil then begin
+      ApiId := Trim(TgApiPage.Values[0]);
+      ApiHash := Trim(TgApiPage.Values[1]);
+      if (ApiId <> '') and (ApiHash <> '') then begin
+        ApiHash := ToLowerHex(ApiHash);
+        ProgDataEnv := ExpandConstant('{commonappdata}\TeleHubX\.env');
+        AppEnvTpl := ExpandConstant('{app}\.env.template');
+        WriteEnvField(ProgDataEnv, 'TG_API_ID', ApiId);
+        WriteEnvField(ProgDataEnv, 'TG_API_HASH', ApiHash);
+        WriteEnvField(AppEnvTpl, 'TG_API_ID', ApiId);
+        WriteEnvField(AppEnvTpl, 'TG_API_HASH', ApiHash);
+      end;
+    end;
   end;
 end;
 
 procedure InitializeWizard;
+var
+  ExistingApiId, ExistingApiHash: String;
 begin
-  DataDeletePage := CreateInputOptionPage(wpSelectTasks,
+  // vmfix25 (Issue #33): TG API page — collect at install time so service
+  // starts with credentials already in .env. Position right before
+  // DataDeletePage so the install flow reads:
+  //   Welcome -> Components -> Tasks -> [TG API] -> [Data folder] -> Ready
+  TgApiPage := CreateInputQueryPage(wpSelectTasks,
+    '配置 Telegram API 凭据',
+    'TeleHubX 需要 api_id / api_hash 才能控制 Telegram 账号',
+    '请从 https://my.telegram.org/apps 申请一个 App（首次需要登录 Telegram 账号），' +
+    '把 api_id 和 api_hash 填到下面。' #13#10 #13#10 +
+    '步骤：登录 → API development tools → 填 App title=TeleHubX, Short name=telehubx, Platform=Other → Create application → 复制 api_id 和 api_hash。' #13#10 #13#10 +
+    '现在没有也可以留空跳过，装完后可在 dashboard 的「设置 → Telegram API」里配置。');
+  TgApiPage.Add('API ID（数字）:', False);
+  TgApiPage.Add('API Hash（32 位 hex 字符串）:', False);
+
+  // Pre-populate from existing .env (if reinstalling and user keeps data,
+  // or if installer was run before). Saves the operator from re-typing.
+  ExistingApiId := ReadEnvField(ExpandConstant('{commonappdata}\TeleHubX\.env'), 'TG_API_ID');
+  ExistingApiHash := ReadEnvField(ExpandConstant('{commonappdata}\TeleHubX\.env'), 'TG_API_HASH');
+  TgApiPage.Values[0] := ExistingApiId;
+  TgApiPage.Values[1] := ExistingApiHash;
+
+  DataDeletePage := CreateInputOptionPage(TgApiPage.ID,
     'Data folder',
     'How should TeleHubX data be handled on uninstall?',
     'TeleHubX stores license, account sessions, knowledge base files and historical leads in:'#13#10 +
@@ -255,6 +411,50 @@ begin
   DataDeletePage.Add('Keep data folder (recommended — safe to re-install later)');
   DataDeletePage.Add('Delete data folder permanently (CANNOT be undone)');
   DataDeletePage.SelectedValueIndex := 0;
+end;
+
+// vmfix25 (Issue #33): validate TG API page on Next click. Both fields must
+// be filled OR both empty (skip). Reject malformed values.
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  ApiId, ApiHash: String;
+begin
+  Result := True;
+  if (TgApiPage <> nil) and (CurPageID = TgApiPage.ID) then begin
+    ApiId := Trim(TgApiPage.Values[0]);
+    ApiHash := Trim(TgApiPage.Values[1]);
+
+    // Both empty = explicit skip, allow.
+    if (ApiId = '') and (ApiHash = '') then Exit;
+
+    // Mixed: one filled, one empty — ambiguous, reject.
+    if (ApiId = '') or (ApiHash = '') then begin
+      MsgBox(
+        '请填写两个字段，或都留空跳过此步骤。' #13#10 #13#10 +
+        '如果暂时没有 Telegram API 凭据，可以两个都留空，' +
+        '装完后在 dashboard 的「设置」里配置。',
+        mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+
+    if not IsValidApiId(ApiId) then begin
+      MsgBox(
+        'API ID 格式错误。' #13#10 +
+        '应该是 1-9 位的纯数字，从 my.telegram.org/apps 获得。',
+        mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    if not IsValidApiHash(ApiHash) then begin
+      MsgBox(
+        'API Hash 格式错误。' #13#10 +
+        '应该是 32 位 hex 字符串（0-9 a-f），从 my.telegram.org/apps 获得。',
+        mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+  end;
 end;
 
 function ShouldDeleteData(): Boolean;
