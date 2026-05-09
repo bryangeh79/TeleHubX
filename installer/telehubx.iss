@@ -19,7 +19,7 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
 LicenseFile=
-OutputBaseFilename=TeleHubX-Setup-{#AppVersion}-vmfix19
+OutputBaseFilename=TeleHubX-Setup-{#AppVersion}-vmfix20
 OutputDir=Output
 SetupIconFile=assets\telehubx.ico
 WizardImageFile=assets\telehubx-banner.bmp
@@ -70,27 +70,52 @@ Name: "{commonappdata}\TeleHubX\data\redis-data";  Permissions: users-modify
 [Icons]
 ; Desktop shortcuts (using TeleHubX logo)
 ; Issue #19: shortcuts call sc.exe via VBS (hidden) for service-managed lifecycle.
-; Start.vbs: sc start TeleHubX -> wait /health -> open browser
-; Stop.vbs: sc stop TeleHubX
-; Debug.vbs: visible PowerShell tailing supervisor.log + status
-Name: "{commondesktop}\Start TeleHubX";  Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-start.vbs"""; WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Tasks: desktopicon; Comment: "Start TeleHubX (manages Windows service)"
-Name: "{commondesktop}\Stop TeleHubX";   Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-stop.vbs""";  WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Tasks: desktopicon; Comment: "Stop TeleHubX (stops Windows service)"
+; Start.vbs:    sc start TeleHubX -> wait /health -> open browser
+; Stop.vbs:     sc stop TeleHubX
+; Debug.vbs:    visible PowerShell tailing supervisor.log + status
+; Open.vbs:     vmfix20 — dashboard-only shortcut: opens browser to /
+;               (assumes service already running; for daily use after
+;                Auto-start brings the service up on Windows boot)
+Name: "{commondesktop}\TeleHubX Dashboard"; Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-open.vbs""";  WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Tasks: desktopicon; Comment: "Open TeleHubX Dashboard in default browser"
+Name: "{commondesktop}\Start TeleHubX";     Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-start.vbs"""; WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Tasks: desktopicon; Comment: "Start TeleHubX (manages Windows service)"
+Name: "{commondesktop}\Stop TeleHubX";      Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-stop.vbs""";  WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Tasks: desktopicon; Comment: "Stop TeleHubX (stops Windows service)"
 
 ; Start menu group
-Name: "{group}\Start TeleHubX";          Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-start.vbs"""; WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"
-Name: "{group}\Stop TeleHubX";           Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-stop.vbs""";  WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"
-Name: "{group}\TeleHubX Debug";          Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-debug.vbs"""; WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Comment: "Show service status + tail logs"
-Name: "{group}\Uninstall TeleHubX";      Filename: "{uninstallexe}"
+Name: "{group}\TeleHubX Dashboard";       Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-open.vbs""";  WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Comment: "Open TeleHubX Dashboard in default browser"
+Name: "{group}\Start TeleHubX";           Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-start.vbs"""; WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"
+Name: "{group}\Stop TeleHubX";            Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-stop.vbs""";  WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"
+Name: "{group}\TeleHubX Debug";           Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-debug.vbs"""; WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Comment: "Show service status + tail logs"
+Name: "{group}\Uninstall TeleHubX";       Filename: "{uninstallexe}"
 
 [Run]
 ; Issue #19: first-run env init at %ProgramData%\TeleHubX (machine-wide)
 Filename: "{cmd}"; Parameters: "/C if not exist ""{commonappdata}\TeleHubX\.env"" copy /Y ""{app}\.env.template"" ""{commonappdata}\TeleHubX\.env"" >nul"; Flags: runhidden waituntilterminated
 
-; Issue #19: register the Windows Service via WinSW. After install,
-; service appears in services.msc as "TeleHubX". Start mode = Manual.
-; Issue #20: service identity = NT AUTHORITY\LocalService (non-admin) so
-;            postgres.exe doesn't refuse with admin-user error.
+; Issue #19: register the Windows Service via WinSW.
+; Issue #20: identity = NT AUTHORITY\LocalService (non-admin) so postgres
+;            doesn't refuse with admin-user error.
+; vmfix20 (Issue #28): WinSW XML now sets startmode=Automatic so the service
+;                      starts with Windows. (Previously Manual — required
+;                      manual click of Start every Windows boot.)
 Filename: "{app}\tools\telehubx-service.exe"; Parameters: "install"; Flags: runhidden waituntilterminated; StatusMsg: "Installing TeleHubX Windows Service..."
+
+; vmfix20 (Issue #28): grant Authenticated Users SERVICE_START + SERVICE_STOP
+; + SERVICE_QUERY_STATUS + SERVICE_USER_DEFINED_CONTROL on the TeleHubX
+; service. Default SCM ACL only grants those rights to elevated tokens, so
+; non-elevated wscript.exe (which is what the desktop Start/Stop shortcuts
+; spawn) hit "OpenService FAILED 5: Access is denied".
+;
+; SDDL breakdown:
+;   D:                                   = DACL begin
+;   (A;;CCLCSWRPWPDTLOCRRC;;;SY)         = SYSTEM full
+;   (A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA) = Administrators full
+;   (A;;CCLCSWLOCRRC;;;IU)               = Interactive Users (legacy)
+;   (A;;CCLCSWLOCRRC;;;SU)               = Service accounts
+;   (A;;RPWPCR;;;AU)                     = Authenticated Users:
+;                                            RP = SERVICE_START
+;                                            WP = SERVICE_STOP
+;                                            CR = SERVICE_USER_DEFINED_CONTROL
+Filename: "{cmd}"; Parameters: "/C sc.exe sdset TeleHubX D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)(A;;RPWPCR;;;AU)"; Flags: runhidden waituntilterminated; StatusMsg: "Granting non-admin users service start/stop access..."
 
 ; Issue #20: grant LocalService write access to data dir + read+execute to runtime.
 ; LocalService is NOT in the Users group, so default ProgramData ACL doesn't

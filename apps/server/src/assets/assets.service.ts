@@ -1,14 +1,25 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, IsNull, Repository } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Asset, AssetCategory, AssetSource } from './asset.entity';
-
-const PROJECT_ROOT = path.resolve(__dirname, '..', '..', '..', '..');
-const DATA_ROOT = path.join(PROJECT_ROOT, 'data');
+import { getDataPaths } from '../common/paths';
 
 const MAX_INLINE_BYTES = 5 * 1024 * 1024; // 5MB before warning, but we accept up to 50MB
+
+// vmfix20 (Issue #28): SeedPack drops files under data/assets/_builtin/.
+// On boot we scan that tree and register any new file as a builtin Asset
+// row so the dashboard sees them. Idempotent — files already registered
+// (matched by relativePath) are skipped, missing files don't get deleted.
+const BUILTIN_DIR_NAME = '_builtin';
 
 function detectCategory(mimetype: string, fileName: string): AssetCategory {
   const m = (mimetype || '').toLowerCase();
@@ -24,8 +35,108 @@ function detectCategory(mimetype: string, fileName: string): AssetCategory {
 }
 
 @Injectable()
-export class AssetsService {
-  constructor(@InjectRepository(Asset) private readonly repo: Repository<Asset>) {}
+export class AssetsService implements OnModuleInit {
+  private readonly logger = new Logger(AssetsService.name);
+
+  constructor(
+    @InjectRepository(Asset) private readonly repo: Repository<Asset>,
+    private readonly config: ConfigService,
+  ) {}
+
+  /**
+   * vmfix20 (Issue #28): on boot, scan {dataDir}/assets/_builtin/ and
+   * register any new file as a BUILTIN Asset (tenantId=null, shared pool).
+   * Files are organized as `_builtin/<poolName>/<filename>`. Files already
+   * registered (matched by relativePath) are skipped — fully idempotent.
+   *
+   * SeedPack installer drops the curated content into this directory.
+   * Tenants can also add their own builtin assets by manually copying
+   * files to that path.
+   */
+  async onModuleInit(): Promise<void> {
+    try {
+      const paths = getDataPaths(this.config);
+      const builtinRoot = path.join(paths.root, 'assets', BUILTIN_DIR_NAME);
+      if (!fs.existsSync(builtinRoot)) {
+        this.logger.log(`assets _builtin directory not present at ${builtinRoot} — skipping seed scan (this is OK if SeedPack not yet installed)`);
+        return;
+      }
+      const found = this.scanBuiltinTree(builtinRoot);
+      if (!found.length) {
+        this.logger.log(`assets _builtin scan: 0 files found at ${builtinRoot}`);
+        return;
+      }
+      const dataRoot = paths.root;
+      let created = 0;
+      let skipped = 0;
+      for (const file of found) {
+        const relativePath = path.relative(dataRoot, file).replace(/\\/g, '/');
+        const existing = await this.repo.findOne({
+          where: { relativePath, source: AssetSource.BUILTIN },
+        });
+        if (existing) { skipped++; continue; }
+        const stat = fs.statSync(file);
+        const fileName = path.basename(file);
+        const category = detectCategory('', fileName);
+        // Pool name = first directory under _builtin/ (e.g. "images/business_promo")
+        const relInsideBuiltin = path.relative(builtinRoot, file).replace(/\\/g, '/');
+        const poolName = path.dirname(relInsideBuiltin);
+        const a = this.repo.create({
+          tenantId: null,
+          source: AssetSource.BUILTIN,
+          category,
+          fileName,
+          mimeType: this.guessMimeType(fileName),
+          byteSize: stat.size,
+          relativePath,                   // points at <dataRoot>/<relativePath>
+          poolName: poolName === '.' ? null : poolName,
+          enabled: true,
+        });
+        await this.repo.save(a);
+        created++;
+      }
+      this.logger.log(`assets _builtin scan: ${created} new, ${skipped} already-registered, ${found.length} total on disk`);
+    } catch (err: any) {
+      // Never let scanner failure block server boot.
+      this.logger.error(`assets _builtin scan failed: ${err?.message ?? err}`);
+    }
+  }
+
+  private scanBuiltinTree(dir: string): string[] {
+    const out: string[] = [];
+    const stack: string[] = [dir];
+    while (stack.length) {
+      const cur = stack.pop()!;
+      let entries: fs.Dirent[];
+      try { entries = fs.readdirSync(cur, { withFileTypes: true }); }
+      catch { continue; }
+      for (const e of entries) {
+        const p = path.join(cur, e.name);
+        if (e.isDirectory()) stack.push(p);
+        else if (e.isFile()) out.push(p);
+      }
+    }
+    return out;
+  }
+
+  private guessMimeType(fileName: string): string {
+    const ext = path.extname(fileName).toLowerCase();
+    switch (ext) {
+      case '.jpg': case '.jpeg': return 'image/jpeg';
+      case '.png':               return 'image/png';
+      case '.gif':               return 'image/gif';
+      case '.webp':              return 'image/webp';
+      case '.mp4':               return 'video/mp4';
+      case '.webm':              return 'video/webm';
+      case '.mov':               return 'video/quicktime';
+      case '.mp3':               return 'audio/mpeg';
+      case '.ogg': case '.oga':  return 'audio/ogg';
+      case '.opus':              return 'audio/opus';
+      case '.m4a':               return 'audio/mp4';
+      case '.wav':               return 'audio/wav';
+      default:                   return 'application/octet-stream';
+    }
+  }
 
   async upload(
     tenantId: string,
@@ -164,7 +275,12 @@ export class AssetsService {
   /** 解析 builtin 资源的磁盘绝对路径；upload 资源读 bytea。 */
   resolveAbsolutePath(asset: Asset): string | null {
     if (!asset.relativePath) return null;
-    const abs = path.join(DATA_ROOT, asset.relativePath);
+    // vmfix20 (Issue #28): use canonical data dir from getDataPaths(),
+    // not __dirname-derived PROJECT_ROOT which broke under Windows
+    // installer (where dataDir is %ProgramData%\TeleHubX\data, not
+    // <appDir>/data).
+    const dataRoot = getDataPaths(this.config).root;
+    const abs = path.join(dataRoot, asset.relativePath);
     if (!fs.existsSync(abs)) return null;
     return abs;
   }

@@ -15,9 +15,15 @@
 
   <executable>%BASE%\telehubx-supervisor.exe</executable>
 
-  <!-- Bryan's decision: demand/manual start, not auto on boot.
-       Customer clicks Start TeleHubX shortcut to begin a session. -->
-  <startmode>Manual</startmode>
+  <!-- vmfix20 (Issue #28): Automatic start so service boots with Windows.
+       Operator no longer has to click Start after each Windows reboot.
+       Combined with sc sdset granting non-admin users SERVICE_START/STOP,
+       desktop Start/Stop shortcuts still work for manual control when
+       needed. Original Manual mode (vmfix12 era) was operator-friendly
+       at first but became friction after Bryan validated the auto-start
+       semantics on Windows 11. -->
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
 
   <!-- Auto-restart on crash, with backoff to avoid thrash -->
   <onfailure action="restart" delay="10 sec" />

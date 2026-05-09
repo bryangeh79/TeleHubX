@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import OpenAI from 'openai';
@@ -7,6 +8,7 @@ import * as path from 'path';
 import { ChatScript, ChatScriptStatus, ChatScriptType, ScriptLine } from './chat-script.entity';
 import { CreateChatScriptDto } from './dto/create-chat-script.dto';
 import { UpdateChatScriptDto } from './dto/update-chat-script.dto';
+import { getDataPaths } from '../common/paths';
 
 const AB_TOPICS = [
   '产品咨询', '使用体验', '行业讨论', '价格对比',
@@ -36,7 +38,7 @@ const ABCD_PROMPT = `你是一个 Telegram 群聊剧本生成器。请生成一�
 4. 不要元描述，纯对话`;
 
 @Injectable()
-export class ChatScriptsService {
+export class ChatScriptsService implements OnModuleInit {
   private readonly logger = new Logger(ChatScriptsService.name);
   private openai: OpenAI | null = null;
   private llmModel: string = 'gpt-4o-mini';
@@ -44,6 +46,7 @@ export class ChatScriptsService {
   constructor(
     @InjectRepository(ChatScript)
     private readonly repo: Repository<ChatScript>,
+    private readonly config: ConfigService,
   ) {
     const openaiKey = process.env.OPENAI_API_KEY;
     const deepseekKey = process.env.DEEPSEEK_API_KEY;
@@ -73,6 +76,48 @@ export class ChatScriptsService {
       // later via dashboard. Newer openai SDK throws on empty apiKey at
       // construction, so we keep this.openai = null instead of instantiating.
       this.logger.warn('No LLM API key found (OPENAI_API_KEY / DEEPSEEK_API_KEY / GEMINI_API_KEY). ChatScript LLM seeding disabled — configure an AI key in the dashboard to enable.');
+    }
+  }
+
+  /**
+   * vmfix20 (Issue #28): on boot, scan {dataDir}/script-packs/*.json and
+   * import any pack JSON we haven't seen yet via importPackBlob (which is
+   * already idempotent per packId+name). Skips the archived/ subdirectory.
+   *
+   * SeedPack drops curated packs (A+B 30 scripts, A+B+C+D 50 scripts) here.
+   * Tenants can also drop their own .json packs into this directory.
+   */
+  async onModuleInit(): Promise<void> {
+    try {
+      const paths = getDataPaths(this.config);
+      const packsDir = path.join(paths.root, 'script-packs');
+      if (!fs.existsSync(packsDir)) {
+        this.logger.log(`script-packs directory not present at ${packsDir} — skipping seed scan`);
+        return;
+      }
+      const files = fs.readdirSync(packsDir, { withFileTypes: true })
+        .filter(e => e.isFile() && e.name.toLowerCase().endsWith('.json'))
+        .map(e => path.join(packsDir, e.name));
+      if (!files.length) {
+        this.logger.log('script-packs scan: 0 .json files found');
+        return;
+      }
+      let totalInserted = 0;
+      let totalSkipped = 0;
+      for (const file of files) {
+        try {
+          const blob = JSON.parse(fs.readFileSync(file, 'utf8'));
+          const r = await this.importPackBlob(blob);
+          totalInserted += r.inserted;
+          totalSkipped += r.skipped;
+          this.logger.log(`script-packs: imported ${path.basename(file)} (pack=${r.packId}, +${r.inserted} new, ${r.skipped} skipped)`);
+        } catch (err: any) {
+          this.logger.warn(`script-packs: skipping ${path.basename(file)} — ${err?.message ?? err}`);
+        }
+      }
+      this.logger.log(`script-packs scan: ${totalInserted} new scripts inserted, ${totalSkipped} skipped, ${files.length} files processed`);
+    } catch (err: any) {
+      this.logger.error(`script-packs scan failed: ${err?.message ?? err}`);
     }
   }
 

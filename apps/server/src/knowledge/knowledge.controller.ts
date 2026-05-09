@@ -20,7 +20,7 @@ import { KbType } from './kb.entity';
 import { KnowledgeService } from './knowledge.service';
 import { TranslationService } from './translation.service';
 import { AuthUser, CurrentUser } from '../auth/current-user.decorator';
-import { callerTenantId, resolveTenantIdSoft } from '../auth/tenant-resolver';
+import { callerTenantId, resolveTenantId, resolveTenantIdSoft } from '../auth/tenant-resolver';
 import { CreateKbDto, UpdateKbDto } from './dto/create-kb.dto';
 import { CreateFaqDto, SearchFaqDto, UpdateFaqDto } from './dto/create-faq.dto';
 
@@ -81,8 +81,15 @@ export class KnowledgeController {
   // === KBs ===
 
   @Post('kbs')
-  createKb(@Body() dto: CreateKbDto) {
-    return this.service.createKb(dto);
+  createKb(@CurrentUser() user: AuthUser, @Body() dto: CreateKbDto) {
+    // vmfix20 (Issue #27): inject caller's tenantId so the created KB is
+    // visible in the listKbs() endpoint, which filters by user.tenantId.
+    // Previously the DTO's optional tenantId was empty for normal users,
+    // so KBs were saved with tenantId=null and the dashboard list (filtered
+    // by the caller's tenantId) showed nothing — looked like "create
+    // succeeded but no record".
+    const tenantId = resolveTenantId(user, dto.tenantId);
+    return this.service.createKb({ ...dto, tenantId });
   }
 
   @Get('kbs')
