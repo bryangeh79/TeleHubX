@@ -3,6 +3,48 @@ dotenv.config({ path: '../../.env' });
 
 import { logger } from './logger';
 import { registerSignalHandlers, onShutdown } from './shutdown';
+
+// ───────────────────────────────────────────────────────────────────────────
+// Process-level safety net for the agent.
+//
+// GramJS' MTProtoSender._recvLoop is an async generator awaiting socket recv.
+// When we call client.disconnect() (manual reset, pm2 reload, shutdown), the
+// pending recv rejects with "Not connected" and there's no .catch() to absorb
+// it — so without an unhandledRejection handler Node prints the stack to
+// stderr. Cumulatively that produced 12 MB of agent-error.log noise.
+//
+// Strategy:
+//   - Recognise the harmless GramJS teardown signature and silently swallow.
+//   - For anything else, log to warn but DO NOT process.exit() — pm2's
+//     auto-restart on real fatals is good enough, and we don't want a
+//     reconnect blip to kill the whole agent and orphan healthy clients.
+// (server/main.ts uses a stricter exit-on-fatal pattern; agent is different
+//  because GramJS legitimately produces these "noise" rejections during
+//  normal connect/disconnect cycles.)
+// ───────────────────────────────────────────────────────────────────────────
+function isGramjsTeardownNoise(reason: unknown): boolean {
+  const msg = reason instanceof Error ? reason.message : String(reason ?? '');
+  if (!msg) return false;
+  // Most common shapes seen in agent-error.log:
+  //   Error: Not connected
+  //   Error: Disconnect (called manually)
+  if (/^Not connected/i.test(msg)) return true;
+  if (/^Disconnect/i.test(msg)) return true;
+  return false;
+}
+
+process.on('unhandledRejection', (reason) => {
+  if (isGramjsTeardownNoise(reason)) return;
+  const detail = reason instanceof Error ? reason.stack ?? reason.message : String(reason);
+  logger.warn(`[unhandledRejection] ${detail}`);
+});
+
+process.on('uncaughtException', (err) => {
+  if (isGramjsTeardownNoise(err)) return;
+  logger.error(`[uncaughtException] ${err?.stack ?? err}`);
+  // Intentionally do NOT process.exit — let pm2 keep the agent alive so
+  // healthy clients aren't killed by a single GramJS hiccup.
+});
 import { ConnectionManager } from './telegram/telegram-client.service';
 import { attachMessageHandler } from './telegram/message-handler';
 import { attachGroupLeadCollector, groupLeadCollector } from './telegram/group-lead-collector';
@@ -377,12 +419,51 @@ async function bootstrap(): Promise<void> {
       }
     }
 
-    // Heartbeat: tell server we're online for each connected account
-    for (const id of slots.keys()) {
+    // Heartbeat: tell server we're online for each connected account.
+    //
+    // vmfix26 #13: 不能只刷 server-side lastActiveAt，必须先 probe TG 真连通。
+    // 否则 GramJS client 已 wedge (update loop TIMEOUT 反复) 也会被算成 online，
+    // 任务一进去 sendMessage 立刻挂 class=B「Cannot send while disconnected」。
+    //
+    // 策略：
+    //   1. 每个 slot 跑一次 client.getMe() 带 5s timeout
+    //   2. 通过 → 正常 heartbeat (server 标 online)
+    //   3. 失败 (timeout / Not connected / Disconnect) → 标 wedged，
+    //      触发 reconnectAccount 同款路径（销毁老 client + new TelegramClient + slots.set 新）
+    //      下一个 tick 再 heartbeat 自然反应正常
+    //   4. 探测本身耗时不应超过 5s × N slot ≈ 35s（POLL_INTERVAL_MS=30s 内）
+    //
+    // 红线：probe 失败 → 触发的是 reconnect，**不是** 把账号标 offline。
+    // server 的 lastActiveAt 该更新还是更新，避免 UI 假阴性。
+    for (const [id, slot] of slots) {
+      let probed = false;
+      try {
+        await Promise.race([
+          slot.client.getMe().then(() => { probed = true; }),
+          new Promise<never>((_, reject) => setTimeout(
+            () => reject(new Error('TG probe timeout 5s')), 5_000)),
+        ]);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.warn(`[heartbeat-probe] ${id.slice(0, 8)} wedge detected: ${msg} — triggering reconnect`);
+        // 不阻塞 heartbeat 主流程；fire-and-forget reconnect
+        (async () => {
+          try {
+            const accs = await fetchJson<ApiAccount[]>('/accounts').catch(() => [] as ApiAccount[]);
+            const fresh = accs.find((a) => a.id === id);
+            if (!fresh) return;
+            await disconnect(id);
+            await connect(fresh);
+            logger.info(`[heartbeat-probe] ${id.slice(0, 8)} reconnected ✓`);
+          } catch (re: unknown) {
+            logger.error(`[heartbeat-probe] ${id.slice(0, 8)} reconnect failed: ${re instanceof Error ? re.message : re}`);
+          }
+        })().catch(() => {});
+      }
+      // 总是发 server heartbeat — 不让一次 probe 失败把账号假死
       try {
         await postNoBody(`/accounts/${id}/heartbeat`);
       } catch (err: unknown) {
-        // non-fatal — server may briefly be unavailable; next tick retries
         logger.warn(`[heartbeat] ${id.slice(0, 8)} ${err instanceof Error ? err.message : err}`);
       }
     }
@@ -515,6 +596,13 @@ async function bootstrap(): Promise<void> {
         return false;
       }
     },
+    /**
+     * vmfix26 #6: 给 task-runner 一个 live getter 拿当前 slot 的 client 引用。
+     * reconnectAccount() 销毁老 client + new TelegramClient + slots.set(新)，
+     * 但 task-runner 入参 client 是 dispatch 时 snapshot 的老引用 → retry 会用废 client。
+     * 此 getter 让 task-runner 在 reconnect 后取 fresh client 再递归 retry。
+     */
+    getClient: (accountId: string) => slots.get(accountId)?.client ?? null,
     /**
      * Auto-Recovery: G 类账号失效, 标账号 banned 通知用户重登.
      * PATCH /accounts/{id} { state: 'banned', notes: reason }.

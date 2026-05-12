@@ -24,6 +24,8 @@ import { ReportHealthDto } from './dto/report-health.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
 import { WarmupService } from './warmup/warmup.service';
+import { TasksService } from '../tasks/tasks.service';
+import { TaskType } from '../tasks/task.entity';
 
 @Controller('accounts')
 export class AccountsController {
@@ -31,6 +33,7 @@ export class AccountsController {
     private readonly service: AccountsService,
     private readonly warmupService: WarmupService,
     private readonly bindService: BindOrchestratorService,
+    private readonly tasksService: TasksService,
   ) {}
 
   @Post()
@@ -117,9 +120,45 @@ export class AccountsController {
     return this.service.importFromCsv(body.accounts, callerTenantId(user));
   }
 
+  /**
+   * vmfix26 #14: 启动养号 = 同时做两件事，让用户「点了启动 → 真在跑」符合直觉：
+   *   1. 创建 WarmupPlan (phase 追踪器，养号页进度条数据源)
+   *   2. 自动创建 PRESET_WARMUP_7D 任务，server 端 expandPreset 展开成 10+ 子任务
+   *      (IDLE_KEEPALIVE / BROWSE_CHANNEL / JOIN_CHANNELS / REACTION_BOOST / ...)，
+   *      agent 按 scheduledAt 逐个领取真跑
+   *
+   * 老行为 (vmfix25 及以前) 只做 (1)，phase 追踪器看着在动，实际 agent 啥也没做。
+   * 测试机 7 个号 phase=P1/P2 但 tasks 表 0 个 preset_*，就是这个 bug 的现场。
+   *
+   * 如果 task 创建失败（如 license 限制 / 名字冲突）→ 不阻塞 phase 创建，
+   * 但 response 里返 warning 让前端能提示用户去任务调度手动建。
+   */
   @Post(':id/warmup/start')
-  warmupStart(@Param('id', ParseUUIDPipe) id: string) {
-    return this.warmupService.start(id);
+  async warmupStart(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const plan = await this.warmupService.start(id);
+    let presetTask: { id: string } | null = null;
+    let presetWarning: string | null = null;
+    try {
+      const acc = await this.service.findOne(id);
+      const task = await this.tasksService.create(
+        {
+          name: `养号 7 天 · ${acc.phoneNumber}`,
+          type: TaskType.PRESET_WARMUP_7D,
+          accountId: id,
+          accountLabel: acc.phoneNumber,
+          scheduledAt: new Date().toISOString(),
+          payload: {},
+        } as any,
+        resolveTenantIdSoft(user) ?? undefined,
+      );
+      presetTask = { id: task.id };
+    } catch (err: unknown) {
+      presetWarning = `自动创建养号任务失败: ${err instanceof Error ? err.message : String(err)}. 请到「任务调度」手动创建 preset_warmup_7d 任务.`;
+    }
+    return { plan, presetTask, presetWarning };
   }
 
   @Post(':id/warmup/advance')

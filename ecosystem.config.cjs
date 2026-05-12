@@ -6,6 +6,7 @@ module.exports = {
       "script": "dist/main.js",
       "env": {
         "NODE_ENV": "production",
+        "TELEHUBX_DATA_DIR": "C:\\AI_WORKSPACE\\Telegram Auto Bot\\data",
         "APP_PORT": 9800,
         "DB_HOST": "localhost",
         "DB_PORT": "5436",
@@ -30,7 +31,8 @@ module.exports = {
       "cwd": "C:\\AI_WORKSPACE\\Telegram Auto Bot\\apps\\agent",
       "script": "dist/main.js",
       "env": {
-        "NODE_ENV": "production"
+        "NODE_ENV": "production",
+        "TELEHUBX_DATA_DIR": "C:\\AI_WORKSPACE\\Telegram Auto Bot\\data"
       },
       "max_restarts": 5,
       "restart_delay": 5000,

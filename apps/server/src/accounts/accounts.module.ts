@@ -7,10 +7,11 @@ import { BindOrchestratorService } from './bind/bind.service';
 import { ProxiesModule } from '../proxies/proxies.module';
 import { SlotsModule } from '../slots/slots.module';
 import { TenantsModule } from '../tenants/tenants.module';
+import { TasksModule } from '../tasks/tasks.module';
 import { WarmupModule } from './warmup/warmup.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Account]), WarmupModule, SlotsModule, ProxiesModule, TenantsModule],
+  imports: [TypeOrmModule.forFeature([Account]), WarmupModule, SlotsModule, ProxiesModule, TenantsModule, TasksModule],
   controllers: [AccountsController],
   providers: [AccountsService, BindOrchestratorService],
   exports: [AccountsService],

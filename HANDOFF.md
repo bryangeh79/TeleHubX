@@ -1,8 +1,185 @@
-# TeleHubX — 会话交接 (2026-05-09)
+# TeleHubX — 会话交接 (2026-05-12)
 
 > **给下一个 Claude Code 会话**：读完这一份 + `工程技术蓝图.md` + `CLAUDE.md` 第七节，即可无缝接手。
-> 上一轮主要做了 **vmfix15 → vmfix25 全套 ship-ready 修复 + 工程技术蓝图编写**，跨 ~30 个 commit。
+> **2026-05-12 已做**：测试机 vmfix25 端到端深扫 → 锁定 13+ 项真 bug + UX 问题 → vmfix26 修复 8 项核心 ship-blocker（详见下方 G 节），dev 机已 build 验证，**vmfix26 installer build 中**。
+> 上一轮（2026-05-09）做了 **vmfix15 → vmfix25 全套 ship-ready 修复 + 工程技术蓝图编写**，跨 ~30 个 commit。
 > HEAD：`b901695`，已 push GitHub。
+
+---
+
+## 0.5. 2026-05-11 dev 机临时修复（未 commit）
+
+本轮在 **开发机** 排查双击桌面快捷方式不开 dashboard + license 突然失效，做了 3 处改动，**还没 commit**：
+
+### Fix 1 — 桌面快捷方式直接调 `.bat`
+- **症状**：双击 `TeleHubX.lnk` 没反应，`logs\launcher.log` 不存在 → `.vbs` 没成功 spawn cmd
+- **改动**：
+  - `C:\Users\MSI\OneDrive\Desktop\TeleHubX.lnk` target 从 `wscript Start-TeleHubX-hidden.vbs` 改为直接 `Start-TeleHubX.bat`
+  - `Create-Shortcuts.ps1` 同步改成生成直调 .bat 的快捷方式
+- **副作用**：双击会弹一个 cmd 黑窗显示启动进度（pause 在结尾），不再静默
+- **保留**：`Start-TeleHubX-hidden.vbs` 没删，需要还原 VBS 模式可直接改回
+
+### Fix 2 — license「突然失效」根因（**真 bug**）
+- **症状**：dev 机上 `/cloud-license/status` 返回 `effectiveStatus=unconfigured`，但 `data\cloud-license.bin` 实际存在（05/06 16:08 激活的 enterprise license，2026-06-29 才过期）
+- **诊断**：手写解密脚本验证 bin 文件能正常解开（passphrase=`telehubx-license-default` + fp=`19f71bbd…cbbe`）→ 排除密钥/指纹问题
+- **根因**：`apps/server/src/common/paths.ts` `resolveDataDir()` 逻辑：
+  - 当 `TELEHUBX_DATA_DIR` 未设 + `NODE_ENV=production` → fallback 到 `os.homedir()/TeleHubX/data` = `C:\Users\MSI\TeleHubX\data`
+  - 但项目真 data 在 `C:\AI_WORKSPACE\Telegram Auto Bot\data\`
+  - `ecosystem.config.cjs` 给 server 设了 `NODE_ENV=production` 但没设 `TELEHUBX_DATA_DIR` → server 跑到 ghost dir 找文件
+- **改动**：`ecosystem.config.cjs` 给 `telehubx-server` + `telehubx-agent` 都加 `TELEHUBX_DATA_DIR=C:\AI_WORKSPACE\Telegram Auto Bot\data`
+- **验证**：pm2 reload --update-env 后 `/cloud-license/status` 立刻恢复 `active`
+- **时间线还原**：
+  - 05/06 16:08 在某个 cwd 下激活成功 → bin 写到 `Telegram Auto Bot\data\`
+  - 05/06 16:12 server 重启 cwd 改变 / paths cache miss → fallback 走 `~\TeleHubX\data`，自动生成空 fp 目录
+  - 之后所有重启都读 ghost dir → "license 失效"
+- **遗留**：ghost dir `C:\Users\MSI\TeleHubX\data` 还在（只有空目录 + 自动生成的 fp 文件）；删除可选，不影响功能
+
+### Fix 3 — 安装包是否也有同 bug？
+- **可能也有**：装包场景下 `TELEHUBX_DATA_DIR` 由 WinSW XML 设（见 `installer/runtime/winsw/telehubx-service.xml`），supervisor 子进程会继承，所以**装包场景 OK**。
+- **但 dev 机和 dev 文档**值得：在 `ecosystem.config.cjs` 默认就设好这个 env，避免新 dev 机踩同样的坑（本次已修）。
+
+### Fix 4 — agent unhandledRejection 噪音（**code fix，待 vmfix26 入安装包**）
+- **症状**：`agent-error.log` 12.4 MB，217 处 `Error: Not connected` 堆栈，全部来自 GramJS `MTProtoSender._recvLoop`
+- **根因**：disconnect / reload / reset 时 GramJS 内部 pending `await connection.recv()` 抛 Promise reject，`apps/agent/src/main.ts` 没有 `process.on('unhandledRejection')` 兜底（server/main.ts 有同等保护）
+- **改动**：`apps/agent/src/main.ts` 头部加 `isGramjsTeardownNoise()` 识别器 + `unhandledRejection` / `uncaughtException` handler
+  - 命中 "Not connected" / "Disconnect" → 静默吞掉
+  - 其它真错 → `logger.warn` 记录但**不 process.exit**（pm2 auto-restart 走真 fatal 路径）
+- **dev 验证**：rebuild agent + pm2 restart 后 `agent-error.log` 从 12.4 MB → 206 bytes，"Not connected" = 0
+- **入安装包**：需 vmfix26 build 后租户才受益（dist/main.js 改了）
+
+### Fix 5 — pm2-logrotate（仅 dev 机）
+- **症状**：`server-out.log` 16.7 MB / `agent-error.log` 12.4 MB / `server-error.log` 1.5 MB，pm2 默认不 rotate
+- **改动**：`pm2 install pm2-logrotate` + 配置 max_size=10M / retain=7 / compress=true / daily rotate
+- **范围**：dev 机 only（pm2 module 持久化在 `~/.pm2/module_conf.json`），装包场景用 supervisor + winston 内置 rotation（见 `apps/server/src/logger/`）
+- **不入安装包**
+
+### 累积改动文件
+- `C:\Users\MSI\OneDrive\Desktop\TeleHubX.lnk`（不在 repo，手工改 — dev only）
+- `Create-Shortcuts.ps1`（dev 工具）
+- `ecosystem.config.cjs`（dev 工具）
+- `apps/agent/src/main.ts`（**code fix，要进 vmfix26**）
+- `HANDOFF.md`（本文）
+
+### 临时产物
+- 删了 `tmp-decrypt-test.cjs`（用于诊断的解密脚本，含敏感读路径，不该入库）
+
+### vmfix26 触发条件
+当前累计**只有 1 处 code fix**（Fix 4 agent unhandledRejection）。
+建议攒到至少 2-3 处真 bug 再 vmfix26 ship（HANDOFF P1 列表里的 Bot Gateway 真跑 / Campaign 真跑 / agent TG_API_ID 空时不 exit 之类）。
+
+> **2026-05-12 update**: 攒满了。已实施 8 项进 vmfix26，见 G 节。
+
+---
+
+## G. 2026-05-12 vmfix26 已实施修改清单（待 commit + push + ship）
+
+### 必修（全部完成）
+
+| # | 改动 | 文件 | 验证 |
+|---|---|---|---|
+| **#4** | agent 加 `process.on('unhandledRejection'/'uncaughtException')` 识别 GramJS teardown noise 静默吞，其他真错 log.warn 但不 exit | `apps/agent/src/main.ts` (头部) | dev: agent-error.log 不再被 GramJS 噪音淹没 ✅ |
+| **#6** | `ServerCallbacks` 新加 `getClient(accountId): TelegramClient \| null`；task-runner reconnect 成功后取 fresh client 再递归 retry；同步更新 `clients` Map 给协作 executor | `apps/agent/src/tasks/task-runner.ts` + `apps/agent/src/main.ts` (taskCallbacks 实现) | dev build pass ✅ |
+| **#8** | server `main.ts` 加 `isGramjsTeardownNoise()` 过滤 — 识别 `Not connected` / `Disconnect` / `TIMEOUT` 时**不 process.exit**，其他 fatal 仍 exit | `apps/server/src/main.ts` | dev build pass ✅ |
+| **#13** | agent heartbeat 加 `getMe(5s timeout)` TG probe — wedge 检测到立刻 disconnect + connect 新 client | `apps/agent/src/main.ts` `syncFromDb()` heartbeat 块 | dev live 验证：`[heartbeat-probe] xxx wedge detected → reconnected ✓` ✅ |
+| **#14** | `/accounts/:id/warmup/start` 加 auto-create `preset_warmup_7d` 任务逻辑；返回 `{plan, presetTask, presetWarning}` | `apps/server/src/accounts/accounts.controller.ts` + `accounts.module.ts` (引入 TasksModule) | dev build pass，等测试机端到端验 ✅ |
+| **#15** | 6 人剧本 10 条从 migration 抽到 `data/script-packs/scripts_pack_6p_zh_v1.json` (packId `official_zh_6p_v1`) + 修 `detectType()` 识别 ABCDEF (老逻辑只到 ABCD)；migration 文件加 deprecation 注释 | `apps/server/src/chat-scripts/chat-scripts.service.ts` + 新 JSON | dev DB 验证：`A+B+C+D+E+F = 20`（10 + 10 dev 历史 migration 残留）✅ |
+| **#16** | 账号列表页加红色「代理风险警告」Alert — 检测到 >=2 个号无代理 / 共用代理时显示 | `apps/dashboard/src/pages/accounts/AccountsPage.tsx` | dev build pass ✅ |
+| **#18** | 客服页加 info Alert — `!aiConfigured` 时引导用户去「设置 → AI 配置」 | `apps/dashboard/src/pages/cs/CsPage.tsx` | dev build pass ✅ |
+| **#23** | dashboard `index.html` favicon `/vite.svg` → `/favicon.png`（用 installer/assets/telehubx-logo.png 复制到 dashboard/public/） | `apps/dashboard/index.html` + `apps/dashboard/public/favicon.png` | dev build pass ✅ |
+| **#11** | License verify 网络错失败 < 3 次时降 `info`（grace 期内噪音），>= 3 次才升 `warn` | `apps/server/src/cloud-license/cloud-license.service.ts` | dev build pass ✅ |
+
+### 推迟到 vmfix27
+
+| # | Bug | 原因 |
+|---|---|---|
+| #9 | `INVITE_REQUEST_SENT` 单独分类「待审批」 | UX polish，单独 ship 影响小 |
+| #10 | 4 人/6 人剧本前端 pre-flight 校验「必须先建群」| UX polish |
+| #12 | LocalService userEnv `.env` 拷贝 | vmfix24/25 应该已修，要排查具体哪个分支漏 |
+| #19 | discovered_groups quality 算法 review | 需要更多数据集分析 |
+| #24 | Antd Menu aria-hidden 警告 | 可能要升 antd 大版本 |
+| Roadmap A+B1 | 关键词发现群增强（`messages.searchGlobal` + 邀请链接收割）| 功能扩展，需要单独周期 |
+
+### 误报排除（不修）
+
+- #17 postgres FATAL（是探查 SQL 错误，非运行时）
+- #20 ghost account（PowerShell .Count shape artifact，DB 真 7 个号）
+- #21 KB POST 不持久化（我 Phase 2a 脚本路径错，真路径 `/knowledge/kbs`）
+- #22 idle_keepalive 卡 25s（实际是 #6 衍生）
+
+### vmfix26 安装包状态
+
+正在 build（约 6 分钟）。完成后：
+1. SHA256 计算
+2. 测试机重装验 #4 / #6 / #13 / #14 / #15 / #16 / #18 / #23
+3. commit + push + GitHub issue 更新
+
+---
+
+## 0.6. 2026-05-12 测试机排查 + 功能讨论
+
+### A. 测试机 task 失败率分析（vmfix25）
+基于 Codex 在测试机抓的日志：
+
+| task type | 成功率 | 主因 |
+|---|---|---|
+| `group_create` | 0/2 | 撞 stale client（卡满 5 分钟超时）|
+| `chat_script_ab` | 0/2 | 撞 stale client（class=B）|
+| `chat_script_4p` | 0/1 | 前端没校验「需先建群」|
+| `join_groups` | 8/11 | 部分 stale client + 部分 INVITE_REQUEST_SENT |
+| `self_test` | 4/6 | 待查 |
+| `discover_groups_by_keyword` | 5/7 | TG 真没匹配 |
+
+agent.log 错误模式：
+- `Cannot send requests while disconnected`: **18 次** ← stale client bug
+- `Not connected`: **114 次** ← Fix #4 silenced
+- `TIMEOUT`: **2241 次** ← Fix #4 silenced
+- server.log 也有 **1376 次 TIMEOUT** ← 可能 server 端也需要装 GramJS-friendly unhandledRejection（待定）
+
+### B. vmfix26 必修清单（按严重度）
+
+| # | 严重 | Bug | 修改文件 | 状态 |
+|---|---|---|---|---|
+| **#4** | 中 | agent 无 unhandledRejection 兜底 | `apps/agent/src/main.ts` | ✅ 已修 + 入 vmfix26 |
+| **#6** | 🔥高 | task-runner 持老 client 引用 → reconnect 后 retry 仍用废 client → `Cannot send requests while disconnected` | `apps/agent/src/tasks/task-runner.ts` + `apps/agent/src/main.ts` (callback 接口加 `getClient`) | ✅ 已修 + 入 vmfix26 |
+| **#7** | 中 | `group_create` 卡 5 分钟超时（大概率是 #6 衍生）| 跟 #6 一起验 | ✅ 等待 vmfix26 测试机验证 |
+| **#8** | 中 | server.log 1376 个 TIMEOUT 堆栈（GramJS RPC 调用没兜底）| `apps/server/src/main.ts` 加 `isGramjsTeardownNoise` 过滤 | ✅ 已修 + 入 vmfix26 |
+| **#9** | 低 | `INVITE_REQUEST_SENT` 归 H「系统错误」→ 应该单独一类「待审批」| `apps/agent/src/tasks/error-classifier.ts` | ⏸️ 推迟 vmfix27 |
+| **#10** | 低 | 4 人/6 人剧本前端没校验「必须先建群」| `apps/dashboard/src/pages/scheduler/*` | ⏸️ 推迟 vmfix27 |
+| **#13** | 🔥高 | **agent heartbeat 不验证 TG 真连通** — slot.client 已 wedge (getMe 30s timeout) 但 heartbeat 仍打成功 → 账号永远 healthScore=100/status=online，任务全失败 | `apps/agent/src/main.ts` heartbeat 加轻量 TG ping（getMe 5s），失败时主动 reconnect 或降健康分 | 待修 |
+| **#14** | 🔥高 | **养号「启动」按钮只动 phase 追踪器，不创建任务** — 测试机 7 个号 phase 在跑但 tasks 表 0 个 preset_*，agent 没动作 | `WarmupPage.tsx` 或后端 `WarmupService.start()` 同时创建 preset_warmup_7d 任务（或弹 modal 让用户选） | 待修 |
+| **#15** | 🔥高 | **6 人剧本完全缺失** — `1730600000000-seed-builtin-6p-chat-scripts.ts` migration 里有 10 条种子，但 installer 用 `synchronize:true` 不跑 migrations → 装包后 chat_script_6p 任务永远 pickRandom=null | 把 10 条 6p 抽出来打成 `scripts_pack_6p_zh_v1.json`，放进 SeedPack。现有 `ChatScriptsService.onModuleInit()` 会自动 import | 待修 |
+| **#16** | 中 | **agent EHOSTUNREACH=50 / ETIMEDOUT=4** — 测试机 7 个 ad 号无代理共用 1 IP，违反「一号一固定 IP」反检测铁律，疑似 TG 软限流导致 GramJS wedge 的上游 | Dashboard 红色 banner 警告 + 安装文档强调每号配独立 SOCKS5 | UX |
+| **#17** | 低 | postgres.log 1 个 FATAL — 探查 SQL 列名错造成，不是运行时 | 无需修 | — |
+| **#18** | 低 | **装包默认 0 个 AI key** — platform_ai_configs=0 + tenant_settings 无 key → AI Smart Reply / ChatScript LLM seeding / FAQ AI 生成 全不可用 | 安装向导加「可选配置 AI Key」步骤 | UX |
+| **#19** | 低 | discovered_groups 质量两极化：A(≥80)=17 / **C(30-60)=0** / D(<30)=19 — 评分函数 binary tendency | `discoverGroupsByKeyword` 的 quality 算法 review | 可选 |
+
+### B.2 Phase 1 已验证健康（不需修）
+
+资源库 322 ✅ / ab+4p packs 加载 ✅ / Redis 队列空 ✅ / PG 无 slow query ✅ / Socket.IO ✅ /
+Auth guard 401 正常 ✅ / supervisor graceful shutdown ✅ / License heartbeat active ✅ /
+内存正常 ✅ / 业务数据有（lead_candidates=498, discovered_groups=37）✅ / dashboard 真路径 `apps/dashboard/dist/index.html` ✅
+
+### C. Feature roadmap：关键词发现群强化（功能扩展，非 bug）
+当前 `discover_groups_by_keyword` 只用 TG 的 `contacts.Search`（搜群名 + username），覆盖太窄。
+讨论后排序（A + B1 性价比最高）：
+
+| 方案 | 做什么 | 工时 | ROI |
+|---|---|---|---|
+| **A. `messages.searchGlobal`** | 按**消息内容**搜全网公开群 | 0.5 天 | 🟢 高（关键词召回 5-10x）|
+| **B1. 邀请链接收割** | 进种子群扫消息正则 `t.me/+xxx` 收候选（含**私密群**）| 1 天 | 🟢 高（覆盖 contacts.Search 完全搜不到的领域）|
+| **B2. 跨群成员展开** | 活跃用户 → `messages.GetCommonChats` → 他在哪些群 | 1 天 | 🟡 中 |
+| **B3. 转发来源回溯** | 扫 forwarded 消息的源频道 | 0.5 天 | 🟡 中 |
+| **C. 多账号 union 搜索** | 同关键词跑 3 账号合并去重（TG 搜索 personalize）| 0.5 天 | 🟡 边际收益小 |
+| **D. tgstat.com API 接入** | 第三方目录，已索引 2M+ TG 群 | 1 天 | 🟢 立即上线大量候选 / 但 ~$50-100/月 |
+| **E. 自建 indexer** | 跑探测号 24/7 爬群入库，自做 mini-tgstat | 2 周+ | 🔴 重投入，但护城河 |
+
+**前端 UI 改造**：discover_groups_by_keyword 任务对话框加「搜索范围」多选 + 「搜索账号数」+ 「接入第三方目录」开关。
+
+**优先级建议**：
+- vmfix26 周期：先攒 bug 修复，feature 不进
+- vmfix27 候选：A + B1 一起做（半周工，关键词功能体验跃迁）
+- vmfix28+：再看 B2/B3/C
+- 商业层面决策：D 还是 E（取决于「群覆盖广度」是不是核心卖点）
 
 ---
 

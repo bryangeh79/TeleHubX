@@ -11,6 +11,7 @@ import {
   Typography,
   Tooltip,
   Popconfirm,
+  Alert,
   message as antdMessage,
 } from 'antd';
 import {
@@ -469,8 +470,41 @@ export default function AccountsPage() {
     },
   ];
 
+  // vmfix26 #16: 反检测铁律警告 —— 多账号共享同一 IP 段
+  // 1. 计算「无代理」账号数（最危险，全走客户端公网 IP）
+  // 2. 计算「同一代理被复用」的最大 count（同 SOCKS5 IP 上多个号 → TG 风控）
+  const proxyWarning = (() => {
+    const realAccounts = slots
+      .map((s) => s.account)
+      .filter((a): a is ApiAccount => a !== null && a.sessionEncrypted);
+    if (realAccounts.length < 2) return null;
+    const directCount = realAccounts.filter((a) => !a.proxyId).length;
+    const proxyCounts = new Map<string, number>();
+    for (const a of realAccounts) {
+      if (a.proxyId) proxyCounts.set(a.proxyId, (proxyCounts.get(a.proxyId) ?? 0) + 1);
+    }
+    const maxShared = proxyCounts.size > 0 ? Math.max(...proxyCounts.values()) : 0;
+    if (directCount >= 2) {
+      return `检测到 ${directCount} 个账号未绑定代理（共用本机出口 IP）。TG 反检测铁律：一号一固定 IP。继续运行有触发软限流 / 账号封禁风险。建议到「设置 → 代理库」给每个账号配独立 SOCKS5 住宅代理。`;
+    }
+    if (maxShared >= 2) {
+      return `检测到有 ${maxShared} 个账号共用同一个代理。TG 反检测铁律：一号一固定 IP。建议拆分到独立代理。`;
+    }
+    return null;
+  })();
+
   return (
     <div>
+      {proxyWarning && (
+        <Alert
+          type="warning"
+          showIcon
+          message="代理风险警告"
+          description={proxyWarning}
+          closable
+          style={{ marginBottom: 12 }}
+        />
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Typography.Title level={4} style={{ margin: 0 }}>
           {t('nav.accounts')}{' '}

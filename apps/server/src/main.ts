@@ -32,14 +32,42 @@ function emitFatal(tag: string, err: unknown): void {
   emit('FATAL', tag, stack.replace(/\n/g, ' || '));
 }
 
+// vmfix26 #8: GramJS 在 server 端的 BindService / 其它 MTProto 调用同样会
+// 抛 "Error: TIMEOUT" / "Not connected" / "Disconnect (called manually)"
+// 来自 telegram lib 内部的 _updateLoop / _recvLoop —— 这些是 client 销毁/
+// 重连过程中的正常 teardown noise。
+//
+// 老逻辑（vmfix25 及以前）把所有 unhandledRejection 当 fatal → process.exit(71)，
+// server.log 1376 条 TIMEOUT 堆栈是因为 supervisor 重启 server 后 GramJS 重新
+// 跑 update loop，没人 catch 就成 unhandled。这个噪音 + 偶发 server 自杀重启
+// 都是这条路径。
+//
+// 新策略：识别 GramJS teardown noise → 静默吞掉；
+// 真 fatal (语法错/未处理业务异常) 仍然 process.exit。
+function isGramjsTeardownNoise(reason: unknown): boolean {
+  const msg = reason instanceof Error ? reason.message : String(reason ?? '');
+  if (!msg) return false;
+  if (/^Not connected/i.test(msg)) return true;
+  if (/^Disconnect/i.test(msg)) return true;
+  if (/^TIMEOUT$/i.test(msg)) return true;  // GramJS _updateLoop 的标志性 message
+  return false;
+}
+
 // Install process-level handlers FIRST, before any import-time side effects
 // from AppModule can crash silently. These ensure no exit is ever silent.
 process.on('uncaughtException', (err) => {
+  if (isGramjsTeardownNoise(err)) {
+    // 不打 log（每秒可能多次），完全静默
+    return;
+  }
   emitFatal('uncaughtException', err);
   // Give the OS a beat to flush the write before exiting.
   setTimeout(() => process.exit(70), 50).unref();
 });
 process.on('unhandledRejection', (reason) => {
+  if (isGramjsTeardownNoise(reason)) {
+    return;
+  }
   emitFatal('unhandledRejection', reason);
   setTimeout(() => process.exit(71), 50).unref();
 });

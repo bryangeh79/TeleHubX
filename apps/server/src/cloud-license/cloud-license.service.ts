@@ -418,7 +418,13 @@ export class CloudLicenseService implements OnModuleInit, OnModuleDestroy {
         consecutiveVerifyFailures: failures,
       };
       this.storage.write(this.state);
-      this.logger.warn(`cloud-license verify failed (${failures}× in a row): ${code}`);
+      // vmfix26 #11: 网络抖动是 grace 期内最常见的失败原因，前几次降级为 info；
+      // 连续失败 >= 3 次再升级到 warn，避免日志噪音遮住真正需要关注的 license 问题。
+      if (code === 'network_error' && failures < 3 && !HARD_TERMINAL_CODES.has(code)) {
+        this.logger.log(`cloud-license verify failed (${failures}× in a row): ${code} (transient network — will retry)`);
+      } else {
+        this.logger.warn(`cloud-license verify failed (${failures}× in a row): ${code}`);
+      }
     }
   }
 

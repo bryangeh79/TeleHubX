@@ -36,11 +36,10 @@ Write-Host ""
 Write-Host "Creating TeleHubX desktop shortcuts..." -ForegroundColor Cyan
 Write-Host ""
 
-# [TeleHubX] - silent launcher via VBS
+# [TeleHubX] - direct .bat launcher (cmd window visible; reliable, no .vbs handler dependency)
 New-Shortcut `
     -Name    "TeleHubX" `
-    -Target  "wscript.exe" `
-    -ArgList "`"$root\Start-TeleHubX-hidden.vbs`"" `
+    -Target  "$root\Start-TeleHubX.bat" `
     -Desc    "Start TeleHubX (backend + dashboard + agent)"
 
 # [Stop TeleHubX] - stopper

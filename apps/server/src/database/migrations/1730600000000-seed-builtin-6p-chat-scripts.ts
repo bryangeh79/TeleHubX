@@ -3,6 +3,12 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 /**
  * 平台默认 6 人 (A-F) 聊天剧本 × 10 份 (中文).
  *
+ * ⚠️ vmfix26 #15 起：本 migration 的种子数据已并行打成 JSON pack
+ *    `data/script-packs/scripts_pack_6p_zh_v1.json` (packId='official_zh_6p_v1').
+ *    JSON pack 走 `ChatScriptsService.onModuleInit()` 自动 import，
+ *    在生产装包场景（`synchronize:true`，不跑 migration）下也能生效。
+ *    本 migration 保留作 fallback，packId 不同 → 不会和 JSON pack 重复.
+ *
  * tenantId=null → 平台共享, 所有租户可见 (executors 端 chat_script_6p 可直接抽取)
  * packId='_builtin_default_6p_v1' → 后续重跑/升级用此 key 识别已存在的种子, 跳过
  *

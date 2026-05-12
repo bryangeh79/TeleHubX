@@ -696,6 +696,21 @@ export default function CsPage() {
 
   return (
     <div>
+      {!aiConfigured && (
+        <Alert
+          type="info"
+          showIcon
+          closable
+          style={{ marginBottom: 12 }}
+          message="AI 智能回复未配置"
+          description={
+            <>
+              当前 tenant 与平台都没配 AI API Key，<b>AI 自动回复 / FAQ AI 生成 / 公司资料解析</b> 功能不可用，仅 FAQ 关键字匹配能跑。
+              前往 <a href="/ai-settings">「设置 → AI 配置」</a> 填入 OpenAI / DeepSeek / Gemini / Claude 任一 API Key 即可启用。
+            </>
+          }
+        />
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
         <div>
           <Title level={4} style={{ margin: 0 }}>

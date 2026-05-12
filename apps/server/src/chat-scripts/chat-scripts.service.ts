@@ -221,12 +221,20 @@ export class ChatScriptsService implements OnModuleInit {
       return lines;
     };
 
+    // vmfix26 #15: detect ABCDEF (6 人) properly — old logic capped at ABCD.
+    // 6-role packs were silently downgraded to ABCD type → chat_script_6p
+    // tasks could never pickRandom them. Boundaries:
+    //   2 distinct roles  → AB
+    //   3-4 distinct roles → ABCD
+    //   ≥5 distinct roles → ABCDEF
     const detectType = (scripts: any[]): ChatScriptType => {
       const roles = new Set<string>();
       for (const s of scripts.slice(0, 1)) {
         for (const sess of s.sessions) for (const t of sess.turns) roles.add(t.role);
       }
-      return roles.size > 2 ? ChatScriptType.ABCD : ChatScriptType.AB;
+      if (roles.size >= 5) return ChatScriptType.ABCDEF;
+      if (roles.size >= 3) return ChatScriptType.ABCD;
+      return ChatScriptType.AB;
     };
 
     const packType = detectType(blob.scripts);

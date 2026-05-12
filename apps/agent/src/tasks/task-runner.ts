@@ -40,6 +40,19 @@ export interface ServerCallbacks {
    */
   reconnectAccount(accountId: string): Promise<boolean>;
   /**
+   * vmfix26 #6: 获取账号当前 live 的 TelegramClient 引用。
+   *
+   * reconnectAccount() 会在 main.ts 销毁老 client + new TelegramClient + slots.set(新)，
+   * 但 task-runner 入参 `client` 是 dispatch 时绑死的老引用。retry 时若继续用入参 client
+   * 会立刻 "Cannot send requests while disconnected"（老 client 已销毁）。
+   *
+   * 此回调让 task-runner 在 reconnect 成功后从 main.ts 的 slots map 实时读取
+   * fresh client 引用，再传给递归的 executeTask。
+   *
+   * 返回 null 表示账号已不在 slots（被删除/未上线），调用方应 markFailed。
+   */
+  getClient(accountId: string): TelegramClient | null;
+  /**
    * Auto-Recovery: G 类账号失效 (AUTH_KEY_UNREGISTERED 等), 标账号 banned + 推送通知用户.
    * 失败静默 (不阻塞 task fail 流程).
    */
@@ -278,6 +291,9 @@ export async function executeTask(
         classified.needReconnect ||
         (classified.class === 'A' && nextCount === MAX_AUTO_RETRY);
 
+      // vmfix26 #6: reconnect 成功后必须拿 fresh client，
+      // 不能继续用入参 client（已被 main.ts disconnect+销毁）。
+      let clientForRetry: TelegramClient = client;
       if (shouldReconnect && task.accountId) {
         const ok = await cb.reconnectAccount(task.accountId).catch(() => false);
         if (!ok) {
@@ -289,8 +305,23 @@ export async function executeTask(
           );
           return;
         }
+        // 关键：从 main.ts slots 读 live client，不要再用入参 client（老引用）
+        const fresh = cb.getClient(task.accountId);
+        if (!fresh) {
+          cb.log.error(`[task ${task.id.slice(0, 8)}] reconnect ok but slot empty, abort retry`);
+          await cb.markFailed(
+            task.id,
+            `[${classified.classLabel}] 重连后 slot 为空 — ${e.message ?? String(err)}`,
+            classified.class,
+          );
+          return;
+        }
+        clientForRetry = fresh;
+        // 同步更新 clients map（chat_script_* 等多账号 executor 用），
+        // 让其它持引用的协作账号也能看到更新
+        if (clients) clients.set(task.accountId, fresh);
         cb.log.info(
-          `[task ${task.id.slice(0, 8)}] reconnected (class=${classified.class}, attempt ${nextCount}/${MAX_AUTO_RETRY})`,
+          `[task ${task.id.slice(0, 8)}] reconnected (class=${classified.class}, attempt ${nextCount}/${MAX_AUTO_RETRY}) — fresh client switched`,
         );
       }
 
@@ -298,7 +329,7 @@ export async function executeTask(
       // 红线: 必须传同一个 task object, 不可清 messageSentAt
       return executeTask(
         { ...task, autoRetryCount: nextCount },
-        client,
+        clientForRetry,
         cb,
         clients,
       );
