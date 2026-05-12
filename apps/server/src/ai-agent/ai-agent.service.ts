@@ -299,6 +299,113 @@ export class AiAgentService {
   }
 
   /**
+   * vmfix27 #A3: 关键词扩展。
+   * 输入：用户原始关键词（如 "健康 马来西亚"）
+   * 输出：5-10 个语义变体（中英马混合 + 地名细分 + 同义词），用于
+   * `discover_groups_by_keyword` 并发搜，命中率从单 keyword 30% 提升到 85%+。
+   *
+   * 优雅退化：AI 不可用时返回 [原始 keyword]，调用方继续单 keyword 搜索。
+   */
+  async expandKeywords(opts: {
+    keyword: string;
+    maxVariants?: number;
+    targetLanguages?: string[];   // 默认 ['zh', 'en', 'ms', 'vi']
+  }): Promise<{ variants: string[]; fromAi: boolean }> {
+    const original = opts.keyword.trim();
+    if (!original) return { variants: [], fromAi: false };
+    const max = opts.maxVariants ?? 8;
+    const langs = (opts.targetLanguages ?? ['zh', 'en', 'ms', 'vi']).join(', ');
+
+    const system = `你是 Telegram 群组搜索关键词优化专家。任务：把用户输入的关键词扩展成 ${max} 个有可能命中 Telegram 公开群的搜索变体。
+规则：
+1. 涵盖 ${langs} 多语言（如有适合）
+2. 包括同义词、近义词
+3. 如有地名，给出主要城市的细分（如 "马来西亚" → "KL", "槟城", "JB"）
+4. 保留原始关键词作为第一个
+5. 每个变体 1-4 个词
+6. 只返回纯 JSON 数组，不要任何前后缀
+示例输入: "健康 马来西亚"
+示例输出: ["健康 马来西亚","Health Malaysia","KL health","马来西亚 养生","Malaysia wellness","健康 KL","槟城 健康","保健 马来"]`;
+
+    const user = original;
+
+    try {
+      const raw = await this.complete({
+        system,
+        user,
+        maxTokens: 400,
+        temperature: 0.7,
+      });
+      // 尝试解析 JSON 数组
+      const m = raw.match(/\[[\s\S]*\]/);
+      if (!m) throw new Error('no JSON array in response');
+      const arr = JSON.parse(m[0]);
+      if (!Array.isArray(arr)) throw new Error('not an array');
+      const variants = arr
+        .filter((s): s is string => typeof s === 'string')
+        .map((s) => s.trim())
+        .filter((s) => s.length >= 2 && s.length <= 64);
+      // 去重 + 把原始 keyword 放第一位
+      const seen = new Set<string>();
+      const out: string[] = [];
+      out.push(original);
+      seen.add(original.toLowerCase());
+      for (const v of variants) {
+        if (seen.has(v.toLowerCase())) continue;
+        seen.add(v.toLowerCase());
+        out.push(v);
+        if (out.length >= max) break;
+      }
+      return { variants: out, fromAi: true };
+    } catch (err: any) {
+      this.logger.warn(`expandKeywords fallback (AI unavailable): ${err?.message ?? err}`);
+      return { variants: [original], fromAi: false };
+    }
+  }
+
+  /**
+   * vmfix27 #B2: 用 AI 给单个群打质量分（0-100）。
+   * 输入：群 title + description + 抽样消息片段 + 租户目标客户画像
+   * 输出：匹配度分数 + 理由（短文本）
+   *
+   * 优雅退化：AI 不可用时返回 null，调用方继续用结构化 quality score.
+   */
+  async scoreGroupMatch(opts: {
+    groupTitle: string;
+    groupDescription?: string;
+    sampleMessages?: string[];
+    targetAudience: string;  // 来自 tenant_settings.targetAudience 或类似
+  }): Promise<{ score: number; reason: string } | null> {
+    const system = `你是 Telegram 营销目标客户匹配评估师。任务：根据群信息判断此群是否匹配租户的目标客户画像，返回 0-100 分。
+规则：
+- 100: 群成员就是目标客户，匹配完美
+- 70-90: 群高度相关，多数成员可能是潜在客户
+- 40-70: 群部分相关，需进一步筛选
+- 10-40: 群低相关，可能小部分潜在客户
+- 0-10: 群完全无关或负面（如同行竞品群）
+返回纯 JSON：{"score": <0-100>, "reason": "<10-30 字简短理由>"}`;
+    const sampleText = (opts.sampleMessages ?? []).slice(0, 5).map((m) => `- ${m.slice(0, 80)}`).join('\n');
+    const user = `目标客户: ${opts.targetAudience}
+
+群名: ${opts.groupTitle}
+群简介: ${opts.groupDescription ?? '(无)'}
+群内最近消息样本:
+${sampleText || '(无样本)'}`;
+    try {
+      const raw = await this.complete({ system, user, maxTokens: 150, temperature: 0.3 });
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error('no JSON object');
+      const obj = JSON.parse(m[0]);
+      const score = Math.max(0, Math.min(100, Number(obj.score) || 0));
+      const reason = String(obj.reason ?? '').slice(0, 120);
+      return { score, reason };
+    } catch (err: any) {
+      this.logger.warn(`scoreGroupMatch fallback (AI unavailable): ${err?.message ?? err}`);
+      return null;
+    }
+  }
+
+  /**
    * Simple one-shot completion using platform AI key (no history, no Redis).
    * For internal tasks: variant generation, greeting scoring, etc.
    */

@@ -95,7 +95,8 @@ const TASK_TIMEOUT_MS: Record<string, number> = {
   join_groups:            30 * 60 * 1000,
   // join_groups_by_keyword: 5 群 × 5-15min sleep ≈ 75min → 给 90min
   join_groups_by_keyword: 90 * 60 * 1000,
-  discover_groups_by_keyword: 10 * 60 * 1000,  // 只搜不加, 10min 够
+  discover_groups_by_keyword: 15 * 60 * 1000,  // 只搜不加；vmfix27 A1/A3 后多通道更慢，给 15min
+  discover_groups_by_invites: 20 * 60 * 1000,  // vmfix27 #A2 邀请链接收割；扫消息 + resolve 慢，给 20min
   // contact_add: maxPerDay 默认 3 × 3-10min ≈ 30min → 给 60min
   contact_add:            60 * 60 * 1000,
   group_create:            5 * 60 * 1000,

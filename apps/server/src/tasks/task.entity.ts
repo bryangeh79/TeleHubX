@@ -29,8 +29,13 @@ export enum TaskType {
    *  注：盲跑命中 spam 群浪费配额。新流程建议用 DISCOVER_GROUPS_BY_KEYWORD 落库后人工挑。 */
   JOIN_GROUPS_BY_KEYWORD   = 'join_groups_by_keyword',
   /** 🔭 关键词发现群（仅搜+评估质量，不加群）。租户在 dashboard 人工挑选 → 触发现有 join+scrape。
-   *  payload: { keywords:[], minMembers:50, sampleSize:100 } */
+   *  payload: { keywords:[], minMembers:50, sampleSize:100, useSearchGlobal?:true,
+   *             aiExpand?:true, filterSensitive?:true, incrementalHours?:24, aiVariantCount?:6 } */
   DISCOVER_GROUPS_BY_KEYWORD = 'discover_groups_by_keyword',
+  /** vmfix27 #A2: 邀请链接收割 — 进种子群扫消息抓 t.me/+xxx / t.me/joinchat/xxx，
+   *  resolve 得到群信息后落 discovered_groups。覆盖 contacts.Search 拿不到的私密群。
+   *  payload: { seedGroupChatIds: [chat_id|@username], maxMessagesPerGroup?:500, maxLinks?:50 } */
+  DISCOVER_GROUPS_BY_INVITES = 'discover_groups_by_invites',
   /** ⭐ Follow 频道。payload: { channels: [@username 或 invite link 列表] } */
   JOIN_CHANNELS            = 'join_channels',
   /** 👥 接受所有 pending 群组邀请。payload: { autoAcceptAll: true } */

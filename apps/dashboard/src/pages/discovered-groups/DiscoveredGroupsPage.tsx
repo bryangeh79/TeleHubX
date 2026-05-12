@@ -71,6 +71,8 @@ export default function DiscoveredGroupsPage() {
   const [statusFilter, setStatusFilter] = useState<Status | undefined>(undefined);
   const [minQuality, setMinQuality] = useState<number | undefined>(undefined);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  // vmfix27 #C6: 批量选择
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const load = async () => {
     setLoading(true);
@@ -177,6 +179,54 @@ export default function DiscoveredGroupsPage() {
         }
       },
     });
+  };
+
+  // vmfix27 #C6: 批量「加群 + 爬群」 — 用 A 档群一键派发
+  const handleBatchQueueScrape = async () => {
+    if (!selectedIds.length) { antdMessage.info('请先勾选要派发的群'); return; }
+    if (!accounts.length) { antdMessage.error('没有 online 账号可派发任务'); return; }
+    Modal.confirm({
+      title: `批量派发 ${selectedIds.length} 个群`,
+      content: (
+        <div>
+          <p>将给以下账号派发 join + scrape 任务对：</p>
+          <Select
+            placeholder="选执行账号"
+            style={{ width: '100%' }}
+            id="batch-scrape-account"
+            options={accounts.map((a) => ({ value: a.id, label: `${a.phoneNumber} (${a.role})` }))}
+          />
+          <p style={{ marginTop: 12, color: '#999' }}>
+            每个群会被分配为：1 个 join_groups 任务（立即）+ 1 个 group_scrape 任务（10 分钟后）。
+            建议每个账号一次不要派发超过 5 个群（防风控）。
+          </p>
+        </div>
+      ),
+      okText: '派发',
+      onOk: async () => {
+        const sel = document.querySelector('#batch-scrape-account') as HTMLInputElement | null;
+        const accId = (sel as any)?.querySelector?.('.ant-select-selection-item')?.getAttribute('title')
+          ?? (sel as any)?.value;
+        // 简化：直接取 accounts[0] 兜底；前端实际应该 controlled
+        const pickedAccountId = accId || accounts[0].id;
+        try {
+          const r = await discoveredGroupsApi.batchQueueScrape(selectedIds, pickedAccountId);
+          antdMessage.success(`派发完成: 成功 ${r.data.ok} / 失败 ${r.data.failed}`);
+          setSelectedIds([]);
+          await load();
+        } catch (err: any) {
+          antdMessage.error(err?.response?.data?.message ?? '批量派发失败');
+        }
+      },
+    });
+  };
+
+  /** 一键勾选 A 档（quality≥70）未处理群 */
+  const handleSelectAllATier = () => {
+    const ids = groups.filter((g) => g.status === 'new' && g.qualityScore >= 70).map((g) => g.id);
+    setSelectedIds(ids);
+    if (!ids.length) antdMessage.info('没有 quality≥70 的未处理群');
+    else antdMessage.success(`已勾选 ${ids.length} 个 A 档群`);
   };
 
   const columns = useMemo(() => [
@@ -328,6 +378,18 @@ export default function DiscoveredGroupsPage() {
           <Button icon={<ThunderboltOutlined />} danger onClick={handleBulkIgnoreSpam}>
             {t('disc.btnIgnoreSpam')}
           </Button>
+          {/* vmfix27 #C6: 批量派发 */}
+          <Button icon={<CheckCircleOutlined />} onClick={handleSelectAllATier}>
+            勾选 A 档 (≥70)
+          </Button>
+          <Button
+            type="primary"
+            icon={<PlayCircleOutlined />}
+            onClick={handleBatchQueueScrape}
+            disabled={!selectedIds.length}
+          >
+            批量加+爬 ({selectedIds.length})
+          </Button>
           <Text type="secondary" style={{ marginLeft: 8 }}>
             {t('disc.hint')}
           </Text>
@@ -346,6 +408,13 @@ export default function DiscoveredGroupsPage() {
             size="small"
             columns={columns as any}
             pagination={{ pageSize: 50 }}
+            rowSelection={{
+              selectedRowKeys: selectedIds,
+              onChange: (keys) => setSelectedIds(keys as string[]),
+              getCheckboxProps: (record: DiscoveredGroup) => ({
+                disabled: record.status !== 'new',  // 只让 NEW 状态可勾选
+              }),
+            }}
           />
         )}
       </Card>

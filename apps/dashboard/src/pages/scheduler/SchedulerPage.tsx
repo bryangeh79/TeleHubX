@@ -53,7 +53,7 @@ type TaskType =
   // 组合配套
   | 'preset_full_14d' | 'preset_warmup_7d' | 'preset_rampup_7d' | 'preset_mature_ops'
   // 群组发现+加入
-  | 'join_groups' | 'join_groups_by_keyword' | 'discover_groups_by_keyword' | 'join_channels' | 'accept_invites'
+  | 'join_groups' | 'join_groups_by_keyword' | 'discover_groups_by_keyword' | 'discover_groups_by_invites' | 'join_channels' | 'accept_invites'
   // 自建群
   | 'group_create' | 'group_invite_members'
   // 群组活动
@@ -117,6 +117,7 @@ const TASK_TYPE_LABELS: Record<TaskType, TaskTypeMeta> = {
   join_groups:            { icon: '🌐', label: 'Join Groups',             color: 'green',    group: 'Groups' },
   join_groups_by_keyword: { icon: '🔍', label: 'Search & Join Groups',    color: 'green',    group: 'Groups' },
   discover_groups_by_keyword: { icon: '🔭', label: 'Discover Groups',     color: 'cyan',     group: 'Groups' },
+  discover_groups_by_invites: { icon: '🔗', label: 'Invite-Link Harvest',  color: 'geekblue', group: 'Groups' },
   join_channels:          { icon: '⭐', label: 'Follow Channels',         color: 'cyan',     group: 'Groups' },
   accept_invites:         { icon: '👥', label: 'Accept Invites',          color: 'green',    group: 'Groups' },
 
@@ -1360,6 +1361,21 @@ function buildPayloadForTaskType(taskType: string, v: any): any {
       keywords: linesToArr(v.searchKeywords),
       minMembers: v.searchMinMembers ?? 50,
       sampleSize: v.discoverSampleSize ?? 100,
+      // vmfix27 #A1/#A3/#B3/#C4/#D1: 高级选项（默认全开）
+      aiExpand: v.discoverAiExpand ?? true,
+      useSearchGlobal: v.discoverUseSearchGlobal ?? true,
+      filterSensitive: v.discoverFilterSensitive ?? true,
+      incrementalHours: v.discoverIncrementalHours ?? 24,
+    };
+  }
+
+  // vmfix27 #A2: 邀请链接收割
+  if (t === 'discover_groups_by_invites') {
+    return {
+      seedGroupChatIds: linesToArr(v.seedGroupChatIds),
+      maxMessagesPerGroup: v.inviteMaxMessages ?? 500,
+      maxLinks: v.inviteMaxLinks ?? 50,
+      filterSensitive: v.inviteFilterSensitive ?? true,
     };
   }
 
@@ -1555,7 +1571,13 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
           showIcon
           style={{ marginBottom: 12 }}
           message={tt('taskF.disc.alert.title')}
-          description={tt('taskF.disc.alert.desc')}
+          description={
+            <>
+              {tt('taskF.disc.alert.desc')}
+              <br />
+              <b>vmfix27 升级</b>：自动 AI 关键词扩展（1 词 → 6 变体）+ 双通道搜索（群名 + 消息内容）+ 敏感群自动过滤 + 24h 增量去重。
+            </>
+          }
         />
         <Form.Item name="searchKeywords" label={tt('taskF.search.keywords')} rules={[{ required: true }]}
           extra={tt('taskF.search.keywordsExtraDisc')}>
@@ -1567,6 +1589,62 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
         <Form.Item name="discoverSampleSize" label={tt('taskF.disc.sampleSize')} initialValue={100}
           extra={tt('taskF.disc.sampleSizeExtra')}>
           <InputNumber min={20} max={200} />
+        </Form.Item>
+        <Form.Item label="vmfix27 高级选项" style={{ marginBottom: 4 }}>
+          <Form.Item name="discoverAiExpand" valuePropName="checked" initialValue={true} noStyle>
+            <Checkbox>启用 AI 关键词扩展（每个原词扩 6 个语义变体）</Checkbox>
+          </Form.Item>
+          <br />
+          <Form.Item name="discoverUseSearchGlobal" valuePropName="checked" initialValue={true} noStyle>
+            <Checkbox>启用消息内容搜索（messages.searchGlobal，召回 5-10×）</Checkbox>
+          </Form.Item>
+          <br />
+          <Form.Item name="discoverFilterSensitive" valuePropName="checked" initialValue={true} noStyle>
+            <Checkbox>自动过滤敏感群（赌博 / 色情 / 跑分）</Checkbox>
+          </Form.Item>
+          <br />
+          <Form.Item name="discoverIncrementalHours" label="增量发现（小时）" initialValue={24}
+            extra="跳过最近 N 小时内已发现过的群；0 = 关闭" style={{ marginTop: 8, marginBottom: 0 }}>
+            <InputNumber min={0} max={168} />
+          </Form.Item>
+        </Form.Item>
+      </>
+    );
+  }
+
+  // ─── vmfix27 #A2: DISCOVER_GROUPS_BY_INVITES ────────────────
+  if (t === 'discover_groups_by_invites') {
+    return (
+      <>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="邀请链接收割"
+          description={
+            <>
+              <b>vmfix27 新功能</b>：从已加入的种子群中扫消息抓 <code>t.me/+xxx</code> 邀请链接，
+              resolve 后落入「群源发现」池。<b>能找到 contacts.Search 完全搜不到的私密群</b>。
+              <br />
+              先用「关键词发现群」找到 1-2 个种子群并加入，再用本任务深挖。
+            </>
+          }
+        />
+        <Form.Item name="seedGroupChatIds" label="种子群（每行一个 @username 或邀请链接）"
+          rules={[{ required: true }]}
+          extra="账号必须已加入这些群">
+          <Input.TextArea rows={3} placeholder="@cryptochat&#10;@vietnam_my_chat" />
+        </Form.Item>
+        <Form.Item name="inviteMaxMessages" label="每个种子群扫描消息数" initialValue={500}
+          extra="越大覆盖越广，但耗时更长（500 条约 2-3 分钟）">
+          <InputNumber min={50} max={2000} />
+        </Form.Item>
+        <Form.Item name="inviteMaxLinks" label="最多 resolve 多少个邀请链接" initialValue={50}
+          extra="防 FloodWait；通常 30-100 合理">
+          <InputNumber min={5} max={200} />
+        </Form.Item>
+        <Form.Item name="inviteFilterSensitive" valuePropName="checked" initialValue={true}>
+          <Checkbox>自动过滤敏感群</Checkbox>
         </Form.Item>
       </>
     );

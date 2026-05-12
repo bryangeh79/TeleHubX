@@ -191,6 +191,76 @@ export async function bulkUpsertDiscoveredGroups(
 }
 
 /**
+ * vmfix27 #A3: 把单个关键词扩展成 N 个语义变体（AI）。
+ * 失败 / AI 不可用 → fallback 到 [原始 keyword]。
+ */
+export async function expandKeywordsViaAI(
+  keyword: string,
+  maxVariants = 8,
+): Promise<string[]> {
+  try {
+    const res = await fetch(`${API_BASE}/ai/expand-keywords`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ keyword, maxVariants }),
+    });
+    if (!res.ok) return [keyword];
+    const j = await res.json() as { variants: string[]; fromAi: boolean };
+    return Array.isArray(j.variants) && j.variants.length ? j.variants : [keyword];
+  } catch {
+    return [keyword];
+  }
+}
+
+/**
+ * vmfix27 #B2: AI 给单个群打目标客户匹配度（0-100）。
+ * 失败 / AI 不可用 → 返回 null，调用方继续用结构化 qualityScore.
+ */
+export async function scoreGroupMatchViaAI(opts: {
+  groupTitle: string;
+  groupDescription?: string;
+  sampleMessages?: string[];
+  targetAudience: string;
+}): Promise<{ score: number; reason: string } | null> {
+  try {
+    const res = await fetch(`${API_BASE}/ai/score-group`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(opts),
+    });
+    if (!res.ok) return null;
+    const j = await res.json() as { score: number; reason: string } | null;
+    return j;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * vmfix27 #C4: 查询同 (tenantId, keyword) 在最近 N 小时内已发现的 tgChatId 集合，
+ * agent 跑前可用来跳过已知群（增量发现）。
+ * 失败返回 null → 调用方应当继续完整搜索。
+ */
+export async function fetchRecentDiscoveredChatIds(
+  tenantId: string,
+  keyword: string,
+  withinHours = 24,
+): Promise<Set<string> | null> {
+  try {
+    const url = new URL(`${API_BASE}/discovered-groups/recent`);
+    url.searchParams.set('tenantId', tenantId);
+    url.searchParams.set('keyword', keyword);
+    url.searchParams.set('withinHours', String(withinHours));
+    const res = await fetch(url.toString(), { headers: authHeaders() });
+    if (!res.ok) return null;
+    const j = await res.json() as { tgChatIds: string[] };
+    return new Set(j.tgChatIds ?? []);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Codex round-8: campaign_single 真消息发送成功后立即标记 task.messageSentAt,
  * 防 reportCampaignSent 失败 → task failed → retry 重发同一消息给客户.
  * 失败静默 — server 端 sentCountedAt 仍是最终幂等门.

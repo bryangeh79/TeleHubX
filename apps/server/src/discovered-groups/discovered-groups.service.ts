@@ -33,30 +33,82 @@ export class DiscoveredGroupsService {
   ) {}
 
   /**
-   * 综合质量评分 0-100：
-   * - 基础 30 分
-   * - participantsCount: 50-1k → +10, 1k-50k → +30 (sweet spot), 50k-200k → +20
-   * - isGigagroup → -30（非 admin 不能 list 成员）
-   * - kind=channel → -50（频道无法爬成员）
-   * - kind=basic → +10（基础群一般有真讨论）
-   * - hasRealSenders=true → +30
-   * - sampledRealSenders >= 10 → +20
+   * vmfix27 #B1: 4 维度综合质量评分 0-100（每维 25 分 + 类型 bonus/惩罚）。
+   *
+   * 老逻辑（vmfix25 及以前）撞 binary tendency：
+   *   - 实测分布: A(≥80)=17 / B(60-80)=1 / C(30-60)=0 / D(<30)=19
+   *   - 原因: hasRealSenders=true → +30 / participantsCount 1k-50k → +30 太陡峭，
+   *     非黑即白，缺乏区分度
+   *
+   * 新四维（25 分各）：
+   *   1. size_dim     — 成员数 (50-50k 是 sweet spot)
+   *   2. activity_dim — hasRealSenders + 抽样真发言者数
+   *   3. relevance_dim — 搜索关键词在 title/username 出现 (匹配度)
+   *   4. kind_dim     — kind=basic 最高, mega 次, channel 最低
+   *
+   * 加 penalty:
+   *   - isGigagroup       : -10（非 admin 不能 list 成员）
+   *   - participantsCount未知: -5
    */
   private computeQuality(g: Partial<DiscoveredGroup>): number {
-    let score = 30;
+    // ── 1. size_dim (0-25): 成员数 sweet spot 1k-10k ──
+    let sizeDim = 0;
     const n = g.participantsCount ?? -1;
-    if (n >= 50 && n < 1000) score += 10;
-    else if (n >= 1000 && n < 50_000) score += 30;
-    else if (n >= 50_000 && n < 200_000) score += 20;
-    else if (n >= 200_000) score += 10;
+    if (n < 0)                          sizeDim = 5;   // unknown，给最低分但非 0
+    else if (n < 50)                    sizeDim = 3;   // 太小
+    else if (n < 1_000)                 sizeDim = 15;  // 中等
+    else if (n < 10_000)                sizeDim = 25;  // sweet spot
+    else if (n < 50_000)                sizeDim = 22;
+    else if (n < 200_000)               sizeDim = 18;
+    else                                 sizeDim = 12;  // 太大 (gigagroup 风险)
 
-    if (g.isGigagroup) score -= 30;
-    if (g.kind === DiscoveredGroupKind.CHANNEL) score -= 50;
-    if (g.kind === DiscoveredGroupKind.BASIC) score += 10;
-    if (g.hasRealSenders) score += 30;
-    if ((g.sampledRealSenders ?? 0) >= 10) score += 20;
+    // ── 2. activity_dim (0-25): 真用户活跃度 ──
+    let activityDim = 0;
+    const realSenders = g.sampledRealSenders ?? 0;
+    if (!g.hasRealSenders) {
+      activityDim = 0;  // 全 anonymous broadcast，无引流价值
+    } else if (realSenders >= 30)       activityDim = 25;
+    else if (realSenders >= 10)         activityDim = 18;
+    else if (realSenders >= 5)          activityDim = 12;
+    else if (realSenders >= 1)          activityDim = 6;
+    else                                 activityDim = 3;
 
-    return Math.max(0, Math.min(100, score));
+    // ── 3. relevance_dim (0-25): 关键词出现在 title/username ──
+    let relevanceDim = 0;
+    if (g.keyword) {
+      const kw = g.keyword.toLowerCase();
+      // 关键词可能有多个（空格分隔），算几个 token 命中
+      const tokens = kw.split(/\s+/).filter((t) => t.length >= 2);
+      if (tokens.length) {
+        const title = (g.title ?? '').toLowerCase();
+        const uname = (g.tgUsername ?? '').toLowerCase();
+        let hits = 0;
+        for (const t of tokens) {
+          if (title.includes(t)) hits += 1.5;     // title 命中权重更高
+          else if (uname.includes(t)) hits += 1;
+        }
+        const ratio = Math.min(1, hits / (tokens.length * 1.5));
+        relevanceDim = Math.round(ratio * 25);
+      } else {
+        relevanceDim = 10;  // 无 token 可比 → 给中位
+      }
+    } else {
+      relevanceDim = 10;  // 没记录关键词 → 中位
+    }
+
+    // ── 4. kind_dim (0-25): 群类型偏好 ──
+    let kindDim = 10;
+    if (g.kind === DiscoveredGroupKind.BASIC)        kindDim = 25;  // 基础群 = 小私密 + 真讨论
+    else if (g.kind === DiscoveredGroupKind.MEGA)    kindDim = 22;  // 大群 = 主要营销目标
+    else if (g.kind === DiscoveredGroupKind.CHANNEL) kindDim = 0;   // 频道无法爬成员
+
+    // ── penalty 叠加 ──
+    let penalty = 0;
+    if (g.isGigagroup) penalty += 10;
+    if (n < 0) penalty += 5;
+
+    const total = sizeDim + activityDim + relevanceDim + kindDim - penalty;
+    return Math.max(0, Math.min(100, total));
   }
 
   async list(filter: {
@@ -127,6 +179,30 @@ export class DiscoveredGroupsService {
       }
     }
     return { inserted, updated };
+  }
+
+  /**
+   * vmfix27 #C4 / #D1: 给 agent 用 — 返回最近 N 小时内同关键词已 upsert 的 tgChatIds.
+   * agent 拿到后跳过已知群，等价于 24h cache。
+   */
+  async findRecentByKeyword(
+    tenantId: string,
+    keyword: string,
+    withinHours: number,
+  ): Promise<{ tgChatIds: string[]; lastDiscoveredAt: string | null; count: number }> {
+    const since = new Date(Date.now() - withinHours * 3600_000);
+    const rows = await this.repo.createQueryBuilder('g')
+      .select(['g.tgChatId', 'g.updatedAt'])
+      .where('g."tenantId" = :tid', { tid: tenantId })
+      .andWhere('g.keyword = :kw', { kw: keyword })
+      .andWhere('g."updatedAt" >= :since', { since })
+      .orderBy('g.updatedAt', 'DESC')
+      .getMany();
+    return {
+      tgChatIds: rows.map((r) => r.tgChatId),
+      lastDiscoveredAt: rows[0]?.updatedAt?.toISOString() ?? null,
+      count: rows.length,
+    };
   }
 
   async setStatus(id: string, status: DiscoveredGroupStatus): Promise<DiscoveredGroup> {

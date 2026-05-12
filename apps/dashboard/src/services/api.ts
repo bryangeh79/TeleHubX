@@ -199,11 +199,15 @@ export const discoveredGroupsApi = {
     api.get('/discovered-groups/stats', { params: tenantId ? { tenantId } : {} }),
   queueScrape: (id: string, accountId: string) =>
     api.post(`/discovered-groups/${id}/queue-scrape`, { accountId }),
+  /** vmfix27 #C6: 一次给多个群派发 join+scrape 任务对 */
+  batchQueueScrape: (ids: string[], accountId: string) =>
+    api.post('/discovered-groups/batch-queue-scrape', { ids, accountId }),
   ignore: (id: string) => api.post(`/discovered-groups/${id}/ignore`),
   restore: (id: string) => api.post(`/discovered-groups/${id}/restore`),
   bulkIgnore: (ids: string[]) => api.post('/discovered-groups/bulk-ignore', { ids }),
   remove: (id: string) => api.delete(`/discovered-groups/${id}`),
 };
+
 
 export const maintenanceApi = {
   diagnoseAccounts: () => api.get('/maintenance/accounts/diagnose'),
@@ -353,6 +357,12 @@ export const aiApi = {
   reply: (data: any) => api.post('/ai/reply', data),
   faq: (data: any) => api.post('/ai/faq', data),
   clearConversation: (chatId: string) => api.delete(`/ai/conversation/${chatId}`),
+  /** vmfix27 #A3/#C1: 单关键词 → N 个语义变体（前端 AI 建议按钮用） */
+  expandKeywords: (keyword: string, maxVariants = 8) =>
+    api.post('/ai/expand-keywords', { keyword, maxVariants }),
+  /** vmfix27 #B2: AI 给单个群打目标客户匹配度分数 */
+  scoreGroup: (opts: { groupTitle: string; groupDescription?: string; sampleMessages?: string[]; targetAudience: string }) =>
+    api.post('/ai/score-group', opts),
 };
 
 export const assetsApi = {

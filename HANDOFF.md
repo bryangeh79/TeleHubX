@@ -1,9 +1,9 @@
-# TeleHubX — 会话交接 (2026-05-12)
+# TeleHubX — 会话交接 (2026-05-13)
 
 > **给下一个 Claude Code 会话**：读完这一份 + `工程技术蓝图.md` + `CLAUDE.md` 第七节，即可无缝接手。
-> **2026-05-12 已做**：测试机 vmfix25 端到端深扫 → 锁定 13+ 项真 bug + UX 问题 → vmfix26 修复 8 项核心 ship-blocker（详见下方 G 节），dev 机已 build 验证，**vmfix26 installer build 中**。
-> 上一轮（2026-05-09）做了 **vmfix15 → vmfix25 全套 ship-ready 修复 + 工程技术蓝图编写**，跨 ~30 个 commit。
-> HEAD：`b901695`，已 push GitHub。
+> **2026-05-13 已做**：vmfix26 通过测试机 acceptance + push → 立刻开 vmfix27「关键词发现群强化」**13 项 mega 修复**，dev 机已 build 验证，**vmfix27 installer build 中**。
+> 2026-05-12: 测试机 vmfix25 端到端深扫 → 锁定 13+ 项真 bug + UX → vmfix26 修复 10 项核心，**已 push commit `26609b4`** + `6f4d629`(roadmap)。
+> 2026-05-09: **vmfix15 → vmfix25 全套 ship-ready 修复 + 工程技术蓝图编写**，跨 ~30 个 commit。
 
 ---
 
@@ -108,10 +108,50 @@
 
 ### vmfix26 安装包状态
 
-正在 build（约 6 分钟）。完成后：
-1. SHA256 计算
-2. 测试机重装验 #4 / #6 / #13 / #14 / #15 / #16 / #18 / #23
-3. commit + push + GitHub issue 更新
+✅ **Ship complete (2026-05-12)**:
+- File: `installer/Output/TeleHubX-Setup-1.0.0-vmfix26.exe` 145.24 MB
+- SHA256: `d95cf91b22da9d1fba8cb7eb9bb32072440a67ddc8f2c8da223beb7b1c4f4d31`
+- Commit: `26609b4` pushed
+- 测试机 acceptance: 全过
+
+---
+
+## H. 2026-05-13 vmfix27 关键词发现群强化（mega 一锅 13 项）
+
+### 必修已交付（13 项）
+
+| # | 改动 | 文件 | 用户感知 |
+|---|---|---|---|
+| **D3** | 验证 discovered_groups `(tenantId,tgChatId)` unique index 已就位 | (no code) | dedup 正确 |
+| **B1** | quality 评分重做 4 维（size+activity+relevance+kind 各 25 分 + penalty）| `discovered-groups.service.ts` | 修 binary tendency (老 A 17/C 0/D 19 两极化) |
+| **B3** | 敏感群黑名单（赌博/色情/跑分/政治极端）自动过滤 | `agent/.../sensitive-filter.ts` (new) + `executors.ts` | 自动剔除高风险群 |
+| **A1** | `messages.searchGlobal` 双通道搜（群名 + 消息内容并行）| `executors.ts` `discoverGroupsByKeyword` | 召回 5-10× |
+| **A2** | 邀请链接收割 — 新 executor `discover_groups_by_invites` + 新 TaskType + 前端表单 | `executors.ts` (new fn) + `task.entity.ts` + `SchedulerPage.tsx` | **解锁 contacts.Search 完全搜不到的私密群** |
+| **A3** | AI 关键词扩展 — 单词输入 → 6 个语义变体并发搜 | `ai-agent.service.ts` (new `expandKeywords`) + `ai-agent.controller.ts` (new `/ai/expand-keywords`) + agent server-callback | **直接解「健康 马来西亚」类 0 命中问题** |
+| **B2 backend** | AI 给单群打目标客户匹配度（0-100） | `ai-agent.service.ts` `scoreGroupMatch` + `/ai/score-group` 端点 + agent callback | （前端集成留 vmfix28） |
+| **C1** | 任务对话框信息升级 + 高级选项 checkbox（AI 扩展 / 内容搜 / 敏感过滤 / 增量小时数）| `SchedulerPage.tsx` | 用户能控制 vmfix27 新行为 |
+| **C3** | 失败时智能 fallback 文案（5 条 actionable 提示，含改写建议）| `executors.ts` | 「没命中」错误从含糊变 actionable |
+| **C4** | 增量发现 — 跳过最近 N 小时已发现的群 | `discovered-groups.service.ts` (new `findRecentByKeyword`) + `/recent` 端点 + agent callback | 同关键词二次跑只返新群 |
+| **C6** | 批量派发 A 档群 — 列表 row selection + 一键 batch 加+爬 | `discovered-groups.controller.ts` (new `batch-queue-scrape`) + `DiscoveredGroupsPage.tsx` | 减少 10× 点击 |
+| **D1** | 24h cache（与 C4 同端点实现 — 通过 `findRecentByKeyword` 自然实现）| 同 C4 | 同关键词 24h 内重跑不重打 TG |
+
+### vmfix28 候选（推迟到下一轮）
+
+| # | 待做 | 原因 |
+|---|---|---|
+| **B2 frontend** | DiscoveredGroupsPage 列显示 AI 评分 + reason | 后端已就绪 + 前端 UI 工作量 1h |
+| **B4** | 热度趋势 🔥 tag（最近 7d 消息暴涨）| 需 message timestamp 采样 schema 改动 |
+| **A4** | 多账号 union 搜索 | server task fanout 设计 |
+| **C2** | 「发现 + 加群」一体化任务 | 新 task type + 嵌套 executor |
+| **C5** | 群预览（live peek last 5 messages 不加群）| 新 endpoint + agent peek 机制 + 前端 modal |
+| **C7** | 关键词历史 dashboard | 新 widget |
+| **D2** | FloodWait 自动跨账号分发 | 需 task 重派机制 |
+| **D4** | 任务模板系统 | 新 entity + UI |
+| **A8** | tgstat.com 商业接入 | 商业决策 |
+
+### vmfix27 安装包状态
+
+正在 build（约 6 分钟）。完成后步骤同 vmfix26：SHA256 → 测试机验证 → commit + push。
 
 ---
 
