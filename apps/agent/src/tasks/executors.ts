@@ -1482,62 +1482,113 @@ export async function groupCreate(ctx: ExecutorCtx): Promise<void> {
   if (!title) throw new Error('payload.title 为空');
   if (title.length > 64) throw new Error('群名称超过 64 字');
 
+  // vmfix29 NEW-6: 每步 withTimeout 8s，防止单个 wedged member client 累积拖垮整个任务
+  // errorMsg 写明卡哪一步，让用户能针对性 debug
+  const PER_STEP_TIMEOUT_MS = 8_000;
+
   // 解析初始成员 → InputUser (用各自 client 拿 phone, 再让 creator import)
   const inputUsers: any[] = [];
+  const memberFailures: string[] = [];   // vmfix29 NEW-6: 记录失败原因
   if (memberAccIds.length && ctx.clients) {
     for (const accId of memberAccIds) {
       if (accId === ctx.accountId) continue; // 创建者自己跳过
       const memberClient = ctx.clients.get(accId);
-      if (!memberClient) continue; // 不在本 agent 上，跳过
+      if (!memberClient) {
+        memberFailures.push(`${accId.slice(0, 8)}: 不在本 agent 上`);
+        continue;
+      }
       try {
-        const me: any = await memberClient.getMe();
-        if (!me?.phone) continue;
+        // vmfix29 NEW-6 step 1: getMe 8s 内必须返回（防 wedged client 卡 30s+）
+        const me: any = await withTimeout(
+          memberClient.getMe(),
+          PER_STEP_TIMEOUT_MS,
+          `成员 ${accId.slice(0, 8)} getMe 超时 8s (client 可能 wedged)`,
+        );
+        if (!me?.phone) {
+          memberFailures.push(`${accId.slice(0, 8)}: phone 缺失`);
+          continue;
+        }
         const phone = me.phone.startsWith('+') ? me.phone : `+${me.phone}`;
-        const res: any = await ctx.client.invoke(
-          new Api.contacts.ImportContacts({
-            contacts: [
-              new Api.InputPhoneContact({
-                clientId: BigInt(Date.now() + inputUsers.length) as any,
-                phone,
-                firstName: me.firstName ?? phone,
-                lastName: me.lastName ?? '',
-              }),
-            ],
-          }),
+
+        // vmfix29 NEW-6 step 2: ImportContacts 8s
+        const res: any = await withTimeout(
+          ctx.client.invoke(
+            new Api.contacts.ImportContacts({
+              contacts: [
+                new Api.InputPhoneContact({
+                  clientId: BigInt(Date.now() + inputUsers.length) as any,
+                  phone,
+                  firstName: me.firstName ?? phone,
+                  lastName: me.lastName ?? '',
+                }),
+              ],
+            }),
+          ),
+          PER_STEP_TIMEOUT_MS,
+          `ImportContacts(${phone}) 超时 8s`,
         );
         const u: any = res.users?.[0];
         if (u) inputUsers.push(new Api.InputUser({ userId: u.id, accessHash: u.accessHash }));
+        else memberFailures.push(`${accId.slice(0, 8)}: ImportContacts 未返回 user`);
         await sleep(gaussianDelayMs(800, 1_800));
-      } catch {
-        // 单个成员失败不阻塞整体
+      } catch (err: any) {
+        memberFailures.push(`${accId.slice(0, 8)}: ${err?.message?.slice(0, 80) ?? String(err)}`);
+        // 单个成员失败不阻塞整体（除非 FloodWait，由上层 catch）
+        if (err?.message?.includes('FLOOD')) throw err;
       }
     }
   }
 
   if (groupType === 'small') {
     if (!inputUsers.length) {
-      throw new Error('普通群需要至少 1 个初始成员（本池号）');
+      const summary = memberFailures.length
+        ? `普通群需要至少 1 个初始成员（本池号）。所有候选成员都失败了:\n  ${memberFailures.join('\n  ')}`
+        : '普通群需要至少 1 个初始成员（本池号）。若想独立空建群请改选「超级群」类型。';
+      throw new Error(summary);
     }
-    await ctx.client.invoke(
-      new Api.messages.CreateChat({ users: inputUsers, title }),
+    // vmfix29 NEW-6 step 3: CreateChat 30s timeout（CreateChat 比 ImportContacts 慢一些）
+    await withTimeout(
+      ctx.client.invoke(new Api.messages.CreateChat({ users: inputUsers, title })),
+      30_000,
+      'messages.CreateChat 超时 30s',
     );
   } else {
-    const created: any = await ctx.client.invoke(
-      new Api.channels.CreateChannel({ title, about: '', megagroup: true }),
+    // vmfix29 NEW-6 step 3': CreateChannel 30s
+    const created: any = await withTimeout(
+      ctx.client.invoke(
+        new Api.channels.CreateChannel({ title, about: '', megagroup: true }),
+      ),
+      30_000,
+      'channels.CreateChannel 超时 30s',
     );
     // 从 updates 提取新建频道
     const channel: any = created?.chats?.[0];
     if (!channel) throw new Error('CreateChannel 返回未带 chats');
     if (inputUsers.length) {
       await sleep(gaussianDelayMs(2_000, 4_000));
-      await ctx.client.invoke(
-        new Api.channels.InviteToChannel({
-          channel: new Api.InputChannel({ channelId: channel.id, accessHash: channel.accessHash }),
-          users: inputUsers,
-        }),
+      // vmfix29 NEW-6 step 4: InviteToChannel 30s
+      await withTimeout(
+        ctx.client.invoke(
+          new Api.channels.InviteToChannel({
+            channel: new Api.InputChannel({ channelId: channel.id, accessHash: channel.accessHash }),
+            users: inputUsers,
+          }),
+        ),
+        30_000,
+        'channels.InviteToChannel 超时 30s',
       );
     }
   }
+
+  // vmfix29 NEW-6: 写完成 stats 让 UI 看到
+  ctx.doneMessage = JSON.stringify({
+    statsType: 'group_create',
+    title,
+    groupType,
+    requestedMembers: memberAccIds.length,
+    addedMembers: inputUsers.length,
+    memberFailures: memberFailures.slice(0, 10),
+  });
 
   await ctx.reportProgress?.(100);
 }
@@ -1979,7 +2030,8 @@ export async function discoverGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
     }
   }
 
-  // vmfix28 #2: 把 stats JSON 写到 task.errorMsg，UI 点「查看」时显示
+  // vmfix28 #2 + vmfix29 NEW-2: 把 stats + top 20 发现群清单 JSON 写到 task.errorMsg
+  // UI 点「查看」时既能看到统计也能看到具体发现了哪些群（title + username + quality）
   ctx.doneMessage = JSON.stringify({
     statsType: 'discover_groups_by_keyword',
     contactsHits: stats.contactsHits,
@@ -1998,6 +2050,19 @@ export async function discoverGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
     autoJoinAfter,
     autoJoinDispatched: autoJoinResult?.dispatched ?? 0,
     autoJoinThreshold: autoJoinAfter ? autoJoinThreshold : null,
+    // vmfix29 NEW-2: top 20 发现的群（按 participantsCount 倒序）让 UI 直接展示
+    discoveredGroups: discovered
+      .slice()
+      .sort((a, b) => (b.participantsCount ?? -1) - (a.participantsCount ?? -1))
+      .slice(0, 20)
+      .map((g) => ({
+        title: g.title,
+        tgUsername: g.tgUsername ?? null,
+        kind: g.kind,
+        participantsCount: g.participantsCount ?? -1,
+        source: g.discoverSource ?? 'contacts',
+        keyword: g.keyword ?? null,
+      })),
   });
 
   await ctx.reportProgress?.(100);
@@ -2250,6 +2315,258 @@ export async function discoverGroupsByInvites(ctx: ExecutorCtx): Promise<void> {
     `resolved=${resolved} dead=${dead} blocked=${blockedSensitive} ` +
     `→ 入库 inserted=${result.inserted} updated=${result.updated}`,
   );
+
+  // vmfix29 NEW-2: 写完成 stats + 发现群清单
+  ctx.doneMessage = JSON.stringify({
+    statsType: 'discover_groups_by_invites',
+    seedGroupsCount: seedGroups.length,
+    linksFound: foundHashes.size,
+    resolved,
+    dead,
+    blockedSensitive,
+    inserted: result.inserted,
+    updated: result.updated,
+    discoveredGroups: discovered.slice(0, 20).map((g) => ({
+      title: g.title,
+      tgUsername: g.tgUsername ?? null,
+      kind: g.kind,
+      participantsCount: g.participantsCount ?? -1,
+      source: 'invite_harvest' as const,
+    })),
+  });
+
+  await ctx.reportProgress?.(100);
+}
+
+
+// ─── vmfix29 A5/A6/A7: 滚雪球发现 executor ──────────────────────────
+/**
+ * 从种子群滚雪球发现新群/频道：
+ *   A5 — 扫种子群活跃成员 user.about 里的 t.me/<channel> 链接
+ *   A6 — 扫种子群历史消息的 fwdFrom 转发源 (channel / group)
+ *   A7 — 调 messages.GetCommonChats(user) 看活跃成员共有的其它群
+ *
+ * payload:
+ *   seedGroupChatIds: string[]   — @username 或 chat_id（已加入的群）
+ *   maxMessagesPerGroup?: 300    — 每种子群最多扫历史消息
+ *   probeUsers?: 5               — 探测多少个活跃成员的 about / commonChats
+ *   enableA5?: true              — user.about 挖链接
+ *   enableA6?: true              — forwarded 源回溯
+ *   enableA7?: true              — GetCommonChats 跨群展开
+ *   filterSensitive?: true
+ */
+export async function discoverGroupsBySnowball(ctx: ExecutorCtx): Promise<void> {
+  const seedGroups: string[] = (ctx.payload.seedGroupChatIds ?? []) as string[];
+  const maxMessagesPerGroup: number = Math.min(1000, Math.max(50, (ctx.payload.maxMessagesPerGroup as number) ?? 300));
+  const probeUsers: number = Math.min(20, Math.max(1, (ctx.payload.probeUsers as number) ?? 5));
+  const enableA5: boolean = (ctx.payload.enableA5 as boolean) ?? true;
+  const enableA6: boolean = (ctx.payload.enableA6 as boolean) ?? true;
+  const enableA7: boolean = (ctx.payload.enableA7 as boolean) ?? true;
+  const filterSensitive: boolean = (ctx.payload.filterSensitive as boolean) ?? true;
+
+  if (!seedGroups.length) throw new Error('payload.seedGroupChatIds 不能为空');
+  if (!ctx.tenantId) throw new Error('ctx.tenantId 缺失');
+
+  const candidates: any[] = [];        // candidate chat entities
+  const seenChatIds = new Set<string>();
+  const stats = {
+    seedsProcessed: 0,
+    a5_aboutHits: 0,
+    a6_forwardedHits: 0,
+    a7_commonChatHits: 0,
+    blockedSensitive: 0,
+  };
+
+  // 正则匹配 about 里的 t.me/<channel> 链接（含 @ 形式）
+  const ABOUT_LINK_RE = /(?:t\.me\/|tg:\/\/resolve\?domain=|@)([a-zA-Z][a-zA-Z0-9_]{4,31})/g;
+
+  for (const seed of seedGroups) {
+    try {
+      const seedEntity: any = await ctx.client.getEntity(seed).catch(() => null);
+      if (!seedEntity) {
+        console.warn(`[snowball] seed ${seed} resolve 失败`);
+        continue;
+      }
+      stats.seedsProcessed++;
+      const msgs: any[] = await ctx.client.getMessages(seedEntity, { limit: maxMessagesPerGroup });
+
+      // ── A6: forwarded 源回溯 ──
+      if (enableA6) {
+        const fwdChannelIds = new Set<string>();
+        for (const m of msgs) {
+          const fwd = m.fwdFrom;
+          if (fwd?.fromId?.className === 'PeerChannel') {
+            fwdChannelIds.add(String(fwd.fromId.channelId));
+          }
+        }
+        for (const cid of fwdChannelIds) {
+          try {
+            // 通过 channels.GetChannels 解析 channel info
+            const r: any = await ctx.client.invoke(new Api.channels.GetChannels({
+              id: [new Api.InputChannel({ channelId: BigInt(cid) as any, accessHash: BigInt(0) as any })] as any,
+            } as any)).catch(() => null);
+            const ch = r?.chats?.[0];
+            if (ch && !seenChatIds.has(String(ch.id))) {
+              seenChatIds.add(String(ch.id));
+              candidates.push({ chat: ch, sourceKw: `snowball_fwd_${seed.slice(0, 20)}` });
+              stats.a6_forwardedHits++;
+            }
+          } catch { /* 单个失败跳过 */ }
+          await sleep(gaussianDelayMs(800, 1500));
+        }
+      }
+
+      // 找最活跃 N 个发言用户（A5 + A7 用）
+      let activeUserIds: string[] = [];
+      if (enableA5 || enableA7) {
+        const senderCount = new Map<string, number>();
+        for (const m of msgs) {
+          const fromId = m.fromId;
+          if (fromId?.className === 'PeerUser') {
+            const uid = String(fromId.userId);
+            senderCount.set(uid, (senderCount.get(uid) ?? 0) + 1);
+          }
+        }
+        activeUserIds = Array.from(senderCount.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, probeUsers)
+          .map(([uid]) => uid);
+      }
+
+      // ── A5: user.about 挖链接 ──
+      if (enableA5 && activeUserIds.length) {
+        for (const uid of activeUserIds) {
+          try {
+            const full: any = await ctx.client.invoke(new Api.users.GetFullUser({
+              id: new Api.InputUser({ userId: BigInt(uid) as any, accessHash: BigInt(0) as any }) as any,
+            } as any)).catch(() => null);
+            const about: string = full?.fullUser?.about ?? '';
+            if (!about) { await sleep(gaussianDelayMs(500, 1200)); continue; }
+            let m: RegExpExecArray | null;
+            while ((m = ABOUT_LINK_RE.exec(about)) !== null) {
+              const handle = m[1];
+              // resolve username
+              try {
+                const resolved: any = await ctx.client.invoke(new Api.contacts.ResolveUsername({ username: handle }));
+                const ch = resolved?.chats?.[0];
+                if (ch && !seenChatIds.has(String(ch.id))) {
+                  seenChatIds.add(String(ch.id));
+                  candidates.push({ chat: ch, sourceKw: `snowball_about_${seed.slice(0, 20)}` });
+                  stats.a5_aboutHits++;
+                }
+              } catch { /* invalid username, skip */ }
+              await sleep(gaussianDelayMs(500, 1200));
+            }
+          } catch { /* skip */ }
+          await sleep(gaussianDelayMs(800, 1800));
+        }
+      }
+
+      // ── A7: GetCommonChats 跨群展开 ──
+      if (enableA7 && activeUserIds.length) {
+        for (const uid of activeUserIds) {
+          try {
+            const cc: any = await ctx.client.invoke(new Api.messages.GetCommonChats({
+              userId: new Api.InputUser({ userId: BigInt(uid) as any, accessHash: BigInt(0) as any }) as any,
+              maxId: BigInt(0) as any,
+              limit: 20,
+            } as any)).catch(() => null);
+            const chats = cc?.chats ?? [];
+            for (const ch of chats) {
+              if (!seenChatIds.has(String(ch.id))) {
+                seenChatIds.add(String(ch.id));
+                candidates.push({ chat: ch, sourceKw: `snowball_common_${seed.slice(0, 20)}` });
+                stats.a7_commonChatHits++;
+              }
+            }
+          } catch { /* skip */ }
+          await sleep(gaussianDelayMs(1000, 2000));
+        }
+      }
+
+      await sleep(gaussianDelayMs(2000, 4000));
+    } catch (err: any) {
+      console.warn(`[snowball] seed ${seed} failed: ${err?.message?.slice(0, 80)}`);
+    }
+  }
+
+  if (!candidates.length) {
+    throw new Error(
+      `从 ${seedGroups.length} 个种子群滚雪球，没找到新群。` +
+      `已扫: A5(${stats.a5_aboutHits}) A6(${stats.a6_forwardedHits}) A7(${stats.a7_commonChatHits})。` +
+      `建议: 1) 换更活跃的种子群; 2) 提高 maxMessagesPerGroup; 3) 提高 probeUsers`
+    );
+  }
+
+  // 转 DiscoveredGroupUpsertItem
+  const discovered: DiscoveredGroupUpsertItem[] = [];
+  for (const { chat, sourceKw } of candidates) {
+    if (chat.deactivated || chat.kicked) continue;
+    const title: string = chat.title ?? '';
+    const tgUsername = (chat.username as string | undefined) ?? null;
+
+    if (filterSensitive && isSensitiveGroup(title, tgUsername)) {
+      stats.blockedSensitive++;
+      continue;
+    }
+
+    let kind: 'mega' | 'channel' | 'basic' | 'gigagroup' = 'mega';
+    if (chat.broadcast) kind = 'channel';
+    else if (chat.megagroup) kind = 'mega';
+    else if (chat.className === 'Chat') kind = 'basic';
+    if (chat.gigagroup) kind = 'gigagroup';
+
+    discovered.push({
+      tgChatId: String(chat.id),
+      tgUsername,
+      title,
+      kind,
+      participantsCount: (chat.participantsCount as number) ?? -1,
+      isGigagroup: chat.gigagroup === true,
+      hasRealSenders: false,
+      sampledMessages: 0,
+      sampledRealSenders: 0,
+      keyword: sourceKw,
+      discoveredByAccountId: ctx.accountId ?? null,
+      discoverTaskId: ctx.taskId ?? null,
+      discoverSource: 'snowball',
+    });
+  }
+
+  if (!discovered.length) {
+    throw new Error(
+      `滚雪球抓到 ${candidates.length} 个候选但全部过滤掉 (敏感: ${stats.blockedSensitive})`
+    );
+  }
+
+  const result = await bulkUpsertDiscoveredGroups(ctx.tenantId, discovered);
+  if (!result) throw new Error('bulkUpsertDiscoveredGroups 失败');
+
+  console.info(
+    `[discover_groups_by_snowball] seeds=${seedGroups.length} ` +
+    `A5_about=${stats.a5_aboutHits} A6_fwd=${stats.a6_forwardedHits} A7_common=${stats.a7_commonChatHits} ` +
+    `blocked=${stats.blockedSensitive} → 入库 inserted=${result.inserted} updated=${result.updated}`
+  );
+
+  // vmfix29 NEW-2: 写完成 stats + 群清单
+  ctx.doneMessage = JSON.stringify({
+    statsType: 'discover_groups_by_snowball',
+    seedGroupsCount: seedGroups.length,
+    a5_aboutHits: stats.a5_aboutHits,
+    a6_forwardedHits: stats.a6_forwardedHits,
+    a7_commonChatHits: stats.a7_commonChatHits,
+    blockedSensitive: stats.blockedSensitive,
+    inserted: result.inserted,
+    updated: result.updated,
+    discoveredGroups: discovered.slice(0, 20).map((g) => ({
+      title: g.title,
+      tgUsername: g.tgUsername ?? null,
+      kind: g.kind,
+      participantsCount: g.participantsCount ?? -1,
+      source: 'snowball',
+    })),
+  });
+
   await ctx.reportProgress?.(100);
 }
 
@@ -2278,6 +2595,7 @@ export const EXECUTORS: Record<string, (ctx: ExecutorCtx) => Promise<void>> = {
   join_groups_by_keyword: joinGroupsByKeyword,
   discover_groups_by_keyword: discoverGroupsByKeyword,
   discover_groups_by_invites: discoverGroupsByInvites,
+  discover_groups_by_snowball: discoverGroupsBySnowball,
   group_create:    groupCreate,
   group_invite_members: groupInviteMembers,
 };

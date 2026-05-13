@@ -1,10 +1,12 @@
 # TeleHubX — 会话交接 (2026-05-13)
 
 > **给下一个 Claude Code 会话**：读完这一份 + `工程技术蓝图.md` + `CLAUDE.md` 第七节，即可无缝接手。
-> **2026-05-13 双 mega ship**：
+> **2026-05-13 三 mega ship**：
 >   - vmfix26 push (`26609b4`) — wedge / stale client / 6p 剧本 / GramJS noise / UX
->   - vmfix27 push (`9efd110`) — 关键词发现群 13 项强化（searchGlobal / 邀请链接收割 / AI 扩展 / quality 4 维 / 敏感过滤 / 批量派发 / 增量 cache 等）
->   - **vmfix28 进行中** — 12 项完美工程落地（时间戳列 / 删除按钮 / 来源 tag / AI 评分列 / 热度 tag / 多账号 union / 内联上传 / 群预览 / 关键词历史 widget / FloodWait 跨账号 / 「发现+加群」一体化 / 任务模板系统）
+>   - vmfix27 push (`9efd110`) — 关键词发现群强化 v1 (13 项)
+>   - vmfix28 push (`c979cb5`) — 关键词发现群完美化 (12 项 mega)
+>   - **vmfix29 进行中** — 9 项 UX 收口 + A5/A6/A7 滚雪球发现
+>     (NEW-1 派发账号记录 / NEW-2 发现群清单 / NEW-3 养号日志 / NEW-4 payload 渲染 / NEW-5 表单校验 / NEW-6 group_create 超时优化 / B2-frontend 模板下拉 / A5+A6+A7 滚雪球)
 > 2026-05-12: 测试机 vmfix25 端到端深扫 → 锁定 13+ 项真 bug + UX → vmfix26 修复 10 项核心，**已 push commit `26609b4`** + `6f4d629`(roadmap)。
 > 2026-05-09: **vmfix15 → vmfix25 全套 ship-ready 修复 + 工程技术蓝图编写**，跨 ~30 个 commit。
 

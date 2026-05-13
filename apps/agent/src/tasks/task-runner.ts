@@ -109,9 +109,10 @@ const TASK_TIMEOUT_MS: Record<string, number> = {
   join_groups_by_keyword: 90 * 60 * 1000,
   discover_groups_by_keyword: 15 * 60 * 1000,  // 只搜不加；vmfix27 A1/A3 后多通道更慢，给 15min
   discover_groups_by_invites: 20 * 60 * 1000,  // vmfix27 #A2 邀请链接收割；扫消息 + resolve 慢，给 20min
+  discover_groups_by_snowball: 25 * 60 * 1000, // vmfix29 A5/A6/A7 滚雪球；扫消息 + N 个 users.GetFullUser + GetCommonChats，给 25min
   // contact_add: maxPerDay 默认 3 × 3-10min ≈ 30min → 给 60min
   contact_add:            60 * 60 * 1000,
-  group_create:            5 * 60 * 1000,
+  group_create:           10 * 60 * 1000,  // vmfix29 NEW-6: 5→10min (慢网络/wedged member 容错)
   group_invite_members:   30 * 60 * 1000,
   // campaign_single: targets × variants × 1-5min, 假设 30 个目标 → 给 3h
   campaign_single:         3 * 60 * 60 * 1000,

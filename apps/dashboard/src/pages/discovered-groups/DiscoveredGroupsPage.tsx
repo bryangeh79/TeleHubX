@@ -22,8 +22,8 @@ const { Title, Text } = Typography;
 type Kind = 'mega' | 'channel' | 'basic' | 'gigagroup';
 type Status = 'new' | 'joined' | 'scraped' | 'ignored';
 
-// vmfix28 #2: 来源 enum 跟后端 DiscoverSource 对齐
-type DiscoverSource = 'contacts' | 'global' | 'invite_harvest';
+// vmfix28 #2: 来源 enum 跟后端 DiscoverSource 对齐 (vmfix29 加 snowball)
+type DiscoverSource = 'contacts' | 'global' | 'invite_harvest' | 'snowball';
 
 interface DiscoveredGroup {
   id: string;
@@ -47,12 +47,17 @@ interface DiscoveredGroup {
   aiScore?: number | null;                   // B2 AI 评分
   aiReason?: string | null;                  // B2 AI 评分原因
   recentMessageRate?: number;                // B4 最近 7 天消息占比 (0-100)
+  // vmfix29 NEW-1: 派发账号跟踪
+  dispatchedToAccountId?: string | null;
+  dispatchedToAccountLabel?: string | null;
+  dispatchedAt?: string | null;
 }
 
 const SOURCE_TAG: Record<DiscoverSource, { color: string; label: string }> = {
   contacts:       { color: 'blue',     label: '群名搜索' },
   global:         { color: 'green',    label: '消息搜索' },
   invite_harvest: { color: 'purple',   label: '邀请链接' },
+  snowball:       { color: 'magenta',  label: '滚雪球' },
 };
 
 interface Account {
@@ -427,7 +432,23 @@ export default function DiscoveredGroupsPage() {
             </Button>
           )}
           {(r.status === 'joined' || r.status === 'scraped') && (
-            <Tag color="default">已派发任务</Tag>
+            // vmfix29 NEW-1: 显示派发账号 + 时间
+            <Tooltip
+              title={
+                r.dispatchedToAccountLabel
+                  ? <>
+                      <div>派发给：<b>{r.dispatchedToAccountLabel}</b></div>
+                      {r.dispatchedAt && <div>时间：{dayjs(r.dispatchedAt).format('YYYY-MM-DD HH:mm')}</div>}
+                    </>
+                  : '已派发但未记录账号（vmfix29 之前派发的群无此信息）'
+              }
+            >
+              <Tag color="default">
+                已派发 {r.dispatchedToAccountLabel
+                  ? <Text style={{ fontSize: 11 }}>→ {r.dispatchedToAccountLabel}</Text>
+                  : null}
+              </Tag>
+            </Tooltip>
           )}
           {/* vmfix28 C5: 预览按钮（静态显示 DB 数据） */}
           <Button
@@ -612,6 +633,17 @@ export default function DiscoveredGroupsPage() {
               </p>
               <p><b>状态：</b><Tag color={STATUS_TAG[previewGroup.status].color}>{STATUS_TAG[previewGroup.status].label}</Tag></p>
               <p><b>发现时间：</b>{dayjs(previewGroup.updatedAt).format('YYYY-MM-DD HH:mm:ss')} ({dayjs(previewGroup.updatedAt).fromNow()})</p>
+              {previewGroup.dispatchedToAccountLabel && (
+                <p>
+                  <b>派发给：</b>
+                  <Tag color="purple">{previewGroup.dispatchedToAccountLabel}</Tag>
+                  {previewGroup.dispatchedAt && (
+                    <Text type="secondary" style={{ marginLeft: 8 }}>
+                      于 {dayjs(previewGroup.dispatchedAt).format('YYYY-MM-DD HH:mm')}
+                    </Text>
+                  )}
+                </p>
+              )}
               {(previewGroup.recentMessageRate ?? 0) > 0 && (
                 <p><b>最近 7 天消息占比：</b>{previewGroup.recentMessageRate}%
                   {(previewGroup.recentMessageRate ?? 0) >= 50 && <Tag color="volcano" icon={<FireOutlined />} style={{ marginLeft: 6 }}>HOT</Tag>}

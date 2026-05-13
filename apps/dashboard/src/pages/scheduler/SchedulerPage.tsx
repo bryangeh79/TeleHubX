@@ -7,6 +7,7 @@ import {
   Col,
   DatePicker,
   Descriptions,
+  Dropdown,
   Empty,
   Form,
   Input,
@@ -34,6 +35,7 @@ import {
   LoadingOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
+  AppstoreOutlined,
   PlusOutlined,
   ReloadOutlined,
   ScheduleOutlined,
@@ -42,7 +44,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { accountsApi, assetsApi, chatScriptsApi, leadCandidatesApi, slotsApi, tasksApi } from '../../services/api';
+import { accountsApi, assetsApi, chatScriptsApi, leadCandidatesApi, slotsApi, tasksApi, taskTemplatesApi } from '../../services/api';
 import { resolveErrorClassMeta } from '../../utils/error-class';
 import { useT } from '../../i18n';
 
@@ -53,7 +55,7 @@ type TaskType =
   // 组合配套
   | 'preset_full_14d' | 'preset_warmup_7d' | 'preset_rampup_7d' | 'preset_mature_ops'
   // 群组发现+加入
-  | 'join_groups' | 'join_groups_by_keyword' | 'discover_groups_by_keyword' | 'discover_groups_by_invites' | 'join_channels' | 'accept_invites'
+  | 'join_groups' | 'join_groups_by_keyword' | 'discover_groups_by_keyword' | 'discover_groups_by_invites' | 'discover_groups_by_snowball' | 'join_channels' | 'accept_invites'
   // 自建群
   | 'group_create' | 'group_invite_members'
   // 群组活动
@@ -118,6 +120,7 @@ const TASK_TYPE_LABELS: Record<TaskType, TaskTypeMeta> = {
   join_groups_by_keyword: { icon: '🔍', label: 'Search & Join Groups',    color: 'green',    group: 'Groups' },
   discover_groups_by_keyword: { icon: '🔭', label: 'Discover Groups',     color: 'cyan',     group: 'Groups' },
   discover_groups_by_invites: { icon: '🔗', label: 'Invite-Link Harvest',  color: 'geekblue', group: 'Groups' },
+  discover_groups_by_snowball: { icon: '❄️', label: 'Snowball Discovery',  color: 'magenta',  group: 'Groups' },
   join_channels:          { icon: '⭐', label: 'Follow Channels',         color: 'cyan',     group: 'Groups' },
   accept_invites:         { icon: '👥', label: 'Accept Invites',          color: 'green',    group: 'Groups' },
 
@@ -226,6 +229,9 @@ export default function SchedulerPage() {
   const [filterType, setFilterType] = useState<TaskType | undefined>();
 
   const [createOpen, setCreateOpen] = useState(false);
+  // vmfix29 B2-frontend: 任务模板列表（首次打开新建对话框时加载）
+  const [templates, setTemplates] = useState<Array<{ id: string; name: string; description: string | null; type: string; payload: any; isBuiltin: boolean }>>([]);
+  const [templatesLoaded, setTemplatesLoaded] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   // 账号选项 (供新建任务时下拉选择)
@@ -739,6 +745,88 @@ export default function SchedulerPage() {
           >
             <Button danger icon={<StopOutlined />}>{t('scheduler.killAll')}</Button>
           </Popconfirm>
+          {/* vmfix29 B2-frontend: 「从模板创建」Dropdown 按钮 */}
+          <Dropdown
+            menu={{
+              items: templates.length > 0
+                ? templates.map((tpl) => ({
+                    key: tpl.id,
+                    label: (
+                      <div style={{ maxWidth: 380 }}>
+                        <div style={{ fontWeight: 500 }}>
+                          {tpl.isBuiltin && <Tag color="gold" style={{ marginRight: 4 }}>预设</Tag>}
+                          {tpl.name}
+                        </div>
+                        {tpl.description && (
+                          <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{tpl.description}</div>
+                        )}
+                      </div>
+                    ),
+                    onClick: () => {
+                      // 选模板后：打开新建对话框 + 预填表单
+                      // 把 payload 转换成对应表单字段
+                      setCreateOpen(true);
+                      // 用 setTimeout 等 Modal Form 实例就绪
+                      setTimeout(() => {
+                        try {
+                          const p = tpl.payload ?? {};
+                          // 通用字段：任务类型
+                          form.setFieldsValue({ type: tpl.type });
+                          // discover_groups_by_keyword 字段映射
+                          if (tpl.type === 'discover_groups_by_keyword') {
+                            form.setFieldsValue({
+                              searchKeywords: (p.keywords ?? []).join('\n'),
+                              searchMinMembers: p.minMembers,
+                              discoverSampleSize: p.sampleSize,
+                              discoverAiExpand: p.aiExpand,
+                              discoverUseSearchGlobal: p.useSearchGlobal,
+                              discoverFilterSensitive: p.filterSensitive,
+                              discoverIncrementalHours: p.incrementalHours,
+                              discoverMultiAccountUnion: p.multiAccountUnion,
+                              discoverAiScore: p.aiScore,
+                              discoverAutoJoinAfter: p.autoJoinAfterDiscover,
+                              discoverAutoJoinThreshold: p.autoJoinThreshold,
+                              discoverAutoJoinMax: p.autoJoinMax,
+                            });
+                          } else if (tpl.type === 'discover_groups_by_invites') {
+                            form.setFieldsValue({
+                              seedGroupChatIds: (p.seedGroupChatIds ?? []).join('\n'),
+                              inviteMaxMessages: p.maxMessagesPerGroup,
+                              inviteMaxLinks: p.maxLinks,
+                              inviteFilterSensitive: p.filterSensitive,
+                            });
+                          }
+                          // mark used
+                          taskTemplatesApi.markUsed(tpl.id).catch(() => {});
+                          antdMessage.success(`已应用模板「${tpl.name}」，请选执行账号后提交`);
+                        } catch (err) {
+                          console.warn('apply template failed', err);
+                        }
+                      }, 100);
+                    },
+                  }))
+                : [{ key: '_empty', disabled: true, label: '加载中或无模板...' }],
+            }}
+            placement="bottomRight"
+            onOpenChange={async (open) => {
+              if (open && !templatesLoaded) {
+                try {
+                  const r = await taskTemplatesApi.list();
+                  setTemplates(r.data ?? []);
+                } finally {
+                  setTemplatesLoaded(true);
+                }
+              }
+            }}
+          >
+            <Button
+              size="large"
+              icon={<AppstoreOutlined />}
+              style={{ fontWeight: 500, paddingInline: 18 }}
+            >
+              从模板创建 ▾
+            </Button>
+          </Dropdown>
           <Button
             type="primary"
             size="large"
@@ -892,16 +980,158 @@ export default function SchedulerPage() {
                 </Text>
               </Descriptions.Item>
             )}
-            {logTask.errorMsg && (
-              <Descriptions.Item label={t('task.errorMsg')}>
-                <Text type="danger" style={{ fontSize: 13 }}>{humanizeError(logTask.errorMsg)}</Text>
-              </Descriptions.Item>
-            )}
+            {logTask.errorMsg && (() => {
+              // vmfix28 #2 / vmfix29 NEW-2: 成功任务的 doneMessage 是 JSON stats，渲染成 friendly 表格
+              const errMsg = logTask.errorMsg;
+              if (logTask.status === 'done' && errMsg.startsWith('{')) {
+                try {
+                  const stats = JSON.parse(errMsg);
+                  if (stats?.statsType === 'discover_groups_by_keyword') {
+                    return (
+                      <Descriptions.Item label="完成统计">
+                        <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                          <div>
+                            <Tag color="blue">群名搜索: {stats.contactsHits ?? 0}</Tag>
+                            <Tag color="green">消息搜索: {stats.searchGlobalHits ?? 0}</Tag>
+                            {stats.aiVariantsExpanded > 0 && <Tag color="gold">AI 扩展 +{stats.aiVariantsExpanded}</Tag>}
+                            <Tag color="red">敏感过滤: {stats.blockedSensitive ?? 0}</Tag>
+                            <Tag color="orange">太小过滤: {stats.tooSmall ?? 0}</Tag>
+                            <Tag color="purple">新入库: {stats.inserted ?? 0} | 更新: {stats.updated ?? 0}</Tag>
+                          </div>
+                          {stats.autoJoinAfter && (
+                            <div>
+                              <Tag color="cyan">「发现+加群」自动派: {stats.autoJoinDispatched} 个 (阈值 quality≥{stats.autoJoinThreshold})</Tag>
+                            </div>
+                          )}
+                        </Space>
+                      </Descriptions.Item>
+                    );
+                  }
+                  if (stats?.statsType === 'discover_groups_by_invites') {
+                    return (
+                      <Descriptions.Item label="完成统计">
+                        <Space direction="vertical" size={2}>
+                          <div>
+                            <Tag color="blue">种子群: {stats.seedGroupsCount}</Tag>
+                            <Tag color="cyan">抓到邀请链接: {stats.linksFound}</Tag>
+                            <Tag color="green">resolved: {stats.resolved}</Tag>
+                            <Tag color="orange">死链: {stats.dead}</Tag>
+                            <Tag color="red">敏感过滤: {stats.blockedSensitive}</Tag>
+                          </div>
+                          <Tag color="purple">新入库: {stats.inserted} | 更新: {stats.updated}</Tag>
+                        </Space>
+                      </Descriptions.Item>
+                    );
+                  }
+                  if (stats?.statsType === 'discover_groups_by_snowball') {
+                    return (
+                      <Descriptions.Item label="完成统计">
+                        <Space direction="vertical" size={2}>
+                          <div>
+                            <Tag color="blue">种子群: {stats.seedGroupsCount}</Tag>
+                            <Tag color="magenta">A5 about: {stats.a5_aboutHits}</Tag>
+                            <Tag color="gold">A6 转发源: {stats.a6_forwardedHits}</Tag>
+                            <Tag color="cyan">A7 共同群: {stats.a7_commonChatHits}</Tag>
+                            <Tag color="red">敏感过滤: {stats.blockedSensitive}</Tag>
+                          </div>
+                          <Tag color="purple">新入库: {stats.inserted} | 更新: {stats.updated}</Tag>
+                        </Space>
+                      </Descriptions.Item>
+                    );
+                  }
+                  if (stats?.statsType === 'group_create') {
+                    return (
+                      <Descriptions.Item label="完成统计">
+                        <Space direction="vertical" size={2}>
+                          <div>群名: <Text strong>{stats.title}</Text></div>
+                          <div>
+                            <Tag color={stats.groupType === 'mega' ? 'cyan' : 'purple'}>
+                              {stats.groupType === 'mega' ? '超级群' : '普通群'}
+                            </Tag>
+                            <Tag color="green">实际加入成员: {stats.addedMembers} / 请求 {stats.requestedMembers}</Tag>
+                          </div>
+                          {stats.memberFailures?.length > 0 && (
+                            <div style={{ fontSize: 11, color: '#ff7875' }}>
+                              失败成员（前 10）:
+                              <ul style={{ marginTop: 4, paddingLeft: 16 }}>
+                                {stats.memberFailures.map((f: string, i: number) => <li key={i}>{f}</li>)}
+                              </ul>
+                            </div>
+                          )}
+                        </Space>
+                      </Descriptions.Item>
+                    );
+                  }
+                } catch {
+                  // fall through to plain text rendering
+                }
+              }
+              return (
+                <Descriptions.Item label={t('task.errorMsg')}>
+                  <Text type="danger" style={{ fontSize: 13 }}>{humanizeError(errMsg)}</Text>
+                </Descriptions.Item>
+              );
+            })()}
             {logTask.payload && Object.keys(logTask.payload).length > 0 && (
               renderPayloadAsKv(logTask.type, logTask.payload, accountSlotMap, accountOptions)
             )}
           </Descriptions>
         )}
+
+        {/* vmfix29 NEW-2: discover 任务发现的群清单 (top 20) */}
+        {logTask && logTask.status === 'done' && logTask.errorMsg && logTask.errorMsg.startsWith('{') && (() => {
+          try {
+            const stats = JSON.parse(logTask.errorMsg);
+            const groups = stats?.discoveredGroups;
+            if (!Array.isArray(groups) || !groups.length) return null;
+            return (
+              <Card size="small" style={{ marginTop: 12 }} title={`📋 发现的群清单 (top ${groups.length})`}>
+                <Table
+                  size="small"
+                  dataSource={groups}
+                  rowKey={(r: any, i?: number) => r.tgUsername ?? `idx-${i}`}
+                  pagination={false}
+                  columns={[
+                    { title: '群名', dataIndex: 'title', render: (v: string) => <Text strong>{v}</Text> },
+                    {
+                      title: 'username',
+                      dataIndex: 'tgUsername',
+                      width: 150,
+                      render: (v: string | null) => v ? <Text code>@{v}</Text> : <Text type="secondary">-</Text>,
+                    },
+                    {
+                      title: '成员数',
+                      dataIndex: 'participantsCount',
+                      width: 80,
+                      render: (n: number) => n < 0 ? '?' : n.toLocaleString(),
+                    },
+                    {
+                      title: '类型',
+                      dataIndex: 'kind',
+                      width: 70,
+                      render: (k: string) => <Tag>{k}</Tag>,
+                    },
+                    {
+                      title: '来源',
+                      dataIndex: 'source',
+                      width: 80,
+                      render: (s: string) => {
+                        const map: Record<string, { color: string; label: string }> = {
+                          contacts: { color: 'blue', label: '群名搜' },
+                          global: { color: 'green', label: '消息搜' },
+                          invite_harvest: { color: 'purple', label: '邀请链接' },
+                          snowball: { color: 'magenta', label: '滚雪球' },
+                        };
+                        const m = map[s] ?? { color: 'default', label: s };
+                        return <Tag color={m.color}>{m.label}</Tag>;
+                      },
+                    },
+                  ]}
+                />
+              </Card>
+            );
+          } catch { return null; }
+        })()}
 
         {/* keyword_lead_hunt → 候选人收集进度 + 来源群分布 */}
         {logTask && logTask.type === 'keyword_lead_hunt' && (
@@ -1300,6 +1530,68 @@ function renderPayloadAsKv(
     if (payload.bio) items.push(['新签名', <Text>"{payload.bio}"</Text>]);
     if (payload.photoPath) items.push(['新头像', <Text type="secondary">已设置</Text>]);
   }
+  // vmfix29 NEW-4: group_create payload 渲染
+  else if (type === 'group_create') {
+    if (payload.title) items.push(['群名称', <Text strong>{payload.title}</Text>]);
+    if (payload.type) {
+      items.push(['群类型', payload.type === 'mega'
+        ? <Tag color="cyan">超级群 (可空建)</Tag>
+        : <Tag color="purple">普通群 (需 ≥1 成员)</Tag>]);
+    }
+    const members: string[] = payload.initialMemberAccountIds ?? [];
+    if (members.length) {
+      items.push(['初始成员', (
+        <Space wrap size={4}>
+          {members.map((mid: string) => (
+            <span key={mid}>{lookupAccount(mid, accountSlotMap, accountOptions)}</span>
+          ))}
+          <Text type="secondary">（共 {members.length} 个）</Text>
+        </Space>
+      )]);
+    } else {
+      items.push(['初始成员', <Text type="secondary">（未选）</Text>]);
+    }
+  }
+  // vmfix29 NEW-4: group_invite_members
+  else if (type === 'group_invite_members') {
+    if (payload.tgChatId) items.push(['目标群', <Text code>{payload.tgChatId}</Text>]);
+    const targets: string[] = payload.targetAccountIds ?? [];
+    if (targets.length) {
+      items.push(['要邀请的号', (
+        <Space wrap size={4}>
+          {targets.map((tid: string) => (
+            <span key={tid}>{lookupAccount(tid, accountSlotMap, accountOptions)}</span>
+          ))}
+          <Text type="secondary">（共 {targets.length} 个）</Text>
+        </Space>
+      )]);
+    }
+  }
+  // vmfix29 NEW-4: discover_groups_by_keyword payload 详情
+  else if (type === 'discover_groups_by_keyword') {
+    if (Array.isArray(payload.keywords)) {
+      items.push(['关键词', (
+        <Space wrap size={4}>
+          {payload.keywords.map((k: string, i: number) => <Tag key={i}>{k}</Tag>)}
+        </Space>
+      )]);
+    }
+    if (payload.minMembers) items.push(['最小成员数', payload.minMembers]);
+    if (payload.aiExpand) items.push(['AI 关键词扩展', <Tag color="gold">✓ 启用</Tag>]);
+    if (payload.useSearchGlobal) items.push(['消息内容搜', <Tag color="green">✓ 启用</Tag>]);
+    if (payload.multiAccountUnion) items.push(['多账号 union', <Tag color="blue">✓ 启用</Tag>]);
+    if (payload.aiScore) items.push(['AI 群评分', <Tag color="purple">✓ 启用</Tag>]);
+    if (payload.autoJoinAfterDiscover) {
+      items.push(['完成后自动加群', <Tag color="orange">✓ A 档≥{payload.autoJoinThreshold ?? 70}, 最多 {payload.autoJoinMax ?? 5} 个</Tag>]);
+    }
+  }
+  // vmfix29 NEW-4: discover_groups_by_invites payload
+  else if (type === 'discover_groups_by_invites') {
+    const seeds: string[] = payload.seedGroupChatIds ?? [];
+    if (seeds.length) items.push(['种子群', <Text>{seeds.slice(0, 3).join(', ')}{seeds.length > 3 ? ` + ${seeds.length - 3} 个` : ''}</Text>]);
+    if (payload.maxMessagesPerGroup) items.push(['每群扫消息上限', payload.maxMessagesPerGroup]);
+    if (payload.maxLinks) items.push(['最多 resolve 邀请链接', payload.maxLinks]);
+  }
   // 其他类型 — 没有专属人话渲染时，显示「无额外参数」
   else {
     if (Object.keys(payload).length > 0) {
@@ -1382,6 +1674,19 @@ function buildPayloadForTaskType(taskType: string, v: any): any {
       maxMessagesPerGroup: v.inviteMaxMessages ?? 500,
       maxLinks: v.inviteMaxLinks ?? 50,
       filterSensitive: v.inviteFilterSensitive ?? true,
+    };
+  }
+
+  // vmfix29 A5/A6/A7: 滚雪球发现
+  if (t === 'discover_groups_by_snowball') {
+    return {
+      seedGroupChatIds: linesToArr(v.snowSeedChatIds),
+      maxMessagesPerGroup: v.snowMaxMessages ?? 300,
+      probeUsers: v.snowProbeUsers ?? 5,
+      enableA5: v.snowEnableA5 ?? true,
+      enableA6: v.snowEnableA6 ?? true,
+      enableA7: v.snowEnableA7 ?? true,
+      filterSensitive: v.snowFilterSensitive ?? true,
     };
   }
 
@@ -1655,6 +1960,58 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
     );
   }
 
+  // ─── vmfix29 A5/A6/A7: DISCOVER_GROUPS_BY_SNOWBALL ─────────
+  if (t === 'discover_groups_by_snowball') {
+    return (
+      <>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="滚雪球发现"
+          description={
+            <>
+              <b>vmfix29 新功能</b>：从已加入的种子群挖三种关系链：
+              <ul style={{ margin: '4px 0 0 16px' }}>
+                <li><b>A5 user.about 挖链接</b> — 扫活跃成员的简介里的 t.me 链接</li>
+                <li><b>A6 转发源回溯</b> — 扫种子群消息的 fwdFrom 拿到源频道</li>
+                <li><b>A7 共同群展开</b> — 调 GetCommonChats 看你跟成员共有哪些其它群</li>
+              </ul>
+              比邀请链接收割（A2）更深，能挖到「邻居群」/「同一圈子的其它群」。
+            </>
+          }
+        />
+        <Form.Item name="snowSeedChatIds" label="种子群（每行一个 @username）" rules={[{ required: true }]}>
+          <Input.TextArea rows={3} placeholder="@cryptochat&#10;@vietnam_my_chat" />
+        </Form.Item>
+        <Form.Item name="snowMaxMessages" label="每种子群扫消息数" initialValue={300}
+          extra="A6 fwd 回溯 + 活跃用户挑选都基于此样本（300 条约 2-3min）">
+          <InputNumber min={50} max={1000} />
+        </Form.Item>
+        <Form.Item name="snowProbeUsers" label="探测活跃用户数（A5/A7 用）" initialValue={5}
+          extra="挑选最活跃的 N 个成员去查 about / commonChats">
+          <InputNumber min={1} max={20} />
+        </Form.Item>
+        <Form.Item label="启用哪些子方法" style={{ marginBottom: 4 }}>
+          <Form.Item name="snowEnableA5" valuePropName="checked" initialValue={true} noStyle>
+            <Checkbox>A5 — user.about 挖 t.me 链接</Checkbox>
+          </Form.Item>
+          <br />
+          <Form.Item name="snowEnableA6" valuePropName="checked" initialValue={true} noStyle>
+            <Checkbox>A6 — forwarded 源回溯（最准）</Checkbox>
+          </Form.Item>
+          <br />
+          <Form.Item name="snowEnableA7" valuePropName="checked" initialValue={true} noStyle>
+            <Checkbox>A7 — GetCommonChats 共同群展开</Checkbox>
+          </Form.Item>
+        </Form.Item>
+        <Form.Item name="snowFilterSensitive" valuePropName="checked" initialValue={true}>
+          <Checkbox>自动过滤敏感群</Checkbox>
+        </Form.Item>
+      </>
+    );
+  }
+
   // ─── vmfix27 #A2: DISCOVER_GROUPS_BY_INVITES ────────────────
   if (t === 'discover_groups_by_invites') {
     return (
@@ -1716,21 +2073,61 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
 
   // ─── GROUP_CREATE ───────────────────────────────────────
   if (t === 'group_create') {
+    // vmfix29 NEW-5: 根据「群类型」实时切换 initialMembers 是否必填
     return (
       <>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="自建群说明"
+          description={
+            <>
+              <b>普通群</b>(small chat) — TG 协议要求至少 1 个初始成员（本池里的其它号），不能独立空建。<br />
+              <b>超级群</b>(megagroup) — 可以独立空建，之后再用「邀请成员到群」任务加人。
+            </>
+          }
+        />
         <Form.Item name="groupTitle" label={tt('createGroup.title')} rules={[{ required: true }]}>
           <Input placeholder={tt('createGroup.titlePlaceholder')} maxLength={64} />
         </Form.Item>
         <Form.Item name="groupType" label={tt('createGroup.type')} initialValue="small">
           <Radio.Group>
-            <Radio value="small">{tt('createGroup.type.small')}</Radio>
-            <Radio value="mega">{tt('createGroup.type.mega')}</Radio>
+            <Radio value="small">{tt('createGroup.type.small')} <Text type="secondary" style={{ fontSize: 11 }}>（必须选成员）</Text></Radio>
+            <Radio value="mega">{tt('createGroup.type.mega')} <Text type="secondary" style={{ fontSize: 11 }}>（成员可选）</Text></Radio>
           </Radio.Group>
         </Form.Item>
-        <Form.Item name="initialMembers" label={tt('createGroup.initialMembers')}>
-          <Select mode="multiple" placeholder={tt('createGroup.initialMembersPlaceholder')} showSearch optionFilterProp="phone"
-            filterOption={(input, option: any) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
-            options={accountOptions} />
+        <Form.Item
+          noStyle
+          shouldUpdate={(prev, cur) => prev.groupType !== cur.groupType}
+        >
+          {({ getFieldValue }) => {
+            const gtype = getFieldValue('groupType') ?? 'small';
+            return (
+              <Form.Item
+                name="initialMembers"
+                label={tt('createGroup.initialMembers')}
+                rules={[{
+                  required: gtype === 'small',
+                  validator: (_, val) => {
+                    if (gtype === 'small' && (!val || val.length === 0)) {
+                      return Promise.reject(new Error('普通群必须 ≥1 个初始成员；如想独立空建请改选超级群'));
+                    }
+                    return Promise.resolve();
+                  },
+                }]}
+                extra={
+                  gtype === 'small'
+                    ? 'TG 协议要求：普通群必须有初始成员，否则 CreateChat 失败'
+                    : '超级群可不选成员；建议 ≤3 个号同时建一群（防风控）'
+                }
+              >
+                <Select mode="multiple" placeholder={tt('createGroup.initialMembersPlaceholder')} showSearch optionFilterProp="phone"
+                  filterOption={(input, option: any) => (option?.phone ?? '').toLowerCase().includes(input.toLowerCase())}
+                  options={accountOptions} />
+              </Form.Item>
+            );
+          }}
         </Form.Item>
       </>
     );

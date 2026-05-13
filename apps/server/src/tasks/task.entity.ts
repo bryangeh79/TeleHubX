@@ -36,6 +36,13 @@ export enum TaskType {
    *  resolve 得到群信息后落 discovered_groups。覆盖 contacts.Search 拿不到的私密群。
    *  payload: { seedGroupChatIds: [chat_id|@username], maxMessagesPerGroup?:500, maxLinks?:50 } */
   DISCOVER_GROUPS_BY_INVITES = 'discover_groups_by_invites',
+  /** vmfix29 A5/A6/A7: 滚雪球发现 — 从种子群挖
+   *  A5: 群成员 user.about 里的 t.me/<channel> 链接
+   *  A6: forwarded 消息源 (m.fwdFrom.fromId → channel)
+   *  A7: 活跃成员的 GetCommonChats → 他们其它共享群
+   *  payload: { seedGroupChatIds: [], maxMessagesPerGroup?:300, probeUsers?:5,
+   *             enableA5?:true, enableA6?:true, enableA7?:true } */
+  DISCOVER_GROUPS_BY_SNOWBALL = 'discover_groups_by_snowball',
   /** ⭐ Follow 频道。payload: { channels: [@username 或 invite link 列表] } */
   JOIN_CHANNELS            = 'join_channels',
   /** 👥 接受所有 pending 群组邀请。payload: { autoAcceptAll: true } */

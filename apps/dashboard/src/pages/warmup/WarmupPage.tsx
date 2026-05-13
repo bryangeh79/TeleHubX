@@ -617,11 +617,26 @@ export default function WarmupPage() {
             </Button>
           );
         }
+        // vmfix29 NEW-3: 即使 row.plan 存在，也提供查看日志按钮（如果有 presetTask）
+        // 这样养号中的每个号都能直接打开任务详情看子任务进度
+        const planLogsBtn = row.presetTask ? (
+          <Tooltip title={t('wu.btnViewPresetLogs')}>
+            <Button
+              size="small"
+              icon={<UnorderedListOutlined />}
+              onClick={() => setLogTask(row.presetTask!)}
+            />
+          </Tooltip>
+        ) : null;
+
         if (row.plan.completed) {
           return (
-            <Button size="small" disabled icon={<CheckCircleFilled style={{ color: '#52c41a' }} />}>
-              {t('wu.tagDone')}
-            </Button>
+            <Space size={4}>
+              <Button size="small" disabled icon={<CheckCircleFilled style={{ color: '#52c41a' }} />}>
+                {t('wu.tagDone')}
+              </Button>
+              {planLogsBtn}
+            </Space>
           );
         }
         const phase = row.plan.currentPhase;
@@ -660,6 +675,8 @@ export default function WarmupPage() {
                 />
               </Tooltip>
             )}
+            {/* vmfix29 NEW-3 */}
+            {planLogsBtn}
           </Space>
         );
       },

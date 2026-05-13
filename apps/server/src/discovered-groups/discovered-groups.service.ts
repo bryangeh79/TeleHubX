@@ -235,11 +235,21 @@ export class DiscoveredGroupsService {
   /**
    * 派发 join + scrape 任务（人工挑选某群后调用）。
    * 串两个任务：JOIN_GROUPS 立即执行；GROUP_SCRAPE 延后 10 分钟（让群同步到 dialogs）。
+   *
+   * vmfix29 NEW-1: 同时把 dispatchedToAccountId / Label / At 写入 discovered_group,
+   * 群源发现页可显示「已派发任务 → +60xxxxx」让用户追溯哪个号被分配.
    */
   async queueScrape(id: string, accountId: string): Promise<{ joinTaskId: string; scrapeTaskId: string }> {
     const g = await this.getById(id);
     const now = new Date();
     const scrapeAt = new Date(Date.now() + 10 * 60_000);
+
+    // vmfix29 NEW-1: 查 account label
+    const account = await this.repo.manager.findOne(
+      (await import('../accounts/account.entity')).Account,
+      { where: { id: accountId } },
+    );
+    const accountLabel = account?.phoneNumber ?? accountId.slice(0, 8);
 
     // GramJS getEntity 需要 @username 或带前缀的 channel id（megagroup/channel: -100xxx，basic chat: -xxx）
     // 否则纯数字会被当 PeerUser 解释 → "Could not find input entity"
@@ -275,6 +285,10 @@ export class DiscoveredGroupsService {
     }, g.tenantId ?? undefined);
 
     g.status = DiscoveredGroupStatus.JOINED;
+    // vmfix29 NEW-1: 记录派发账号
+    g.dispatchedToAccountId = accountId;
+    g.dispatchedToAccountLabel = accountLabel;
+    g.dispatchedAt = now;
     await this.repo.save(g);
 
     return { joinTaskId: joinTask.id, scrapeTaskId: scrapeTask.id };

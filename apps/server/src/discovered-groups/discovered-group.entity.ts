@@ -35,6 +35,8 @@ export enum DiscoverSource {
   SEARCH_GLOBAL = 'global',
   /** 通过 `discover_groups_by_invites` 任务从种子群抓邀请链接 resolve 到的 */
   INVITE_HARVEST = 'invite_harvest',
+  /** vmfix29 A5/A6/A7: 通过滚雪球（forwarded 源 / user.about / GetCommonChats）发现的 */
+  SNOWBALL = 'snowball',
 }
 
 /**
@@ -127,6 +129,19 @@ export class DiscoveredGroup {
    */
   @Column({ type: 'int', default: 0 })
   recentMessageRate: number;
+
+  /**
+   * vmfix29 NEW-1: queueScrape 派发时记录哪个账号被分配执行 join+scrape.
+   * 群源发现 UI 在 status='joined'/'scraped' 时显示这个号，让用户能追溯哪个号去加了.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  dispatchedToAccountId: string | null;
+
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  dispatchedToAccountLabel: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  dispatchedAt: Date | null;
 
   @CreateDateColumn()
   createdAt: Date;

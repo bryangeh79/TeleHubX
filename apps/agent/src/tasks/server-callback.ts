@@ -169,8 +169,8 @@ export interface DiscoveredGroupUpsertItem {
   discoveredByAccountId?: string | null;
   discoverTaskId?: string | null;
   // vmfix28 新字段（all optional，向后兼容）
-  /** #2 群被发现的来源 */
-  discoverSource?: 'contacts' | 'global' | 'invite_harvest';
+  /** #2 群被发现的来源 (vmfix29 加 'snowball') */
+  discoverSource?: 'contacts' | 'global' | 'invite_harvest' | 'snowball';
   /** B2 AI 评分 0-100 */
   aiScore?: number | null;
   /** B2 AI 评分理由 */
