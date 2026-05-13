@@ -141,13 +141,19 @@ export class AssetsService implements OnModuleInit {
   async upload(
     tenantId: string,
     file: { buffer: Buffer; originalname: string; mimetype: string; size: number },
-    overrides: { category?: AssetCategory; description?: string; tags?: string[] } = {},
+    overrides: { category?: AssetCategory; description?: string; tags?: string[]; poolName?: string } = {},
   ): Promise<Asset> {
     if (!file) throw new BadRequestException('No file');
     const category = overrides.category ?? detectCategory(file.mimetype, file.originalname);
+    // vmfix28 #4: 支持调用方指定 poolName（ChatScriptEditor 内联上传用）
+    // 写入前 sanitize：长度截断 64，去除非常规字符
+    const cleanPool = overrides.poolName
+      ? overrides.poolName.slice(0, 64).replace(/[\s]+/g, '_')
+      : null;
     const a = this.repo.create({
       tenantId,
       category,
+      poolName: cleanPool,
       fileName: file.originalname,
       mimeType: file.mimetype,
       byteSize: file.size,

@@ -130,6 +130,15 @@ export const adTemplatesApi = {
   generateVariants: (id: string) => api.post(`/ad-templates/${id}/generate-variants`, {}, { timeout: 90000 }),
 };
 
+// vmfix28 D4: 任务模板系统
+export const taskTemplatesApi = {
+  list: () => api.get('/task-templates'),
+  create: (data: { name: string; description?: string; type: string; payload: Record<string, unknown> }) =>
+    api.post('/task-templates', data),
+  markUsed: (id: string) => api.post(`/task-templates/${id}/used`),
+  remove: (id: string) => api.delete(`/task-templates/${id}`),
+};
+
 export const greetingTemplatesApi = {
   list: (tenantId?: string) => api.get('/greeting-templates', { params: { tenantId } }),
   get: (id: string) => api.get(`/greeting-templates/${id}`),
@@ -369,12 +378,14 @@ export const assetsApi = {
   list: (params?: { category?: string; enabled?: boolean; source?: string; poolName?: string }) =>
     api.get('/assets', { params }),
   pools: () => api.get('/assets/pools'),
-  upload: (file: File, opts: { category?: string; description?: string; tags?: string } = {}) => {
+  upload: (file: File, opts: { category?: string; description?: string; tags?: string; poolName?: string } = {}) => {
     const fd = new FormData();
     fd.append('file', file);
     if (opts.category) fd.append('category', opts.category);
     if (opts.description) fd.append('description', opts.description);
     if (opts.tags) fd.append('tags', opts.tags);
+    // vmfix28 #4: 内联上传支持自定义 poolName（ChatScriptEditor 用）
+    if (opts.poolName) fd.append('poolName', opts.poolName);
     return api.post('/assets/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 });
   },
   createSnippet: (text: string, tags?: string[], description?: string) =>

@@ -94,6 +94,48 @@ export class DiscoveredGroupsController {
   }
 
   /**
+   * vmfix28 C2: 「发现+加群」一体化 — agent 在 discover 任务完成后调用此端点,
+   * 自动派 A 档群（quality >= minQuality）的 join + scrape 任务对.
+   * 红线: @AllowAgent — agent token 可调用, 限定到 tenant + accountId.
+   */
+  @Post('auto-join-a-tier')
+  @AllowAgent()
+  @HttpCode(HttpStatus.OK)
+  async autoJoinATier(
+    @Body() body: { tenantId: string; accountId: string; minQuality?: number; limit?: number },
+  ) {
+    if (!body?.tenantId || !body?.accountId) {
+      return { dispatched: 0, reason: 'tenantId and accountId required' };
+    }
+    const minQuality = Math.max(0, Math.min(100, body.minQuality ?? 70));
+    const limit = Math.max(1, Math.min(20, body.limit ?? 5));
+    // 拉 A 档未处理群
+    const list = await this.svc.list({
+      tenantId: body.tenantId,
+      status: 'new' as any,
+      minQuality,
+      limit,
+    });
+    const ids = list.map((g) => g.id);
+    if (!ids.length) return { dispatched: 0, reason: 'no A-tier groups found' };
+
+    const results: Array<{ id: string; joinTaskId?: string; scrapeTaskId?: string; error?: string }> = [];
+    for (const id of ids) {
+      try {
+        const r = await this.svc.queueScrape(id, body.accountId);
+        results.push({ id, ...r });
+      } catch (err: any) {
+        results.push({ id, error: err?.message ?? String(err) });
+      }
+    }
+    return {
+      dispatched: results.filter((r) => !r.error).length,
+      failed: results.filter((r) => r.error).length,
+      results,
+    };
+  }
+
+  /**
    * vmfix27 #C6: 批量派发 — 一次给 N 个 discovered_groups 创建 join + scrape 任务对.
    * 默认按 accountId 分配；返回每个群对应的 taskIds.
    */

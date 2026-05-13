@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Row, Col, Card, Statistic, Typography, Spin, Tag, Steps, Button, Alert } from 'antd';
+import { Row, Col, Card, Statistic, Typography, Spin, Tag, Steps, Button, Alert, Table, Tooltip } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { useThemeMode } from '../hooks/useThemeMode';
 import {
@@ -12,8 +12,10 @@ import {
   AppstoreOutlined,
   RobotOutlined,
   CheckCircleFilled,
+  SearchOutlined,
 } from '@ant-design/icons';
-import { dashboardApi, knowledgeApi, tenantsApi } from '../services/api';
+import dayjs from 'dayjs';
+import { dashboardApi, knowledgeApi, tenantsApi, tasksApi } from '../services/api';
 import { useT } from '../i18n';
 
 const { Title, Text } = Typography;
@@ -219,6 +221,11 @@ export default function DashboardPage() {
             </Card>
           </Col>
 
+          {/* vmfix28 C7: 关键词发现历史 widget — 占满整行 */}
+          <Col span={24}>
+            <DiscoverHistoryWidget />
+          </Col>
+
           {/* card 2: candidate pool */}
           <Col xs={24} sm={12} lg={6}>
             <Card>
@@ -274,4 +281,132 @@ export default function DashboardPage() {
   );
 
   return content;
+}
+
+// ─── vmfix28 C7: 关键词发现历史 widget ───────────────────────────────
+interface DiscoverHistoryRow {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  payload: { keywords?: string[] } | null;
+  errorMsg: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+function DiscoverHistoryWidget() {
+  const [rows, setRows] = useState<DiscoverHistoryRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const nav = useNavigate();
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const [a, b] = await Promise.all([
+          tasksApi.list({ type: 'discover_groups_by_keyword' }).catch(() => ({ data: [] })),
+          tasksApi.list({ type: 'discover_groups_by_invites' }).catch(() => ({ data: [] })),
+        ]);
+        const merged: DiscoverHistoryRow[] = [...(a.data ?? []), ...(b.data ?? [])];
+        merged.sort((x, y) =>
+          new Date(y.createdAt).getTime() - new Date(x.createdAt).getTime()
+        );
+        setRows(merged.slice(0, 10));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const parseStats = (errorMsg: string | null) => {
+    if (!errorMsg) return null;
+    try {
+      const obj = JSON.parse(errorMsg);
+      if (obj?.statsType === 'discover_groups_by_keyword') return obj;
+      return null;
+    } catch { return null; }
+  };
+
+  if (!loading && rows.length === 0) return null;
+
+  return (
+    <Card
+      size="small"
+      title={<span><SearchOutlined /> 关键词发现历史（最近 10 次）</span>}
+      extra={<Button type="link" size="small" onClick={() => nav('/scheduler')}>查看全部任务 →</Button>}
+    >
+      <Table
+        size="small"
+        loading={loading}
+        dataSource={rows}
+        rowKey="id"
+        pagination={false}
+        columns={[
+          {
+            title: '时间', dataIndex: 'createdAt', width: 120,
+            render: (ts: string) => (
+              <Tooltip title={dayjs(ts).format('YYYY-MM-DD HH:mm')}>
+                <span style={{ fontSize: 12 }}>{dayjs(ts).format('MM-DD HH:mm')}</span>
+              </Tooltip>
+            ),
+          },
+          {
+            title: '类型', dataIndex: 'type', width: 80,
+            render: (t: string) => t === 'discover_groups_by_invites'
+              ? <Tag color="purple">邀请收割</Tag>
+              : <Tag color="cyan">关键词</Tag>,
+          },
+          {
+            title: '关键词',
+            render: (_: any, r: DiscoverHistoryRow) => {
+              const kws = r.payload?.keywords ?? [];
+              if (!kws.length) return <Text type="secondary">-</Text>;
+              return kws.slice(0, 3).map((k, i) => <Tag key={i}>{k}</Tag>);
+            },
+          },
+          {
+            title: '状态', dataIndex: 'status', width: 90,
+            render: (s: string) => (
+              <Tag color={s === 'done' ? 'success' : s === 'failed' ? 'error' : s === 'running' ? 'processing' : 'default'}>
+                {s}
+              </Tag>
+            ),
+          },
+          {
+            title: '命中', width: 120,
+            render: (_: any, r: DiscoverHistoryRow) => {
+              const stats = parseStats(r.errorMsg);
+              if (!stats) return <Text type="secondary">-</Text>;
+              return (
+                <Tooltip title={
+                  <div style={{ fontSize: 11 }}>
+                    <div>群名搜索: {stats.contactsHits ?? 0}</div>
+                    <div>消息搜索: {stats.searchGlobalHits ?? 0}</div>
+                    <div>敏感过滤: {stats.blockedSensitive ?? 0}</div>
+                    <div>太小过滤: {stats.tooSmall ?? 0}</div>
+                    <div>AI 变体: {stats.aiVariantsExpanded ?? 0}</div>
+                    <div>入库: 新 {stats.inserted ?? 0} / 更新 {stats.updated ?? 0}</div>
+                  </div>
+                }>
+                  <span>
+                    <Tag color="blue">名 {stats.contactsHits ?? 0}</Tag>
+                    <Tag color="green">内容 {stats.searchGlobalHits ?? 0}</Tag>
+                  </span>
+                </Tooltip>
+              );
+            },
+          },
+          {
+            title: 'AI 变体', width: 80,
+            render: (_: any, r: DiscoverHistoryRow) => {
+              const stats = parseStats(r.errorMsg);
+              if (!stats || !stats.aiVariantsExpanded) return <Text type="secondary">-</Text>;
+              return <Tag color="gold">+{stats.aiVariantsExpanded}</Tag>;
+            },
+          },
+        ]}
+      />
+    </Card>
+  );
 }

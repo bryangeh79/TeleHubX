@@ -1,19 +1,29 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Button, Card, Col, Empty, Modal, Popconfirm, Progress, Row, Select, Space,
+  Alert, Badge, Button, Card, Col, Empty, Modal, Popconfirm, Progress, Row, Select, Space,
   Statistic, Table, Tag, Tooltip, Typography, message as antdMessage,
 } from 'antd';
 import {
-  CheckCircleOutlined, CloseCircleOutlined, DeleteOutlined, ExperimentOutlined,
+  CheckCircleOutlined, CloseCircleOutlined, DeleteOutlined, ExperimentOutlined, FireOutlined,
   PlayCircleOutlined, ReloadOutlined, StopOutlined, ThunderboltOutlined, TeamOutlined,
+  EyeOutlined,
 } from '@ant-design/icons';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import 'dayjs/locale/zh-cn';
 import { discoveredGroupsApi, accountsApi } from '../../services/api';
 import { useT } from '../../i18n';
+
+// vmfix28 #1: 启用 dayjs 相对时间插件（"3 小时前" / "2 天前"）
+dayjs.extend(relativeTime);
 
 const { Title, Text } = Typography;
 
 type Kind = 'mega' | 'channel' | 'basic' | 'gigagroup';
 type Status = 'new' | 'joined' | 'scraped' | 'ignored';
+
+// vmfix28 #2: 来源 enum 跟后端 DiscoverSource 对齐
+type DiscoverSource = 'contacts' | 'global' | 'invite_harvest';
 
 interface DiscoveredGroup {
   id: string;
@@ -31,7 +41,19 @@ interface DiscoveredGroup {
   status: Status;
   qualityScore: number;
   createdAt: string;
+  // vmfix28 新增
+  updatedAt: string;                         // #1 时间戳
+  discoverSource?: DiscoverSource | null;    // #2 来源
+  aiScore?: number | null;                   // B2 AI 评分
+  aiReason?: string | null;                  // B2 AI 评分原因
+  recentMessageRate?: number;                // B4 最近 7 天消息占比 (0-100)
 }
+
+const SOURCE_TAG: Record<DiscoverSource, { color: string; label: string }> = {
+  contacts:       { color: 'blue',     label: '群名搜索' },
+  global:         { color: 'green',    label: '消息搜索' },
+  invite_harvest: { color: 'purple',   label: '邀请链接' },
+};
 
 interface Account {
   id: string;
@@ -73,6 +95,8 @@ export default function DiscoveredGroupsPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   // vmfix27 #C6: 批量选择
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // vmfix28 #C5: 群预览 modal（静态显示 DB 已有数据，不发起 TG 调用）
+  const [previewGroup, setPreviewGroup] = useState<DiscoveredGroup | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -163,6 +187,22 @@ export default function DiscoveredGroupsPage() {
     }
   };
 
+  // vmfix28 #3: 行内 delete（硬删除，不可恢复）
+  const handleDelete = async (g: DiscoveredGroup) => {
+    setActionLoading(g.id);
+    try {
+      await discoveredGroupsApi.remove(g.id);
+      antdMessage.success(`已删除「${g.title.slice(0, 30)}」`);
+      // 同步从 selectedIds 移除（如果有勾选）
+      setSelectedIds((prev) => prev.filter((id) => id !== g.id));
+      await load();
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '删除失败');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleBulkIgnoreSpam = async () => {
     const ids = groups.filter(g => g.status === 'new' && g.qualityScore < 30).map(g => g.id);
     if (!ids.length) { antdMessage.info('没有 quality<30 的未处理群'); return; }
@@ -245,12 +285,43 @@ export default function DiscoveredGroupsPage() {
         </Tooltip>
       ),
     },
+    // vmfix28 B2: AI 评分列（仅当任意行有 aiScore 时显示，否则隐藏）
+    ...(groups.some((g) => g.aiScore != null) ? [{
+      title: 'AI 评分',
+      dataIndex: 'aiScore',
+      width: 80,
+      sorter: (a: DiscoveredGroup, b: DiscoveredGroup) => (b.aiScore ?? -1) - (a.aiScore ?? -1),
+      render: (score: number | null | undefined, r: DiscoveredGroup) => {
+        if (score == null) return <Text type="secondary" style={{ fontSize: 11 }}>—</Text>;
+        return (
+          <Tooltip title={r.aiReason ? `AI 评估: ${r.aiReason}` : 'AI 目标客户匹配度评分'}>
+            <Progress
+              type="circle" size={40} percent={score}
+              strokeColor={qualityColor(score)}
+              format={() => <span style={{ fontSize: 11 }}>{score}</span>}
+            />
+          </Tooltip>
+        );
+      },
+    }] : []),
     {
       title: t('disc.col.name'),
       dataIndex: 'title',
       render: (_t: string, r: DiscoveredGroup) => (
         <div>
-          <div style={{ fontWeight: 500 }}>{r.title}</div>
+          <div style={{ fontWeight: 500 }}>
+            {r.title}
+            {/* vmfix28 B4: 热度趋势 tag — 最近 7 天消息占比 >= 50% */}
+            {(r.recentMessageRate ?? 0) >= 50 && (
+              <Tooltip title={`最近 7 天消息占比 ${r.recentMessageRate}% — 活跃热度`}>
+                <Tag color="volcano" icon={<FireOutlined />} style={{ marginLeft: 6 }}>HOT</Tag>
+              </Tooltip>
+            )}
+            {/* vmfix28 #1: 新群 badge — 24h 内发现 */}
+            {dayjs().diff(dayjs(r.updatedAt), 'hour') < 24 && (
+              <Badge count="NEW" style={{ backgroundColor: '#52c41a', marginLeft: 6, fontSize: 10 }} />
+            )}
+          </div>
           <div style={{ fontSize: 12, color: '#888' }}>
             {r.tgUsername ? <Text code copyable>@{r.tgUsername}</Text> : <span style={{ fontStyle: 'italic' }}>无 username</span>}
             <Text type="secondary" style={{ marginLeft: 8, fontSize: 11 }}>id: {r.tgChatId}</Text>
@@ -298,6 +369,33 @@ export default function DiscoveredGroupsPage() {
       width: 100,
       render: (k: string | null) => k ? <Tag>{k}</Tag> : '-',
     },
+    // vmfix28 #2: 来源列（蓝/绿/紫 tag）
+    {
+      title: '来源',
+      dataIndex: 'discoverSource',
+      width: 100,
+      filters: Object.entries(SOURCE_TAG).map(([v, m]) => ({ text: m.label, value: v })),
+      onFilter: (v: any, r: DiscoveredGroup) => (r.discoverSource ?? 'contacts') === v,
+      render: (s: DiscoverSource | null | undefined) => {
+        const src = s ?? 'contacts';  // 老数据 default
+        const meta = SOURCE_TAG[src] ?? SOURCE_TAG.contacts;
+        return <Tag color={meta.color}>{meta.label}</Tag>;
+      },
+    },
+    // vmfix28 #1: 发现时间列 — 默认排序 newest first
+    {
+      title: '发现时间',
+      dataIndex: 'updatedAt',
+      width: 130,
+      sorter: (a: DiscoveredGroup, b: DiscoveredGroup) =>
+        dayjs(b.updatedAt).valueOf() - dayjs(a.updatedAt).valueOf(),
+      defaultSortOrder: 'ascend' as const,  // sorter 返回 b - a 是 desc，搭配 ascend 才正确
+      render: (ts: string) => (
+        <Tooltip title={dayjs(ts).format('YYYY-MM-DD HH:mm:ss')}>
+          <Text style={{ fontSize: 12 }}>{dayjs(ts).fromNow()}</Text>
+        </Tooltip>
+      ),
+    },
     {
       title: t('disc.col.status'),
       dataIndex: 'status',
@@ -308,7 +406,7 @@ export default function DiscoveredGroupsPage() {
     },
     {
       title: t('disc.col.actions'),
-      width: 200,
+      width: 240,
       render: (_: any, r: DiscoveredGroup) => (
         <Space size={4}>
           {r.status === 'new' && (
@@ -331,10 +429,36 @@ export default function DiscoveredGroupsPage() {
           {(r.status === 'joined' || r.status === 'scraped') && (
             <Tag color="default">已派发任务</Tag>
           )}
+          {/* vmfix28 C5: 预览按钮（静态显示 DB 数据） */}
+          <Button
+            size="small"
+            type="text"
+            icon={<EyeOutlined />}
+            onClick={() => setPreviewGroup(r)}
+            title="预览群详情"
+          />
+          {/* vmfix28 #3: 行内 delete (硬删除) */}
+          <Popconfirm
+            title="彻底删除此群源记录？"
+            description="不可撤销。「忽略」是更安全的选择（保留记录，下次不再显示）。"
+            okText="确认删除"
+            okType="danger"
+            cancelText="取消"
+            onConfirm={() => handleDelete(r)}
+          >
+            <Button
+              size="small"
+              danger
+              type="text"
+              icon={<DeleteOutlined />}
+              loading={actionLoading === r.id}
+              title="彻底删除"
+            />
+          </Popconfirm>
         </Space>
       ),
     },
-  ], [actionLoading, accounts, t]);
+  ], [actionLoading, accounts, t, groups]);
 
   return (
     <div>
@@ -344,6 +468,23 @@ export default function DiscoveredGroupsPage() {
           {t('nav.discoveredGroups')}
         </Title>
       </div>
+
+      {/* vmfix28 #2: 关键词搜索机制说明（可关闭） */}
+      <Alert
+        type="info"
+        showIcon
+        closable
+        style={{ marginBottom: 16 }}
+        message="关键词发现群机制说明"
+        description={
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            <li><b>群名搜索</b> (蓝 tag) — `contacts.Search`，匹配群名/username；<b>TG 每关键词上限 30 条</b></li>
+            <li><b>消息搜索</b> (绿 tag) — `messages.searchGlobal`，按消息内容搜全网公开群，召回 5-10×</li>
+            <li><b>邀请链接</b> (紫 tag) — `discover_groups_by_invites` 任务从种子群扫 t.me/+xxx 抓的</li>
+            <li><b>AI 关键词扩展</b> — 1 词自动扩 6 个语义变体（中英马混合 + 地名细分），命中率 3-5×</li>
+          </ul>
+        }
+      />
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}><Card><Statistic title={t('discovered.totalGroups')} value={stats.total} /></Card></Col>
@@ -418,6 +559,80 @@ export default function DiscoveredGroupsPage() {
           />
         )}
       </Card>
+
+      {/* vmfix28 C5: 群预览 modal — 静态显示 DB 已有数据，不发 TG 调用 */}
+      <Modal
+        title={previewGroup ? `预览：${previewGroup.title}` : ''}
+        open={!!previewGroup}
+        onCancel={() => setPreviewGroup(null)}
+        footer={[
+          <Button key="close" onClick={() => setPreviewGroup(null)}>关闭</Button>,
+          ...(previewGroup && previewGroup.status === 'new' ? [
+            <Button
+              key="queue"
+              type="primary"
+              icon={<PlayCircleOutlined />}
+              onClick={() => {
+                const g = previewGroup;
+                setPreviewGroup(null);
+                if (g) handleQueueScrape(g);
+              }}
+            >派发加+爬</Button>,
+          ] : []),
+        ]}
+        width={600}
+      >
+        {previewGroup && (
+          <div>
+            <Row gutter={16} style={{ marginBottom: 16 }}>
+              <Col span={8}>
+                <Statistic title="质量评分" value={previewGroup.qualityScore} suffix="/100"
+                  valueStyle={{ color: qualityColor(previewGroup.qualityScore) }} />
+              </Col>
+              <Col span={8}>
+                <Statistic title="成员数" value={previewGroup.participantsCount >= 0 ? previewGroup.participantsCount : '未知'} />
+              </Col>
+              <Col span={8}>
+                <Statistic title="真发言者" value={previewGroup.sampledRealSenders}
+                  suffix={`/ ${previewGroup.sampledMessages} 抽样`} />
+              </Col>
+            </Row>
+            <Card size="small" title="详细信息" style={{ marginBottom: 12 }}>
+              <p><b>TG ID：</b><Text code>{previewGroup.tgChatId}</Text></p>
+              <p><b>Username：</b>{previewGroup.tgUsername ? <Text code copyable>@{previewGroup.tgUsername}</Text> : <span style={{ fontStyle: 'italic', color: '#999' }}>无（私密群或不公开）</span>}</p>
+              <p><b>类型：</b><Tag color={KIND_TAG[previewGroup.kind].color}>{KIND_TAG[previewGroup.kind].label}</Tag>
+                {previewGroup.isGigagroup && <Tag color="orange">巨型群（非 admin 不能 list 成员）</Tag>}</p>
+              <p><b>来源：</b>
+                {(() => {
+                  const src = previewGroup.discoverSource ?? 'contacts';
+                  const meta = SOURCE_TAG[src] ?? SOURCE_TAG.contacts;
+                  return <Tag color={meta.color}>{meta.label}</Tag>;
+                })()}
+                {previewGroup.keyword && <span style={{ marginLeft: 8 }}>关键词：<Tag>{previewGroup.keyword}</Tag></span>}
+              </p>
+              <p><b>状态：</b><Tag color={STATUS_TAG[previewGroup.status].color}>{STATUS_TAG[previewGroup.status].label}</Tag></p>
+              <p><b>发现时间：</b>{dayjs(previewGroup.updatedAt).format('YYYY-MM-DD HH:mm:ss')} ({dayjs(previewGroup.updatedAt).fromNow()})</p>
+              {(previewGroup.recentMessageRate ?? 0) > 0 && (
+                <p><b>最近 7 天消息占比：</b>{previewGroup.recentMessageRate}%
+                  {(previewGroup.recentMessageRate ?? 0) >= 50 && <Tag color="volcano" icon={<FireOutlined />} style={{ marginLeft: 6 }}>HOT</Tag>}
+                </p>
+              )}
+              {previewGroup.aiScore != null && (
+                <p>
+                  <b>AI 评分：</b>{previewGroup.aiScore}/100
+                  {previewGroup.aiReason && <Text type="secondary" style={{ marginLeft: 8 }}>「{previewGroup.aiReason}」</Text>}
+                </p>
+              )}
+            </Card>
+            <Alert
+              type="info"
+              showIcon
+              message="此预览仅显示发现任务时抽样到的数据，不会发起新的 TG 请求"
+              description="加群后通过「爬群」任务能获取更详细的成员 / 消息内容"
+            />
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

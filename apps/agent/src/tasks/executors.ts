@@ -4,6 +4,7 @@ import { gaussianDelayMs, sendMessageLikeHuman, simulateReading, sleep } from '.
 import { muteAccount, unmuteAccount } from './script-mute';
 import { isSensitiveGroup } from './sensitive-filter';
 import {
+  autoJoinATierFromAgent,
   bulkUpsertCandidates,
   bulkUpsertDiscoveredGroups,
   DiscoveredGroupUpsertItem,
@@ -17,6 +18,7 @@ import {
   fetchChatScriptById,
   reportCampaignSent,
   markTaskMessageSent,
+  scoreGroupMatchViaAI,
 } from './server-callback';
 
 /**
@@ -51,6 +53,12 @@ export interface ExecutorCtx {
   unlockExtraAccounts?: (accountIds: string[]) => void;
   /** Codex round-8: 已发送过消息的标记, campaign_single 检查后跳过 send 只重试 report */
   messageSentAt?: string | null;
+
+  /**
+   * vmfix28 #2: executor 可写入此字段，task-runner 在 markDone 时改走 markDoneWithMsg
+   * 把这段 JSON / 文本写到 task.errorMsg。用于 discover 任务把统计信息（命中数/AI 变体数/blocked 等）传给 UI 展示.
+   */
+  doneMessage?: string;
 }
 
 /**
@@ -1655,6 +1663,15 @@ export async function discoverGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
   const aiVariantCount: number = Math.max(2, Math.min(15, (ctx.payload.aiVariantCount as number) ?? 6));
   // vmfix27 #C4 / #D1: 增量发现 + 24h cache
   const incrementalHours: number = Math.max(0, Math.min(168, (ctx.payload.incrementalHours as number) ?? 24));
+  // vmfix28 B2: AI 给每个群打目标客户匹配度（耗 token，默认 false）
+  const aiScoreEnabled: boolean = (ctx.payload.aiScore as boolean) ?? false;
+  const targetAudience: string = (ctx.payload.targetAudience as string) ?? '一般营销目标客户';
+  // vmfix28 A4: 多账号 union 搜（默认 false，开了用 3 个其他 client 并发搜同关键词）
+  const multiAccountUnion: boolean = (ctx.payload.multiAccountUnion as boolean) ?? false;
+  // vmfix28 C2: 任务结束后自动派 A 档群的 join+scrape 任务（默认 false）
+  const autoJoinAfter: boolean = (ctx.payload.autoJoinAfterDiscover as boolean) ?? false;
+  const autoJoinThreshold: number = Math.max(0, Math.min(100, (ctx.payload.autoJoinThreshold as number) ?? 70));
+  const autoJoinMax: number = Math.max(1, Math.min(20, (ctx.payload.autoJoinMax as number) ?? 5));
 
   if (!rawKeywords.length) throw new Error('payload.keywords 不能为空');
   if (!ctx.tenantId) throw new Error('ctx.tenantId 缺失（无法落库 discovered_groups）');
@@ -1748,18 +1765,34 @@ export async function discoverGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
     let hasRealSenders = false;
     let sampledMessages = 0;
     let sampledRealSenders = 0;
+    // vmfix28 B4: 计算最近 7 天消息占比
+    let recentMessageRate = 0;
+    // vmfix28 B2: 留几条样本消息文本，可选给 AI 评分用
+    const sampleMessageTexts: string[] = [];
     try {
       const msgs: any = await ctx.client.getMessages(c, { limit: sampleSize });
       sampledMessages = (msgs as any[]).length;
       const realSenderIds = new Set<string>();
+      const sevenDaysAgoSec = Math.floor((Date.now() - 7 * 86400 * 1000) / 1000);
+      let recentCount = 0;
       for (const m of msgs as any[]) {
         const fromId = m.fromId;
         if (fromId?.className === 'PeerUser') {
           realSenderIds.add(String(fromId.userId));
         }
+        // m.date 是 unix seconds
+        if (typeof m.date === 'number' && m.date >= sevenDaysAgoSec) {
+          recentCount++;
+        }
+        if (sampleMessageTexts.length < 5 && typeof m.message === 'string' && m.message.length > 5) {
+          sampleMessageTexts.push(m.message.slice(0, 100));
+        }
       }
       sampledRealSenders = realSenderIds.size;
       hasRealSenders = sampledRealSenders > 0;
+      recentMessageRate = sampledMessages > 0
+        ? Math.round((recentCount / sampledMessages) * 100)
+        : 0;
     } catch {
       // 抽样失败不致命
     }
@@ -1770,6 +1803,29 @@ export async function discoverGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
       stats.tooSmall++;
       return;
     }
+
+    // vmfix28 B2: AI 群匹配度评分（可选，耗 token）
+    let aiScore: number | null = null;
+    let aiReason: string | null = null;
+    if (aiScoreEnabled) {
+      try {
+        const r = await scoreGroupMatchViaAI({
+          groupTitle: c.title ?? '',
+          sampleMessages: sampleMessageTexts,
+          targetAudience,
+        });
+        if (r) {
+          aiScore = r.score;
+          aiReason = r.reason;
+        }
+      } catch {
+        // 静默失败，不阻塞主流程
+      }
+    }
+
+    // vmfix28 #2: source 映射 enum value
+    const discoverSource: 'contacts' | 'global' =
+      source === 'global' ? 'global' : 'contacts';
 
     discovered.push({
       tgChatId: chatId,
@@ -1782,6 +1838,11 @@ export async function discoverGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
       sampledMessages,
       sampledRealSenders,
       keyword: sourceKeyword,
+      // vmfix28 透传
+      discoverSource,
+      aiScore,
+      aiReason,
+      recentMessageRate,
       discoveredByAccountId: ctx.accountId ?? null,
       discoverTaskId: ctx.taskId ?? null,
     });
@@ -1804,6 +1865,40 @@ export async function discoverGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
       await processChat(c, kw, 'contacts');
     }
     await sleep(gaussianDelayMs(3_000, 8_000));
+  }
+
+  // ── vmfix28 A4 Pass 3: 多账号 union 搜（其它 client 跑同 keyword）──
+  // 不同账号 TG 给 personalize 不同结果，合并能多出 30-50% unique 候选.
+  // 红线：每账号串行 + Gaussian 间隔，防 FloodWait.
+  if (multiAccountUnion && ctx.clients && ctx.clients.size > 1) {
+    const otherClients: import('telegram').TelegramClient[] = [];
+    for (const [accId, cli] of ctx.clients) {
+      if (accId === ctx.accountId) continue;
+      otherClients.push(cli);
+      if (otherClients.length >= 2) break;  // max 2 其它账号（含自己共 3 个 view）
+    }
+    if (otherClients.length > 0) {
+      console.info(`[discover_groups_by_keyword] A4 多账号 union: 用 ${otherClients.length} 个额外 client 搜`);
+      // 只跑原始 keyword（不是 AI 扩展的所有变体，省 API）
+      const baseKeywords = rawKeywords.map((k) => k.trim()).filter(Boolean);
+      for (const cli of otherClients) {
+        for (const kw of baseKeywords) {
+          try {
+            const r: any = await cli.invoke(new Api.contacts.Search({ q: kw, limit: 30 }));
+            for (const c of r?.chats ?? []) {
+              await processChat(c, kw, 'contacts');  // 注意：processChat 用 ctx.client 做 sampling
+            }
+          } catch (err) {
+            const msg = (err as Error).message ?? '';
+            if (msg.includes('FLOOD')) {
+              console.warn(`[A4] FloodWait on secondary client, abort union pass`);
+              break;
+            }
+          }
+          await sleep(gaussianDelayMs(4_000, 9_000));
+        }
+      }
+    }
   }
 
   // ── Pass 2 (vmfix27 #A1): messages.searchGlobal —— 按消息内容搜全网公开群 ──
@@ -1861,6 +1956,50 @@ export async function discoverGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
     `preExisting=${preExistingCount} ` +
     `→ 入库 inserted=${result.inserted} updated=${result.updated}`,
   );
+
+  // vmfix28 C2: 「发现+加群」一体化 — 任务结束自动派 A 档群 join+scrape
+  let autoJoinResult: { dispatched: number; failed?: number; reason?: string } | null = null;
+  if (autoJoinAfter && ctx.accountId) {
+    try {
+      autoJoinResult = await autoJoinATierFromAgent({
+        tenantId: ctx.tenantId,
+        accountId: ctx.accountId,
+        minQuality: autoJoinThreshold,
+        limit: autoJoinMax,
+      });
+      if (autoJoinResult) {
+        console.info(
+          `[discover_groups_by_keyword] C2 auto-join (quality>=${autoJoinThreshold}): ` +
+          `dispatched=${autoJoinResult.dispatched} failed=${autoJoinResult.failed ?? 0} ` +
+          (autoJoinResult.reason ? `reason="${autoJoinResult.reason}"` : '')
+        );
+      }
+    } catch (err: any) {
+      console.warn(`[discover_groups_by_keyword] C2 auto-join failed: ${err?.message?.slice(0, 80)}`);
+    }
+  }
+
+  // vmfix28 #2: 把 stats JSON 写到 task.errorMsg，UI 点「查看」时显示
+  ctx.doneMessage = JSON.stringify({
+    statsType: 'discover_groups_by_keyword',
+    contactsHits: stats.contactsHits,
+    searchGlobalHits: stats.searchGlobalHits,
+    blockedSensitive: stats.blockedSensitive,
+    tooSmall: stats.tooSmall,
+    skippedDup: stats.skippedDup,
+    preExistingCount,
+    aiVariantsExpanded: keywords.length - rawKeywords.length,
+    originalKeywords: rawKeywords,
+    expandedKeywordCount: keywords.length,
+    multiAccountUnion: multiAccountUnion,
+    inserted: result.inserted,
+    updated: result.updated,
+    // vmfix28 C2 信息
+    autoJoinAfter,
+    autoJoinDispatched: autoJoinResult?.dispatched ?? 0,
+    autoJoinThreshold: autoJoinAfter ? autoJoinThreshold : null,
+  });
+
   await ctx.reportProgress?.(100);
 }
 
@@ -2083,6 +2222,8 @@ export async function discoverGroupsByInvites(ctx: ExecutorCtx): Promise<void> {
         keyword: `invite_harvest_${sourceMap.get(hash)?.slice(0, 40) ?? 'unknown'}`,
         discoveredByAccountId: ctx.accountId ?? null,
         discoverTaskId: ctx.taskId ?? null,
+        // vmfix28 #2: 来源标记
+        discoverSource: 'invite_harvest',
       });
 
       resolved++;

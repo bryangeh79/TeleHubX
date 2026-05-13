@@ -26,6 +26,18 @@ export enum DiscoveredGroupStatus {
 }
 
 /**
+ * vmfix28 #2: 群被发现的来源 — 哪条路径找到的，让 UI 能 tag 区分。
+ */
+export enum DiscoverSource {
+  /** 通过 TG `contacts.Search` 找到（按群名 + username 匹配） */
+  CONTACTS_SEARCH = 'contacts',
+  /** 通过 TG `messages.searchGlobal` 找到（按消息内容匹配） */
+  SEARCH_GLOBAL = 'global',
+  /** 通过 `discover_groups_by_invites` 任务从种子群抓邀请链接 resolve 到的 */
+  INVITE_HARVEST = 'invite_harvest',
+}
+
+/**
  * 关键词搜群任务发现的群源池。租户在 dashboard 看到列表 + 质量评分，
  * 人工挑选高质量群 → 触发现有 join_groups + group_scrape 任务链。
  */
@@ -90,6 +102,31 @@ export class DiscoveredGroup {
   /** 0-100 综合评分（计算见 service.computeQuality） */
   @Column({ type: 'int', default: 0 })
   qualityScore: number;
+
+  /**
+   * vmfix28 #2: 群被发现的来源（contacts.Search / messages.searchGlobal / invite_harvest）。
+   * 老数据 default='contacts'。前端按值给不同颜色 tag。
+   */
+  @Column({ type: 'enum', enum: DiscoverSource, default: DiscoverSource.CONTACTS_SEARCH })
+  discoverSource: DiscoverSource;
+
+  /**
+   * vmfix28 B2: AI 给的目标客户匹配度评分（0-100）。
+   * null = 未跑 AI 评分（任务 payload 没开 aiScore=true）.
+   */
+  @Column({ type: 'int', nullable: true })
+  aiScore: number | null;
+
+  /** vmfix28 B2: AI 评分理由（短文本，≤120 字） */
+  @Column({ type: 'varchar', length: 256, nullable: true })
+  aiReason: string | null;
+
+  /**
+   * vmfix28 B4: 抽样消息里"最近 7 天消息数 / 总抽样数" × 100 (0-100)。
+   * ≥50 时前端打 🔥 HOT tag，service.computeQuality 也额外加 +5 分.
+   */
+  @Column({ type: 'int', default: 0 })
+  recentMessageRate: number;
 
   @CreateDateColumn()
   createdAt: Date;

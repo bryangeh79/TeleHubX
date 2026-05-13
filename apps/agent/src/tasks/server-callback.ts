@@ -168,6 +168,15 @@ export interface DiscoveredGroupUpsertItem {
   keyword?: string | null;
   discoveredByAccountId?: string | null;
   discoverTaskId?: string | null;
+  // vmfix28 新字段（all optional，向后兼容）
+  /** #2 群被发现的来源 */
+  discoverSource?: 'contacts' | 'global' | 'invite_harvest';
+  /** B2 AI 评分 0-100 */
+  aiScore?: number | null;
+  /** B2 AI 评分理由 */
+  aiReason?: string | null;
+  /** B4 最近 7 天消息占比 (0-100) */
+  recentMessageRate?: number;
 }
 
 export async function bulkUpsertDiscoveredGroups(
@@ -233,6 +242,52 @@ export async function scoreGroupMatchViaAI(opts: {
     return j;
   } catch {
     return null;
+  }
+}
+
+/**
+ * vmfix28 C2: 「发现+加群」一体化 — agent 在 discover 任务完成后调此自动派
+ * A 档群（quality >= threshold）的 join+scrape 任务对.
+ * 失败静默（不阻塞主任务 markDone）.
+ */
+export async function autoJoinATierFromAgent(opts: {
+  tenantId: string;
+  accountId: string;
+  minQuality?: number;
+  limit?: number;
+}): Promise<{ dispatched: number; failed?: number; reason?: string } | null> {
+  try {
+    const res = await fetch(`${API_BASE}/discovered-groups/auto-join-a-tier`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(opts),
+    });
+    if (!res.ok) return null;
+    return await res.json() as { dispatched: number; failed?: number; reason?: string };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * vmfix28 D2: FloodWait 跨账号 task 重派 — 调 server 把 task.accountId 改成
+ * 同 tenant 另一空闲账号（白名单类型才生效）.
+ * 成功返回 { reassigned: true, newAccountId }，失败 { reassigned: false, reason }.
+ */
+export async function reassignTaskToAnotherAccount(
+  taskId: string,
+  currentAccountId: string,
+): Promise<{ reassigned: boolean; newAccountId?: string; reason?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/tasks/${taskId}/reassign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ excludeAccountId: currentAccountId }),
+    });
+    if (!res.ok) return { reassigned: false, reason: `HTTP ${res.status}` };
+    return await res.json() as { reassigned: boolean; newAccountId?: string; reason?: string };
+  } catch (err: any) {
+    return { reassigned: false, reason: err?.message ?? String(err) };
   }
 }
 

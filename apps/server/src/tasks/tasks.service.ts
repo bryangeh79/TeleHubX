@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, In, LessThan, Repository } from 'typeorm';
-import { Account } from '../accounts/account.entity';
+import { Account, AccountStatus } from '../accounts/account.entity';
 import { Campaign, CampaignStatus } from '../campaigns/campaign.entity';
 import { CustomerGroupsService } from '../customer-groups/customer-groups.service';
 import { DiscoveredGroup, DiscoveredGroupStatus } from '../discovered-groups/discovered-group.entity';
@@ -928,6 +928,78 @@ export class TasksService implements OnModuleInit, OnModuleDestroy {
     if (tenantId) qb.andWhere('"tenantId" = :tid', { tid: tenantId });
     const res = await qb.execute();
     return { cancelled: res.affected ?? 0 };
+  }
+
+  /**
+   * vmfix28 D2: FloodWait 跨账号 task 重派。
+   * agent 触发 FloodWait 时调此方法把 task 改派给同 tenant 另一个 online 账号。
+   *
+   * 红线：只对 reassignable 的 task type 生效（不能改派绑定特定账号的任务，
+   * 如 chat_script_* / campaign_single / idle_keepalive 等 — 它们 payload 含
+   * phone-specific 数据或要求多账号协调）。
+   *
+   * 白名单（task type）：
+   *   discover_groups_by_keyword / discover_groups_by_invites
+   *   join_groups / join_groups_by_keyword / join_channels
+   *   group_scrape / accept_invites / self_test / browse_channel
+   *   reaction_boost (无副作用的浏览/反应类)
+   *
+   * 返回 { reassigned: true, newAccountId } 成功，或 { reassigned: false, reason } 失败.
+   */
+  async reassignToAnotherAccount(
+    taskId: string,
+    excludeAccountId: string,
+  ): Promise<{ reassigned: boolean; newAccountId?: string; reason?: string }> {
+    const t = await this.repo.findOneBy({ id: taskId });
+    if (!t) return { reassigned: false, reason: 'task not found' };
+
+    // 白名单：可重派的 task type
+    const REASSIGNABLE_TYPES: TaskType[] = [
+      TaskType.DISCOVER_GROUPS_BY_KEYWORD,
+      TaskType.DISCOVER_GROUPS_BY_INVITES,
+      TaskType.JOIN_GROUPS,
+      TaskType.JOIN_GROUPS_BY_KEYWORD,
+      TaskType.JOIN_CHANNELS,
+      TaskType.GROUP_SCRAPE,
+      TaskType.ACCEPT_INVITES,
+      TaskType.SELF_TEST,
+      TaskType.BROWSE_CHANNEL,
+      TaskType.REACTION_BOOST,
+    ];
+    if (!REASSIGNABLE_TYPES.includes(t.type)) {
+      return { reassigned: false, reason: `task type ${t.type} not reassignable` };
+    }
+
+    // 找同 tenant 的 online 账号 (excluding the FloodWait one + quarantined)
+    const candidates = await this.accountRepo.find({
+      where: {
+        tenantId: t.tenantId ?? null as any,
+        status: AccountStatus.ONLINE,
+      },
+    });
+    const now = new Date();
+    const free = candidates.filter((a) =>
+      a.id !== excludeAccountId &&
+      (!a.quarantineUntil || a.quarantineUntil <= now)
+    );
+    if (!free.length) {
+      return { reassigned: false, reason: 'no other free online account in tenant' };
+    }
+    // 选 healthScore 最高的
+    free.sort((x, y) => (y.healthScore ?? 0) - (x.healthScore ?? 0));
+    const target = free[0];
+
+    // 改派 + 重置状态
+    t.accountId = target.id;
+    t.accountLabel = target.phoneNumber;
+    t.status = TaskStatus.PENDING;
+    t.startedAt = null;
+    t.finishedAt = null;
+    t.progress = 0;
+    t.errorMsg = `[FloodWait] 已从 ${excludeAccountId.slice(0, 8)} 重派给 ${target.phoneNumber}`;
+    t.scheduledAt = new Date(Date.now() + 30_000);  // 30s 后让另一账号拉
+    await this.repo.save(t);
+    return { reassigned: true, newAccountId: target.id };
   }
 
   async retry(id: string): Promise<Task> {

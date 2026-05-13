@@ -54,7 +54,14 @@ export class AssetsController {
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES } }))
   async upload(
     @UploadedFile() file: Express.Multer.File,
-    @Body() body: { category?: AssetCategory; description?: string; tags?: string; tenantId?: string } = {},
+    @Body() body: {
+      category?: AssetCategory;
+      description?: string;
+      tags?: string;
+      tenantId?: string;
+      // vmfix28 #4: ChatScriptEditor 内联上传时传入，让素材直接进指定 pool
+      poolName?: string;
+    } = {},
   ) {
     if (!file) throw new BadRequestException('No file uploaded under field "file"');
     const tenantId = await this.resolveTenantId(body.tenantId);
@@ -64,7 +71,7 @@ export class AssetsController {
       originalname: file.originalname,
       mimetype: file.mimetype,
       size: file.size,
-    }, { category: body.category, description: body.description, tags: tagsArr });
+    }, { category: body.category, description: body.description, tags: tagsArr, poolName: body.poolName });
   }
 
   @Post('text-snippet')

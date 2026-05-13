@@ -3,6 +3,7 @@ dotenv.config({ path: '../../.env' });
 
 import { logger } from './logger';
 import { registerSignalHandlers, onShutdown } from './shutdown';
+import { reassignTaskToAnotherAccount } from './tasks/server-callback';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Process-level safety net for the agent.
@@ -603,6 +604,12 @@ async function bootstrap(): Promise<void> {
      * 此 getter 让 task-runner 在 reconnect 后取 fresh client 再递归 retry。
      */
     getClient: (accountId: string) => slots.get(accountId)?.client ?? null,
+    /**
+     * vmfix28 D2: FloodWait 跨账号 task 重派 — 调 server 把 task 改派给
+     * 同 tenant 另一空闲账号. 白名单 task type 才生效.
+     */
+    reassignToAnotherAccount: (taskId: string, currentAccountId: string) =>
+      reassignTaskToAnotherAccount(taskId, currentAccountId),
     /**
      * Auto-Recovery: G 类账号失效, 标账号 banned 通知用户重登.
      * PATCH /accounts/{id} { state: 'banned', notes: reason }.

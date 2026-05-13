@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
   Button, Card, Col, Empty, Form, Input, InputNumber, Modal,
-  Row, Segmented, Select, Space, Tag, Tooltip, Typography,
+  Row, Segmented, Select, Space, Tag, Tooltip, Typography, Upload,
   message as antdMessage,
 } from 'antd';
 import {
   ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined,
-  PlusOutlined, SaveOutlined,
+  PlusOutlined, SaveOutlined, UploadOutlined,
 } from '@ant-design/icons';
 import { assetsApi, chatScriptsApi } from '../../services/api';
 
@@ -142,6 +142,56 @@ export default function ChatScriptEditor({ open, onClose, initial, onSaved }: Pr
 
   const handlePatch = (idx: number, patch: Partial<Turn>) => {
     setTurns(turns.map((t, i) => (i === idx ? { ...t, ...patch } : t)));
+  };
+
+  /**
+   * vmfix28 #4: 内联上传素材到 turn editor。
+   * - 自动生成 poolName: inline_<剧本名 sanitized>_turn<idx>_<timestamp>
+   * - 调 assetsApi.upload + 刷新 pools 列表 + 自动 select 新 pool
+   */
+  const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
+
+  const refreshPools = async (): Promise<Array<{ value: string; label: string }>> => {
+    try {
+      const res = await assetsApi.pools();
+      const list: Array<{ value: string; label: string }> = [];
+      for (const p of (res.data ?? []) as Array<{ poolName: string; count: number; category: string }>) {
+        list.push({ value: p.poolName, label: `${p.poolName} (${p.category} · ${p.count})` });
+      }
+      setPools(list);
+      return list;
+    } catch {
+      return pools;
+    }
+  };
+
+  const handleInlineUpload = async (idx: number, file: File): Promise<boolean> => {
+    const t = turns[idx];
+    if (!t || t.type === 'text') {
+      antdMessage.warning('只有图片/视频/语音类型的 turn 才能上传素材');
+      return false;
+    }
+    // 类型 → category 映射
+    const category: 'photo' | 'video' | 'voice' =
+      t.type === 'image' ? 'photo' :
+      t.type === 'video' ? 'video' : 'voice';
+    // 自动生成 poolName
+    const safeName = (name.trim() || 'untitled').replace(/[^a-zA-Z0-9_一-龥]+/g, '_').slice(0, 32);
+    const poolName = `inline_${safeName}_turn${idx + 1}_${Date.now()}`;
+
+    setUploadingIdx(idx);
+    try {
+      await assetsApi.upload(file, { category, poolName });
+      antdMessage.success(`已上传到「${poolName}」`);
+      // 刷新 pools 列表 + 自动 select
+      await refreshPools();
+      handlePatch(idx, { assetPool: poolName });
+    } catch (err: any) {
+      antdMessage.error(err?.response?.data?.message ?? '上传失败');
+    } finally {
+      setUploadingIdx(null);
+    }
+    return false;  // beforeUpload 返回 false 防 antd 自动上传
   };
 
   const handleSave = async () => {
@@ -337,16 +387,39 @@ export default function ChatScriptEditor({ open, onClose, initial, onSaved }: Pr
                 ) : (
                   <Row gutter={8}>
                     <Col span={12}>
-                      <Select
-                        value={t.assetPool}
-                        onChange={(v) => handlePatch(i, { assetPool: v })}
-                        placeholder="选择素材池"
-                        style={{ width: '100%' }}
-                        size="small"
-                        showSearch
-                        optionFilterProp="label"
-                        options={pools}
-                      />
+                      <Space.Compact style={{ width: '100%' }}>
+                        <Select
+                          value={t.assetPool}
+                          onChange={(v) => handlePatch(i, { assetPool: v })}
+                          placeholder="选择素材池"
+                          style={{ flex: 1 }}
+                          size="small"
+                          showSearch
+                          optionFilterProp="label"
+                          options={pools}
+                        />
+                        {/* vmfix28 #4: 内联上传按钮 */}
+                        <Upload
+                          showUploadList={false}
+                          beforeUpload={(file) => handleInlineUpload(i, file)}
+                          accept={
+                            t.type === 'image' ? 'image/*' :
+                            t.type === 'voice' ? 'audio/*,.ogg,.opus' :
+                            t.type === 'video' ? 'video/*' :
+                            undefined
+                          }
+                        >
+                          <Tooltip title={`上传新${TYPE_LABEL[t.type]}并自动选用（不需要先去素材库）`}>
+                            <Button
+                              size="small"
+                              icon={<UploadOutlined />}
+                              loading={uploadingIdx === i}
+                            >
+                              上传
+                            </Button>
+                          </Tooltip>
+                        </Upload>
+                      </Space.Compact>
                     </Col>
                     <Col span={12}>
                       <TextArea

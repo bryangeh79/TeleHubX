@@ -8,6 +8,7 @@ import {
   DiscoveredGroup,
   DiscoveredGroupKind,
   DiscoveredGroupStatus,
+  DiscoverSource,
 } from './discovered-group.entity';
 
 export interface DiscoveredGroupUpsertItem {
@@ -23,6 +24,11 @@ export interface DiscoveredGroupUpsertItem {
   keyword?: string | null;
   discoveredByAccountId?: string | null;
   discoverTaskId?: string | null;
+  // vmfix28 新字段（all optional, 兼容老调用方）
+  discoverSource?: DiscoverSource;     // #2 来源
+  aiScore?: number | null;             // B2 AI 评分
+  aiReason?: string | null;            // B2 评分原因
+  recentMessageRate?: number;          // B4 最近 7d 消息占比 (0-100)
 }
 
 @Injectable()
@@ -107,7 +113,11 @@ export class DiscoveredGroupsService {
     if (g.isGigagroup) penalty += 10;
     if (n < 0) penalty += 5;
 
-    const total = sizeDim + activityDim + relevanceDim + kindDim - penalty;
+    // vmfix28 B4: 最近 7 天消息占比 >= 50% 额外加 5 分（活跃热度加成）
+    let hotBonus = 0;
+    if ((g.recentMessageRate ?? 0) >= 50) hotBonus = 5;
+
+    const total = sizeDim + activityDim + relevanceDim + kindDim + hotBonus - penalty;
     return Math.max(0, Math.min(100, total));
   }
 
@@ -165,6 +175,11 @@ export class DiscoveredGroupsService {
         keyword: it.keyword ?? existing?.keyword ?? null,
         discoveredByAccountId: it.discoveredByAccountId ?? existing?.discoveredByAccountId ?? null,
         discoverTaskId: it.discoverTaskId ?? existing?.discoverTaskId ?? null,
+        // vmfix28 新字段透传
+        discoverSource: it.discoverSource ?? existing?.discoverSource ?? DiscoverSource.CONTACTS_SEARCH,
+        aiScore: it.aiScore ?? existing?.aiScore ?? null,
+        aiReason: it.aiReason ?? existing?.aiReason ?? null,
+        recentMessageRate: it.recentMessageRate ?? existing?.recentMessageRate ?? 0,
         // 已忽略的群不重置状态（避免重新 discover 时把租户的决定撤销）
         status: existing?.status ?? DiscoveredGroupStatus.NEW,
       };

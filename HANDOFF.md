@@ -1,7 +1,10 @@
 # TeleHubX — 会话交接 (2026-05-13)
 
 > **给下一个 Claude Code 会话**：读完这一份 + `工程技术蓝图.md` + `CLAUDE.md` 第七节，即可无缝接手。
-> **2026-05-13 已做**：vmfix26 通过测试机 acceptance + push → 立刻开 vmfix27「关键词发现群强化」**13 项 mega 修复**，dev 机已 build 验证，**vmfix27 installer build 中**。
+> **2026-05-13 双 mega ship**：
+>   - vmfix26 push (`26609b4`) — wedge / stale client / 6p 剧本 / GramJS noise / UX
+>   - vmfix27 push (`9efd110`) — 关键词发现群 13 项强化（searchGlobal / 邀请链接收割 / AI 扩展 / quality 4 维 / 敏感过滤 / 批量派发 / 增量 cache 等）
+>   - **vmfix28 进行中** — 12 项完美工程落地（时间戳列 / 删除按钮 / 来源 tag / AI 评分列 / 热度 tag / 多账号 union / 内联上传 / 群预览 / 关键词历史 widget / FloodWait 跨账号 / 「发现+加群」一体化 / 任务模板系统）
 > 2026-05-12: 测试机 vmfix25 端到端深扫 → 锁定 13+ 项真 bug + UX → vmfix26 修复 10 项核心，**已 push commit `26609b4`** + `6f4d629`(roadmap)。
 > 2026-05-09: **vmfix15 → vmfix25 全套 ship-ready 修复 + 工程技术蓝图编写**，跨 ~30 个 commit。
 
@@ -151,7 +154,51 @@
 
 ### vmfix27 安装包状态
 
-正在 build（约 6 分钟）。完成后步骤同 vmfix26：SHA256 → 测试机验证 → commit + push。
+✅ **Ship complete (2026-05-13)**:
+- File: `TeleHubX-Setup-1.0.0-vmfix27.exe` 145.25 MB
+- SHA256: `73ad1c6b5de5ee9d9b4586fddcb5d3931dddb0518bbe2e550bb87d75634b22a2`
+- Commit: `9efd110` pushed
+
+---
+
+## I. 2026-05-13 vmfix28 mega — 12 项完美工程落地
+
+### 已交付（12 项）
+
+| # | 改动 | 文件 |
+|---|---|---|
+| **#1** | DiscoveredGroupsPage 加「发现时间」列（dayjs fromNow + 24h 内 🆕 Badge）| `DiscoveredGroupsPage.tsx` |
+| **#2** | `discoverSource` 列（蓝群名/绿消息/紫邀请链接 tag）+ 顶部信息 Alert + executor 把 stats JSON 写到 task.errorMsg | `DiscoveredGroupsPage.tsx` + `discovered-group.entity.ts` (enum DiscoverSource + 列) + `discovered-groups.service.ts` + `executors.ts` + `task-runner.ts` (doneMessage 路径) |
+| **#3** | 行内 delete 按钮（Popconfirm 二次确认）| `DiscoveredGroupsPage.tsx` |
+| **#4** | ChatScriptEditor 媒体 turn 旁加内联 Upload 按钮（自动生成 poolName + auto-select）| `ChatScriptEditor.tsx` + `api.ts` (upload poolName 参数) + `assets.controller.ts/service.ts` (接 poolName body) |
+| **B2** | discovered_groups 加 `aiScore`/`aiReason` 列 + executor 可选调 AI 评分 + 前端 AI 分列 + 任务对话框 checkbox | `discovered-group.entity.ts` + `executors.ts` + `DiscoveredGroupsPage.tsx` |
+| **B4** | 加 `recentMessageRate` 列 + executor 计算最近 7d 占比 + 群名旁 🔥 HOT tag (>=50%) + quality 公式 +5 加成 | `discovered-group.entity.ts` + `executors.ts` + `service.ts` |
+| **A4** | payload `multiAccountUnion` — 用 max 2 个其它 client 跑同 keyword + 合并去重（防 personalize 偏差）| `executors.ts` Pass 3 |
+| **C5** | 群预览 Modal — 静态显示 DB 已有数据（title/desc/sampled/AI score/HOT），不发 TG 调用 | `DiscoveredGroupsPage.tsx` |
+| **C7** | Dashboard 加「关键词发现历史」widget — 最近 10 次任务 + stats tooltip | `DashboardPage.tsx` (new DiscoverHistoryWidget) |
+| **D2** | FloodWait 跨账号 task 重派 — agent 触发 FloodWait 时调 `/tasks/:id/reassign` 改派给同 tenant 另一空闲账号（白名单 task type）| `tasks.service.ts` (`reassignToAnotherAccount`) + `tasks.controller.ts` (endpoint) + agent `task-runner.ts` (FloodWait 路径) + `server-callback.ts` + main.ts |
+| **C2** | 「发现+加群」一体化 — discover 任务 payload `autoJoinAfterDiscover/Threshold/Max`；完成后调 `/auto-join-a-tier` 自动派 A 档群 join+scrape | `discovered-groups.controller.ts` (new endpoint) + agent `executors.ts` + `server-callback.ts` |
+| **D4** | 任务模板系统 — 新 TaskTemplate entity + TaskTemplatesService (onModuleInit seed 3 builtin: 养号期发现群 / 营销前发现群 / 邀请链接挖掘) + Controller CRUD | `task-template.entity.ts` (new) + `task-templates.service.ts` (new) + `task-templates.controller.ts` (new) + `tasks.module.ts` |
+
+### Dev 验证
+
+- DB 自动加列 ✅: `discoverSource`, `aiScore`, `aiReason`, `recentMessageRate`
+- DB 自动 seed 3 builtin templates ✅
+- 3 个 build 全 clean: server / agent / dashboard
+- pm2 重启全部 online
+
+### vmfix28 安装包状态
+
+正在 build（约 6 分钟）。完成后 SHA256 → commit + push。
+
+### 推迟到 vmfix29+
+
+- **B2 frontend 模板列改进**：「从模板创建」按钮的下拉 modal（backend 已就绪，前端入口待加）
+- A5/A6/A7 滚雪球（user.about / forwarded source / GetCommonChats）
+- A8 tgstat.com 商业接入
+- **C5 live peek**（vs static preview）—— 需 agent live RPC 模式
+- E1 自建 mini-indexer
+- E2 行业 vertical 关键词包
 
 ---
 

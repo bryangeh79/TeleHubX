@@ -99,6 +99,20 @@ export class TasksController {
     await this.service.markRetrying(id, dto.errorClass, dto.count);
   }
 
+  /**
+   * vmfix28 D2: FloodWait 跨账号 task 重派端点（agent-only）.
+   * agent 触发 FloodWait → 调此把 task 改派给同 tenant 另一空闲账号.
+   */
+  @Post(':id/reassign')
+  @AgentOnly()
+  @HttpCode(HttpStatus.OK)
+  async reassign(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { excludeAccountId: string },
+  ) {
+    return this.service.reassignToAnotherAccount(id, body.excludeAccountId);
+  }
+
   @Post(':id/pause')
   async pause(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     await this.service.findOneScoped(id, callerTenantId(user));

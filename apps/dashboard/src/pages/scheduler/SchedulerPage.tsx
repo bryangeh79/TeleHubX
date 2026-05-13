@@ -1366,6 +1366,12 @@ function buildPayloadForTaskType(taskType: string, v: any): any {
       useSearchGlobal: v.discoverUseSearchGlobal ?? true,
       filterSensitive: v.discoverFilterSensitive ?? true,
       incrementalHours: v.discoverIncrementalHours ?? 24,
+      // vmfix28 A4/B2/C2: 新可选项
+      multiAccountUnion: v.discoverMultiAccountUnion ?? false,
+      aiScore: v.discoverAiScore ?? false,
+      autoJoinAfterDiscover: v.discoverAutoJoinAfter ?? false,
+      autoJoinThreshold: v.discoverAutoJoinThreshold ?? 70,
+      autoJoinMax: v.discoverAutoJoinMax ?? 5,
     };
   }
 
@@ -1590,7 +1596,7 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
           extra={tt('taskF.disc.sampleSizeExtra')}>
           <InputNumber min={20} max={200} />
         </Form.Item>
-        <Form.Item label="vmfix27 高级选项" style={{ marginBottom: 4 }}>
+        <Form.Item label="高级选项 (vmfix27+vmfix28)" style={{ marginBottom: 4 }}>
           <Form.Item name="discoverAiExpand" valuePropName="checked" initialValue={true} noStyle>
             <Checkbox>启用 AI 关键词扩展（每个原词扩 6 个语义变体）</Checkbox>
           </Form.Item>
@@ -1602,6 +1608,43 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
           <Form.Item name="discoverFilterSensitive" valuePropName="checked" initialValue={true} noStyle>
             <Checkbox>自动过滤敏感群（赌博 / 色情 / 跑分）</Checkbox>
           </Form.Item>
+          <br />
+          {/* vmfix28 A4 / B2 / C2 新选项 */}
+          <Form.Item name="discoverMultiAccountUnion" valuePropName="checked" initialValue={false} noStyle>
+            <Checkbox>
+              <Tooltip title="同关键词跑 3 个账号合并去重（TG 搜索 personalize 偏差）— 耗 3× API">
+                多账号 union 搜（vmfix28 A4）
+              </Tooltip>
+            </Checkbox>
+          </Form.Item>
+          <br />
+          <Form.Item name="discoverAiScore" valuePropName="checked" initialValue={false} noStyle>
+            <Checkbox>
+              <Tooltip title="AI 给每个群打目标客户匹配度 0-100（消耗 AI token）">
+                AI 群匹配度评分（vmfix28 B2，耗 token）
+              </Tooltip>
+            </Checkbox>
+          </Form.Item>
+          <br />
+          <Form.Item name="discoverAutoJoinAfter" valuePropName="checked" initialValue={false} noStyle>
+            <Checkbox>
+              <Tooltip title="任务结束后自动给 A 档群（quality≥阈值）派发 join+scrape 任务">
+                完成后自动加群（vmfix28 C2）
+              </Tooltip>
+            </Checkbox>
+          </Form.Item>
+          <Row gutter={8} style={{ marginTop: 8 }}>
+            <Col span={12}>
+              <Form.Item name="discoverAutoJoinThreshold" label="自动加群质量阈值" initialValue={70} style={{ marginBottom: 0 }}>
+                <InputNumber min={0} max={100} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="discoverAutoJoinMax" label="最多自动加 N 个" initialValue={5} style={{ marginBottom: 0 }}>
+                <InputNumber min={1} max={20} />
+              </Form.Item>
+            </Col>
+          </Row>
           <br />
           <Form.Item name="discoverIncrementalHours" label="增量发现（小时）" initialValue={24}
             extra="跳过最近 N 小时内已发现过的群；0 = 关闭" style={{ marginTop: 8, marginBottom: 0 }}>

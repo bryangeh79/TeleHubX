@@ -40,6 +40,18 @@ export interface ServerCallbacks {
    */
   reconnectAccount(accountId: string): Promise<boolean>;
   /**
+   * vmfix28 D2: FloodWait 跨账号 task 重派 — agent 触发 FloodWait 时调此回调,
+   * server 端把 task 改派给同 tenant 另一空闲账号. 成功后 task 会再次被 dispatch
+   * 到那个新账号上.
+   * 返回 reassigned=true 表示重派成功（task 已转移，不要 markFailed）.
+   */
+  reassignToAnotherAccount(taskId: string, currentAccountId: string): Promise<{
+    reassigned: boolean;
+    newAccountId?: string;
+    reason?: string;
+  }>;
+
+  /**
    * vmfix26 #6: 获取账号当前 live 的 TelegramClient 引用。
    *
    * reconnectAccount() 会在 main.ts 销毁老 client + new TelegramClient + slots.set(新)，
@@ -216,10 +228,17 @@ export async function executeTask(
     if (timer) clearTimeout(timer);
     if (cancelWatcher) clearInterval(cancelWatcher);
 
-    // Codex Bug #4 修复: SELF_TEST 成功也走过 throw 流程, 走到这分支说明 executor 没 throw
-    // 但实际 self_test 总会 throw (含成功 JSON), 所以这里 markDone 几乎用不到; 留作未来其他 executor 用
-    await cb.markDone(task.id);
-    cb.log.info(`[task ${task.id.slice(0, 8)}] done ✓`);
+    // vmfix28 #2: 如果 executor 写了 ctx.doneMessage，走 markDoneWithMsg 把消息存到 task.errorMsg
+    // discover_groups_by_keyword 等任务用此机制把统计信息（命中数/AI 变体等）传给 UI
+    if (ctx.doneMessage) {
+      await cb.markDoneWithMsg(task.id, ctx.doneMessage);
+      cb.log.info(`[task ${task.id.slice(0, 8)}] done ✓ (with stats)`);
+    } else {
+      // Codex Bug #4 修复: SELF_TEST 成功也走过 throw 流程, 走到这分支说明 executor 没 throw
+      // 但实际 self_test 总会 throw (含成功 JSON), 所以这里 markDone 几乎用不到; 留作未来其他 executor 用
+      await cb.markDone(task.id);
+      cb.log.info(`[task ${task.id.slice(0, 8)}] done ✓`);
+    }
   } catch (err) {
     if (timer) clearTimeout(timer);
     if (cancelWatcher) clearInterval(cancelWatcher);
@@ -246,12 +265,25 @@ export async function executeTask(
       } catch { /* 不是 JSON, 走通用 failed */ }
     }
 
-    // ─── D 类: FloodWait 走原有 quarantine 路径 (红线: 不被新 retry 改坏) ────
+    // ─── D 类: FloodWait 走 quarantine + vmfix28 D2 跨账号重派 ────
     const floodSec = parseFloodWaitSeconds(e);
     if (floodSec && task.accountId) {
       const until = Date.now() + (floodSec + 30) * 1000; // 多加 30 秒 buffer
       await cb.quarantineAccount(task.accountId, until, `FloodWait ${floodSec}s @ task=${task.type}`);
       cb.log.warn(`[task ${task.id.slice(0, 8)}] FloodWait ${floodSec}s, quarantined account ${task.accountId.slice(0, 8)} until ${new Date(until).toISOString()}`);
+
+      // vmfix28 D2: 尝试把 task 改派给同 tenant 另一空闲账号（白名单 task type）
+      try {
+        const r = await cb.reassignToAnotherAccount(task.id, task.accountId);
+        if (r.reassigned && r.newAccountId) {
+          cb.log.info(`[task ${task.id.slice(0, 8)}] FloodWait → reassigned to ${r.newAccountId.slice(0, 8)} ✓ (task back to pending)`);
+          return;  // 不要 markFailed - task 已转移
+        }
+        cb.log.info(`[task ${task.id.slice(0, 8)}] FloodWait reassign skipped: ${r.reason ?? 'unknown'}`);
+      } catch (re: unknown) {
+        cb.log.warn(`[task ${task.id.slice(0, 8)}] FloodWait reassign error: ${re instanceof Error ? re.message : re}`);
+      }
+
       await cb.markFailed(task.id, e.message ?? String(err), 'D');
       return;
     }
