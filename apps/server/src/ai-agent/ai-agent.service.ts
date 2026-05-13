@@ -316,16 +316,26 @@ export class AiAgentService {
     const max = opts.maxVariants ?? 8;
     const langs = (opts.targetLanguages ?? ['zh', 'en', 'ms', 'vi']).join(', ');
 
-    const system = `你是 Telegram 群组搜索关键词优化专家。任务：把用户输入的关键词扩展成 ${max} 个有可能命中 Telegram 公开群的搜索变体。
-规则：
-1. 涵盖 ${langs} 多语言（如有适合）
-2. 包括同义词、近义词
-3. 如有地名，给出主要城市的细分（如 "马来西亚" → "KL", "槟城", "JB"）
+    // vmfix29.1: 强化 SEA 区域语言覆盖，TG 用户基数 SEA 占大头
+    const system = `你是 Telegram 群组搜索关键词优化专家，目标用户在东南亚（马来西亚、新加坡、印尼、越南、泰国、菲律宾、柬埔寨）。
+任务：把用户输入的关键词扩展成 ${max} 个 Telegram 公开群上有较大命中概率的搜索变体。
+
+规则（重要性递减）：
+1. **强烈优先**生成 SEA 本地语言变体：
+   - 中文（简繁混合 / 含港式 / 含台式）
+   - 英文（含 Singlish / Malaysian English 缩写如 "MY"/"SG"）
+   - 马来语 (Bahasa Melayu，如 "Loteri"/"Sukan"/"Kesihatan")
+   - 越南语 (Tiếng Việt，如 "Bóng đá"/"Cá độ"/"Làm đẹp")
+   - 印尼语 (Bahasa Indonesia，如 "Togel"/"Sepak bola"/"Kecantikan")
+   - 泰语关键词（用拉丁字母拼写形式，如 "Bangkok"/"Phuket" 等）
+2. 优先给地名细分：马来 → KL / Penang / JB / Ipoh; 新加坡; 印尼 → Jakarta / Surabaya / Bandung; 越南 → HCM / Hanoi; 泰国 → BKK / Phuket
+3. 包括同义词 / 行业俗语 / 缩写
 4. 保留原始关键词作为第一个
 5. 每个变体 1-4 个词
 6. 只返回纯 JSON 数组，不要任何前后缀
+
 示例输入: "健康 马来西亚"
-示例输出: ["健康 马来西亚","Health Malaysia","KL health","马来西亚 养生","Malaysia wellness","健康 KL","槟城 健康","保健 马来"]`;
+示例输出: ["健康 马来西亚","Health Malaysia","Kesihatan MY","KL wellness","Penang 健康","JB health","养生 马来","Slimming Malaysia","Beauty wellness SG","Healthy lifestyle KL"]`;
 
     const user = original;
 

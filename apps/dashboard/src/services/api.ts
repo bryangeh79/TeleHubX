@@ -130,13 +130,16 @@ export const adTemplatesApi = {
   generateVariants: (id: string) => api.post(`/ad-templates/${id}/generate-variants`, {}, { timeout: 90000 }),
 };
 
-// vmfix28 D4: 任务模板系统
+// vmfix28 D4: 任务模板系统 (+ vmfix29.1 E2: 行业关键词包)
 export const taskTemplatesApi = {
   list: () => api.get('/task-templates'),
   create: (data: { name: string; description?: string; type: string; payload: Record<string, unknown> }) =>
     api.post('/task-templates', data),
   markUsed: (id: string) => api.post(`/task-templates/${id}/used`),
   remove: (id: string) => api.delete(`/task-templates/${id}`),
+  // vmfix29.1 E2: 5 行业关键词包
+  listIndustryPacks: () => api.get('/task-templates/industry-packs'),
+  getIndustryPack: (industry: string) => api.get(`/task-templates/industry-packs/${industry}`),
 };
 
 export const greetingTemplatesApi = {

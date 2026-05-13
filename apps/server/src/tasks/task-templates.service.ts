@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TaskTemplate } from './task-template.entity';
 import { TaskType } from './task.entity';
+import { INDUSTRY_KEYWORD_PACKS } from './industry-keyword-packs';
 
 /**
  * vmfix28 D4: 任务模板 CRUD + 启动时 seed 3 个平台预设模板。
@@ -87,6 +88,26 @@ export class TaskTemplatesService implements OnModuleInit {
           filterSensitive: true,
         },
       },
+      // vmfix29.1 E2: 5 个行业关键词包，每个一个 builtin 模板
+      ...INDUSTRY_KEYWORD_PACKS.map((pack) => ({
+        name: `行业包：${pack.displayName}`,
+        description: `${pack.description}（共 ${pack.keywords.length} 个关键词，开了 AI 扩展 + 多通道搜 + 自动加群）`,
+        type: TaskType.DISCOVER_GROUPS_BY_KEYWORD,
+        payload: {
+          keywords: pack.keywords,
+          minMembers: 50,
+          sampleSize: 80,
+          aiExpand: true,            // 行业包词已经够多，AI 再扩 6 变体可能太多→关掉？保持开
+          useSearchGlobal: true,
+          filterSensitive: true,
+          incrementalHours: 48,      // 行业包词大量，开长 cache 防风控
+          multiAccountUnion: false,
+          aiScore: false,
+          autoJoinAfterDiscover: false,
+          // 内部标记，前端可识别这是行业包
+          _industryPack: pack.industry,
+        },
+      })),
     ];
 
     let inserted = 0;

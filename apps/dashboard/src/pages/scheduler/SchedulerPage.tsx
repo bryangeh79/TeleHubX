@@ -44,7 +44,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { accountsApi, assetsApi, chatScriptsApi, leadCandidatesApi, slotsApi, tasksApi, taskTemplatesApi } from '../../services/api';
+import { accountsApi, aiApi, assetsApi, chatScriptsApi, leadCandidatesApi, slotsApi, tasksApi, taskTemplatesApi } from '../../services/api';
 import { resolveErrorClassMeta } from '../../utils/error-class';
 import { useT } from '../../i18n';
 
@@ -219,6 +219,172 @@ const STATUS_META: Record<TaskStatus, { label: string; color: string }> = {
   failed:   { label: '失败',   color: 'error' },
   paused:   { label: '已暂停', color: 'warning' },
 };
+
+// vmfix29.1 C1: AI 建议关键词按钮 — 用户输了几个 seed 词后点这个，AI 实时推荐相关词 chips
+function KeywordSuggestButton({
+  onSuggested,
+  getCurrentKeywords,
+}: {
+  onSuggested: (suggestions: string[]) => void;
+  getCurrentKeywords: () => string[];
+}) {
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [seed, setSeed] = useState<string>('');
+
+  const handleClick = async () => {
+    const current = getCurrentKeywords();
+    const seedKw = current[0]?.trim();
+    if (!seedKw) {
+      antdMessage.warning('先输入 1 个种子关键词，AI 才能扩展');
+      return;
+    }
+    setSeed(seedKw);
+    setLoading(true);
+    setOpen(true);
+    try {
+      const r = await aiApi.expandKeywords(seedKw, 10);
+      const variants: string[] = r?.data?.variants ?? [];
+      // 排除已存在的
+      const fresh = variants.filter((v) => !current.includes(v));
+      setSuggestions(fresh);
+      if (!fresh.length) antdMessage.info('AI 没生成新变体；可能 AI key 未配或关键词过于具体');
+    } catch (err: any) {
+      antdMessage.error('AI 建议失败: ' + (err?.message ?? err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <Button
+        size="small"
+        icon={<ThunderboltOutlined />}
+        type="dashed"
+        loading={loading}
+        onClick={handleClick}
+        title="基于已填的第一个关键词，AI 生成多语言/同义词变体"
+      >
+        ✨ AI 建议
+      </Button>
+      <Modal
+        title={`基于「${seed}」的 AI 关键词建议`}
+        open={open}
+        onCancel={() => setOpen(false)}
+        footer={[
+          <Button key="close" onClick={() => setOpen(false)}>关闭</Button>,
+          <Button
+            key="all"
+            type="primary"
+            disabled={!suggestions.length}
+            onClick={() => {
+              onSuggested(suggestions);
+              setOpen(false);
+              antdMessage.success(`已加入 ${suggestions.length} 个建议关键词`);
+            }}
+          >全部加入</Button>,
+        ]}
+        width={520}
+      >
+        <p style={{ marginBottom: 12 }}>
+          AI 生成的语义变体（含中英马越混合 + 地名细分）。点击 chip 加入；或「全部加入」.
+        </p>
+        <Space wrap size={[8, 8]}>
+          {suggestions.map((s, i) => (
+            <Tag
+              key={i}
+              color="processing"
+              style={{ cursor: 'pointer', padding: '4px 10px', fontSize: 13 }}
+              onClick={() => {
+                onSuggested([s]);
+                setSuggestions((prev) => prev.filter((x) => x !== s));
+              }}
+            >
+              + {s}
+            </Tag>
+          ))}
+          {!suggestions.length && !loading && <Text type="secondary">无建议</Text>}
+        </Space>
+      </Modal>
+    </>
+  );
+}
+
+// vmfix29.1 E2: 行业关键词包按钮 — 一键应用 5 个 vertical 行业的关键词集合
+function IndustryPackButton({ onApply }: { onApply: (keywords: string[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const [packs, setPacks] = useState<Array<{ value: string; label: string; count: number; description: string }>>([]);
+  const [loading, setLoading] = useState(false);
+
+  const handleOpen = async () => {
+    setOpen(true);
+    if (packs.length === 0) {
+      setLoading(true);
+      try {
+        const r = await taskTemplatesApi.listIndustryPacks();
+        setPacks(r.data ?? []);
+      } catch (err: any) {
+        antdMessage.error('加载行业包失败');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  const handleApply = async (industry: string, displayName: string) => {
+    try {
+      const r = await taskTemplatesApi.getIndustryPack(industry);
+      const kws: string[] = r?.data?.keywords ?? [];
+      if (!kws.length) { antdMessage.warning('行业包为空'); return; }
+      onApply(kws);
+      setOpen(false);
+      antdMessage.success(`已应用「${displayName}」共 ${kws.length} 个关键词`);
+    } catch (err: any) {
+      antdMessage.error('应用失败');
+    }
+  };
+
+  return (
+    <>
+      <Button
+        size="small"
+        icon={<AppstoreOutlined />}
+        type="dashed"
+        onClick={handleOpen}
+        title="一键应用预置行业关键词包（博彩 / 外汇 / 加密 / 美容 / 教育）"
+      >
+        📦 行业包
+      </Button>
+      <Modal
+        title="选择行业关键词包"
+        open={open}
+        onCancel={() => setOpen(false)}
+        footer={null}
+        width={620}
+      >
+        {loading ? <Text type="secondary">加载中...</Text> : (
+          <Space direction="vertical" style={{ width: '100%' }} size={12}>
+            {packs.map((p) => (
+              <Card key={p.value} size="small" hoverable
+                onClick={() => handleApply(p.value, p.label)}
+                style={{ cursor: 'pointer' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{p.label}</div>
+                    <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>{p.description}</div>
+                  </div>
+                  <Tag color="blue" style={{ fontSize: 14 }}>{p.count} 词</Tag>
+                </div>
+              </Card>
+            ))}
+          </Space>
+        )}
+      </Modal>
+    </>
+  );
+}
 
 export default function SchedulerPage() {
   const t = useT();
@@ -1664,6 +1830,8 @@ function buildPayloadForTaskType(taskType: string, v: any): any {
       autoJoinAfterDiscover: v.discoverAutoJoinAfter ?? false,
       autoJoinThreshold: v.discoverAutoJoinThreshold ?? 70,
       autoJoinMax: v.discoverAutoJoinMax ?? 5,
+      // vmfix29.1: 频道支持
+      includeChannels: v.discoverIncludeChannels ?? false,
     };
   }
 
@@ -1803,6 +1971,8 @@ interface TaskTypeFieldsProps {
 function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
   const t = taskType;
   const tt = useT();
+  // vmfix29.1 C1/E2: 拿父组件的 form instance, 让 KeywordSuggestButton / IndustryPackButton 能读写字段
+  const form = Form.useFormInstance();
 
   // ─── PRESET_* 组合配套 ────────────────────────────────────
   if (t === 'preset_warmup_7d' || t === 'preset_rampup_7d' || t === 'preset_full_14d' || t === 'preset_mature_ops') {
@@ -1890,7 +2060,33 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
             </>
           }
         />
-        <Form.Item name="searchKeywords" label={tt('taskF.search.keywords')} rules={[{ required: true }]}
+        <Form.Item name="searchKeywords" label={
+          <Space>
+            <span>{tt('taskF.search.keywords')}</span>
+            {/* vmfix29.1 C1: AI 建议按钮 */}
+            <KeywordSuggestButton
+              onSuggested={(suggestions) => {
+                const cur = form.getFieldValue('searchKeywords') ?? '';
+                const lines = cur.split('\n').map((s: string) => s.trim()).filter(Boolean);
+                const merged = Array.from(new Set([...lines, ...suggestions]));
+                form.setFieldValue('searchKeywords', merged.join('\n'));
+              }}
+              getCurrentKeywords={() => {
+                const v = form.getFieldValue('searchKeywords') ?? '';
+                return v.split('\n').map((s: string) => s.trim()).filter(Boolean);
+              }}
+            />
+            {/* vmfix29.1 E2: 行业关键词包按钮 */}
+            <IndustryPackButton
+              onApply={(keywords) => {
+                const cur = form.getFieldValue('searchKeywords') ?? '';
+                const lines = cur.split('\n').map((s: string) => s.trim()).filter(Boolean);
+                const merged = Array.from(new Set([...lines, ...keywords]));
+                form.setFieldValue('searchKeywords', merged.join('\n'));
+              }}
+            />
+          </Space>
+        } rules={[{ required: true }]}
           extra={tt('taskF.search.keywordsExtraDisc')}>
           <Input.TextArea rows={3} placeholder="forex trading&#10;crypto" />
         </Form.Item>
@@ -1912,6 +2108,15 @@ function TaskTypeFields({ taskType, accountOptions }: TaskTypeFieldsProps) {
           <br />
           <Form.Item name="discoverFilterSensitive" valuePropName="checked" initialValue={true} noStyle>
             <Checkbox>自动过滤敏感群（赌博 / 色情 / 跑分）</Checkbox>
+          </Form.Item>
+          <br />
+          {/* vmfix29.1: 频道 (channel) 支持 */}
+          <Form.Item name="discoverIncludeChannels" valuePropName="checked" initialValue={false} noStyle>
+            <Checkbox>
+              <Tooltip title="频道（broadcast）无法爬成员，但作为信息源/转发源仍有营销价值（如可加号到频道后用 forward 触达）">
+                也包含频道 (broadcast)（vmfix29.1，默认关）
+              </Tooltip>
+            </Checkbox>
           </Form.Item>
           <br />
           {/* vmfix28 A4 / B2 / C2 新选项 */}

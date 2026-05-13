@@ -139,7 +139,12 @@ function buildServices(env: SupervisorEnv, paths: DataPaths): ServiceDef[] {
       cwd: path.join(env.installPath, 'apps', 'server'),
       enabledIn: ['dev', 'prod'],
       health: () => serverHealthProbe(env.appPort),
-      healthTimeoutMs: 60000,
+      // vmfix29.1 hotfix: 60s → 120s
+      // vmfix27/28/29 累积新模块（TaskTemplates seed + ChatScripts pack scan +
+      // Assets builtin scan 322 + Maintenance routes + 大量新 entity）让 server
+      // 冷启动 ~80s。健康探测原 60s 上限会让 supervisor 误判 server "unhealthy"
+      // 但 server 其实最终会起来（只是慢）。提到 120s 给足容错.
+      healthTimeoutMs: 120_000,
       critical: true,
     },
     {

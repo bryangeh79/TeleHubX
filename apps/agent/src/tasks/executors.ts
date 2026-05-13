@@ -1723,6 +1723,8 @@ export async function discoverGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
   const autoJoinAfter: boolean = (ctx.payload.autoJoinAfterDiscover as boolean) ?? false;
   const autoJoinThreshold: number = Math.max(0, Math.min(100, (ctx.payload.autoJoinThreshold as number) ?? 70));
   const autoJoinMax: number = Math.max(1, Math.min(20, (ctx.payload.autoJoinMax as number) ?? 5));
+  // vmfix29.1: 是否包含 broadcast channels (频道) 在结果（默认 false，channel 无法爬成员）
+  const includeChannels: boolean = (ctx.payload.includeChannels as boolean) ?? false;
 
   if (!rawKeywords.length) throw new Error('payload.keywords 不能为空');
   if (!ctx.tenantId) throw new Error('ctx.tenantId 缺失（无法落库 discovered_groups）');
@@ -1786,6 +1788,8 @@ export async function discoverGroupsByKeyword(ctx: ExecutorCtx): Promise<void> {
     else if (isBasic) kind = 'basic';
     else if (isBroadcast) kind = 'channel';
     if (!kind) return;
+    // vmfix29.1: 频道 (channel/broadcast) 默认排除（无法爬成员）；payload.includeChannels=true 才纳入
+    if (kind === 'channel' && !includeChannels) return;
 
     seenChatIds.add(chatId);
 
