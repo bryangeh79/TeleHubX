@@ -33,8 +33,19 @@ import { UpdateChatScriptDto } from './dto/update-chat-script.dto';
 export class ChatScriptsController {
   constructor(private readonly service: ChatScriptsService) {}
 
+  /**
+   * vmfix30 A6: 创建时从 session 注入 tenantId（dto 没显式给的情况下）。
+   *
+   * 之前 create() 直接传 dto 进 service，dashboard 表单不送 tenantId →
+   * 新建剧本全部落库为 tenantId=NULL → 跨租户全可见，A3 的 listPacks 隔离形同虚设。
+   * SUPER_ADMIN 仍可显式传 dto.tenantId 给其它租户建剧本。
+   */
   @Post()
-  create(@Body() dto: CreateChatScriptDto) {
+  create(@CurrentUser() user: AuthUser, @Body() dto: CreateChatScriptDto) {
+    if (!dto.tenantId) {
+      const tid = resolveTenantIdSoft(user, null);
+      if (tid) dto.tenantId = tid;
+    }
     return this.service.create(dto);
   }
 

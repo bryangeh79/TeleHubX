@@ -132,12 +132,25 @@ export class ChatScriptsService implements OnModuleInit {
     return this.repo.save(script);
   }
 
+  /**
+   * vmfix30 A5: 关键修复 — tenant 过滤改用 queryBuilder 走 OR IS NULL 模式。
+   *
+   * 旧版本 `where.tenantId = tenantId` 只匹配等值，把 builtin pack（tenantId=NULL）
+   * 和老的自建剧本（create() 没注入 tenantId 也是 NULL）全部排除掉，导致
+   * 「新建任务 → 指定具体剧本」下拉对所有租户永远「暂无数据」。
+   *
+   * pickRandom (line 149) 和 listPacks (A3) 都已是 OR IS NULL 语义，
+   * 这里补齐 findAll 让三处一致。
+   */
   findAll(type?: ChatScriptType, status?: ChatScriptStatus, tenantId?: string | null): Promise<ChatScript[]> {
-    const where: Record<string, unknown> = {};
-    if (type) where.type = type;
-    if (status) where.status = status;
-    if (tenantId) where.tenantId = tenantId;
-    return this.repo.find({ where, order: { createdAt: 'DESC' } });
+    const qb = this.repo.createQueryBuilder('s');
+    if (type) qb.andWhere('s.type = :type', { type });
+    if (status) qb.andWhere('s.status = :status', { status });
+    if (tenantId) {
+      // 自有 + 平台共享 (tenantId IS NULL) 都可见
+      qb.andWhere('(s.tenantId = :tid OR s.tenantId IS NULL)', { tid: tenantId });
+    }
+    return qb.orderBy('s.createdAt', 'DESC').getMany();
   }
 
   /**
