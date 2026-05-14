@@ -72,7 +72,10 @@ export class ChatScript {
   @Column({ type: 'jsonb', nullable: true })
   rawScript: any | null;
 
-  @Column({ type: 'enum', enum: ChatScriptStatus, default: ChatScriptStatus.DRAFT })
+  // vmfix30 A1: default DRAFT → ACTIVE. 用户在 dashboard 自建剧本后默认就是 ACTIVE，
+  // 立刻能在「新建任务」「指定具体剧本」下拉里看到。需要"先建后启用"的场景请通过
+  // 编辑表单显式选 DRAFT 状态。
+  @Column({ type: 'enum', enum: ChatScriptStatus, default: ChatScriptStatus.ACTIVE })
   status: ChatScriptStatus;
 
   @Column({ type: 'int', default: 0 })

@@ -1,14 +1,51 @@
-# TeleHubX — 会话交接 (2026-05-13)
+# TeleHubX — 会话交接 (2026-05-14, vmfix30 ship)
 
-> **给下一个 Claude Code 会话**：读完这一份 + `工程技术蓝图.md` + `CLAUDE.md` 第七节，即可无缝接手。
-> **2026-05-13 三 mega ship**：
->   - vmfix26 push (`26609b4`) — wedge / stale client / 6p 剧本 / GramJS noise / UX
->   - vmfix27 push (`9efd110`) — 关键词发现群强化 v1 (13 项)
->   - vmfix28 push (`c979cb5`) — 关键词发现群完美化 (12 项 mega)
->   - **vmfix29 进行中** — 9 项 UX 收口 + A5/A6/A7 滚雪球发现
->     (NEW-1 派发账号记录 / NEW-2 发现群清单 / NEW-3 养号日志 / NEW-4 payload 渲染 / NEW-5 表单校验 / NEW-6 group_create 超时优化 / B2-frontend 模板下拉 / A5+A6+A7 滚雪球)
-> 2026-05-12: 测试机 vmfix25 端到端深扫 → 锁定 13+ 项真 bug + UX → vmfix26 修复 10 项核心，**已 push commit `26609b4`** + `6f4d629`(roadmap)。
-> 2026-05-09: **vmfix15 → vmfix25 全套 ship-ready 修复 + 工程技术蓝图编写**，跨 ~30 个 commit。
+> **给下一个 Claude Code 会话**：读完这一份 + `工程技术蓝图.md`（含新 ch 24「Patch 发布流程」）+ `CLAUDE.md` 第七节，即可无缝接手。
+
+## 🆕 2026-05-14 vmfix30 — 4 bug 修 + Tier 2 patch 基建（**SaaS 里程碑**）
+
+**生产事件触发**：StarBright2 租户测试机 1 实战中发现：
+1. 新建任务时「按剧本包随机抽」看到「(自建) (2 个)」，但「指定具体剧本」下拉**空** — UI 数据源不一致
+2. 测试机 1 supervisor 手动启动后 agent 静默死掉（TG_API_ID env 加载链断），supervisor 每 5 分钟还在汇报"services running"
+
+**修复（已 push）**：
+
+| 类 | 内容 | 文件 |
+|---|---|---|
+| A1 | chat_scripts.status default DRAFT→ACTIVE | `apps/server/src/chat-scripts/chat-script.entity.ts:75` |
+| A2 | ChatScriptsService.create() 显式 fallback ACTIVE | `apps/server/src/chat-scripts/chat-scripts.service.ts:124` |
+| A3 | listPacks() 加 tenantId 过滤（防跨租户 leak）| 同 service line 163 + controller 加 `@CurrentUser` |
+| A4 | supervisor 5min heartbeat 检测 child pid alive + 自动重启（max 3 次）| `installer/tools/src/supervisor.ts:1000` |
+| C1-C4 | **Tier 2 patch 基建** | 见下 |
+
+**Tier 2 patch 基建（核心新能力）**：
+
+| 文件 | 作用 |
+|---|---|
+| `installer/patches/<version>.json` | 每版手填 metadata：fromVersions / payload / postPatchSql / releaseNotes |
+| `installer/scripts/build-patch.ps1` | 读 metadata + dist → 产 `TeleHubX-Patch-{from}-to-{to}.zip` (~5-10 MB) + `.sha256` sidecar |
+| `installer/tools/Apply-Patch.ps1` | 租户机运行时 — 验签 + 备份 + 应用 + 重启 + postPatchSql + **失败自动回滚** |
+| `installer/runtime/launcher/telehubx-apply-patch.vbs` | 桌面快捷方式 VBS 包装器（文件选择器 + UAC + PS 启动）|
+| `installer/build.ps1 -PatchVersion vmfix30` | 一键构建 full installer + patch zip |
+| `工程技术蓝图.md` ch 24 | 完整发版流程文档 |
+
+**重要约定**：
+- **新租户**：永远下完整安装包（145 MB）
+- **老租户（vmfix30 及之后）**：每次 bugfix 只下 5-10 MB patch zip + 双击桌面「TeleHubX Apply Patch」
+- patch 含 `postPatchSql` → 数据 hotfix 不需额外操作
+
+**发版本身（vmfix30）的特殊性**：因为现有老租户（vmfix29.1）还没有 Apply-Patch.ps1，**这次仍走完整安装包**。从 **vmfix31 起**才能用 patch zip 升级。
+
+## 2026-05-13 三 mega ship（保留历史记录）
+
+  - vmfix26 push (`26609b4`) — wedge / stale client / 6p 剧本 / GramJS noise / UX
+  - vmfix27 push (`9efd110`) — 关键词发现群强化 v1 (13 项)
+  - vmfix28 push (`c979cb5`) — 关键词发现群完美化 (12 项 mega)
+  - **vmfix29 进行中** — 9 项 UX 收口 + A5/A6/A7 滚雪球发现
+    (NEW-1 派发账号记录 / NEW-2 发现群清单 / NEW-3 养号日志 / NEW-4 payload 渲染 / NEW-5 表单校验 / NEW-6 group_create 超时优化 / B2-frontend 模板下拉 / A5+A6+A7 滚雪球)
+
+2026-05-12: 测试机 vmfix25 端到端深扫 → 锁定 13+ 项真 bug + UX → vmfix26 修复 10 项核心，**已 push commit `26609b4`** + `6f4d629`(roadmap)。
+2026-05-09: **vmfix15 → vmfix25 全套 ship-ready 修复 + 工程技术蓝图编写**，跨 ~30 个 commit。
 
 ---
 

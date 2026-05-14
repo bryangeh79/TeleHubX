@@ -19,7 +19,7 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
 LicenseFile=
-OutputBaseFilename=TeleHubX-Setup-{#AppVersion}-vmfix29_1
+OutputBaseFilename=TeleHubX-Setup-{#AppVersion}-vmfix30
 OutputDir=Output
 SetupIconFile=assets\telehubx.ico
 WizardImageFile=assets\telehubx-banner.bmp
@@ -93,12 +93,15 @@ Name: "{commonappdata}\TeleHubX\data\script-packs";    Permissions: users-modify
 Name: "{commondesktop}\TeleHubX Dashboard"; Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-open.vbs""";  WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Tasks: desktopicon; Comment: "Open TeleHubX Dashboard in default browser"
 Name: "{commondesktop}\Start TeleHubX";     Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-start.vbs"""; WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Tasks: desktopicon; Comment: "Start TeleHubX (manages Windows service)"
 Name: "{commondesktop}\Stop TeleHubX";      Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-stop.vbs""";  WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Tasks: desktopicon; Comment: "Stop TeleHubX (stops Windows service)"
+; vmfix30: Apply Patch shortcut (Tier 2 patch zip applier)
+Name: "{commondesktop}\TeleHubX Apply Patch"; Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-apply-patch.vbs"""; WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Tasks: desktopicon; Comment: "Apply a TeleHubX patch zip (vmfix30+ Tier 2 hot patch)"
 
 ; Start menu group
 Name: "{group}\TeleHubX Dashboard";       Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-open.vbs""";  WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Comment: "Open TeleHubX Dashboard in default browser"
 Name: "{group}\Start TeleHubX";           Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-start.vbs"""; WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"
 Name: "{group}\Stop TeleHubX";            Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-stop.vbs""";  WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"
 Name: "{group}\TeleHubX Debug";           Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-debug.vbs"""; WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Comment: "Show service status + tail logs"
+Name: "{group}\TeleHubX Apply Patch";     Filename: "wscript.exe"; Parameters: """{app}\tools\telehubx-apply-patch.vbs"""; WorkingDir: "{app}\tools"; IconFilename: "{app}\assets\telehubx.ico"; Comment: "Apply a TeleHubX patch zip (vmfix30+)"
 Name: "{group}\Uninstall TeleHubX";       Filename: "{uninstallexe}"
 
 [Run]

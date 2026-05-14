@@ -48,10 +48,16 @@ export class ChatScriptsController {
     return this.service.findAll(type, status, resolveTenantIdSoft(user, tid));
   }
 
-  /** 列出所有剧本包（供 dashboard 剧本管理页面）。 */
+  /**
+   * 列出所有剧本包（供 dashboard 剧本管理页面）。
+   * vmfix30 A3: 加 tenantId 过滤防跨租户 leak。
+   */
   @Get('packs')
-  listPacks() {
-    return this.service.listPacks();
+  listPacks(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tid?: string,
+  ) {
+    return this.service.listPacks(resolveTenantIdSoft(user, tid));
   }
 
   /** 删除整个剧本包（包括所有剧本）。 */

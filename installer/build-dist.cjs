@@ -258,6 +258,18 @@ verifyCanary(canary, 'Assemble dashboard');
 
 step('Assemble dist/tools', () => {
   cpDir(path.join(REPO, 'installer/tools/dist'), path.join(DIST, 'tools'));
+  // vmfix30: ship Apply-Patch.ps1 alongside other tools so tenants can apply
+  // future Tier 2 patch zips without re-running full installer.
+  cpFile(
+    path.join(REPO, 'installer/tools/Apply-Patch.ps1'),
+    path.join(DIST, 'tools/Apply-Patch.ps1'),
+  );
+  // vmfix30: VBS wrapper for the "Apply Patch" desktop shortcut — opens
+  // file picker, elevates via UAC, runs Apply-Patch.ps1 with selected zip.
+  cpFile(
+    path.join(REPO, 'installer/runtime/launcher/telehubx-apply-patch.vbs'),
+    path.join(DIST, 'tools/telehubx-apply-patch.vbs'),
+  );
 });
 
 step('Copy runtime init scripts', () => {
@@ -343,10 +355,10 @@ step('Write VERSION.txt', () => {
   catch { /* ignore */ }
   const buildTime = new Date().toISOString();
   const content =
-    `version=vmfix29.1\n` +
+    `version=vmfix30\n` +
     `commit=${commit}\n` +
     `buildTime=${buildTime}\n` +
-    `artifact=TeleHubX-Setup-1.0.0-vmfix29_1.exe\n` +
+    `artifact=TeleHubX-Setup-1.0.0-vmfix30.exe\n` +
     `serviceIdentity=NT AUTHORITY\\LocalService\n`;
   fs.writeFileSync(path.join(DIST, 'VERSION.txt'), content, 'utf8');
   log(`   ${content.replace(/\n/g, ' | ').trim()}`);

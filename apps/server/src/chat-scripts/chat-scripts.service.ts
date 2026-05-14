@@ -122,7 +122,13 @@ export class ChatScriptsService implements OnModuleInit {
   }
 
   create(dto: CreateChatScriptDto): Promise<ChatScript> {
-    const script = this.repo.create(dto as Partial<ChatScript>);
+    // vmfix30 A2: 防御性兜底 — 即使 entity default 被未来改回 DRAFT，
+    // 这里也保证 dashboard 新建的剧本默认 ACTIVE，立刻可在「指定剧本」下拉看到。
+    // dto 显式传 status 时尊重 dto。
+    const script = this.repo.create({
+      status: ChatScriptStatus.ACTIVE,
+      ...(dto as Partial<ChatScript>),
+    });
     return this.repo.save(script);
   }
 
@@ -159,9 +165,19 @@ export class ChatScriptsService implements OnModuleInit {
     return list[Math.floor(Math.random() * list.length)];
   }
 
-  /** 列出所有剧本包（按 packId group），带计数 + 类型 + 语种。 */
-  async listPacks(): Promise<Array<{ packId: string; count: number; types: string[]; categories: string[] }>> {
-    const all = await this.repo.find({ where: {} });
+  /**
+   * 列出所有剧本包（按 packId group），带计数 + 类型 + 语种。
+   *
+   * vmfix30 A3: 加 tenantId 过滤。租户只看到「自有 + 平台共享 (tenantId IS NULL)」。
+   * 避免跨租户 leak pack 名 + count。SUPER_ADMIN 传 null 时看全部。
+   */
+  async listPacks(tenantId?: string | null): Promise<Array<{ packId: string; count: number; types: string[]; categories: string[] }>> {
+    const qb = this.repo.createQueryBuilder('s');
+    if (tenantId) {
+      // 自有 + 平台共享（tenantId IS NULL）都可见
+      qb.where('(s.tenantId = :tid OR s.tenantId IS NULL)', { tid: tenantId });
+    }
+    const all = await qb.getMany();
     const map = new Map<string, { count: number; types: Set<string>; categories: Set<string> }>();
     for (const s of all) {
       const key = s.packId ?? '(自建)';

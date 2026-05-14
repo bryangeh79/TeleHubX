@@ -19,7 +19,10 @@
 [CmdletBinding()]
 param(
   [switch]$SkipVendorCheck,
-  [switch]$SkipISCC
+  [switch]$SkipISCC,
+  # vmfix30: build Tier 2 patch zip alongside the full installer.
+  # Reads installer\patches\<PatchVersion>.json. e.g. -PatchVersion vmfix30
+  [string]$PatchVersion
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
@@ -158,5 +161,16 @@ if ($LASTEXITCODE -ne 0) { Die 'ISCC.exe failed' }
 $installer = Get-ChildItem 'installer\Output\TeleHubX-Setup-*.exe' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($installer) { Ok "installer produced: $($installer.FullName)  ($([math]::Round($installer.Length/1MB,1)) MB)" }
 else { Die 'ISCC ran but no Output\TeleHubX-Setup-*.exe found' }
+
+# ---- 8. Tier 2 patch zip (vmfix30+) ---------------------------------------
+if ($PatchVersion) {
+  Section "Tier 2 patch zip ($PatchVersion)"
+  $patchScript = Join-Path $PSScriptRoot 'scripts\build-patch.ps1'
+  if (-not (Test-Path $patchScript)) { Die "patch builder not found: $patchScript" }
+  & $patchScript -TargetVersion $PatchVersion
+  if ($LASTEXITCODE -ne 0) { Die 'build-patch.ps1 failed' }
+  $patchZip = Get-ChildItem 'installer\Output\TeleHubX-Patch-*.zip' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  if ($patchZip) { Ok "patch zip produced: $($patchZip.FullName)  ($([math]::Round($patchZip.Length/1MB,1)) MB)" }
+}
 
 Write-Host "`nAll done." -ForegroundColor Green

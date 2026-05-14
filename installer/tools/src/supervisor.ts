@@ -998,10 +998,77 @@ async function main(): Promise<void> {
   log.info('==== supervisor STARTUP COMPLETE — staying alive to keep services hidden + supervised ====');
   log.info(`pid files: ${readdirSync(paths.runDir).filter(f => f.endsWith('.pid')).join(', ')}`);
 
-  // Heartbeat every 5 minutes confirms supervisor is still alive without
-  // log spam. Stop tool / OS shutdown / SIGTERM handles cleanup.
+  // vmfix30 A4: supervisor heartbeat 现在真的检查每个子进程是否还活着。
+  //
+  // 之前版本只 log "services running" 不做实际检查 — agent 静默死掉后
+  // supervisor 不知道，租户的 UI 看起来正常但任务消费者已没了。典型场景：
+  // agent 因 env 加载失败 exit code=0，supervisor 9 秒后还在每 5 分钟报
+  // "services running"。
+  //
+  // 行为：
+  // - 每 5 分钟检查 activeChildren Map 里 expected services 都在
+  // - 缺失的 critical 服务 → ERROR + 自动重启（最多 3 次）
+  // - 缺失的 non-critical 服务（agent / dashboard）→ WARN + 自动重启（最多 3 次）
+  // - 重启 3 次仍失败 → ERROR 后放弃，避免 restart loop 烧 CPU
+  // - 进程 pid 在 Windows 上可能被复用，所以同时验证 ChildProcess.killed=false
+  const expectedServices = services.filter(
+    (s) => s.enabledIn.includes(env.runtimeMode as 'dev' | 'prod')
+  );
+  const restartAttempts = new Map<string, number>();
+  const MAX_RESTART_ATTEMPTS = 3;
+
   setInterval(() => {
-    log.info('[heartbeat] supervisor alive, services running');
+    const alive: string[] = [];
+    const dead: string[] = [];
+    for (const svc of expectedServices) {
+      const child = activeChildren.get(svc.name);
+      if (child && !child.killed && child.exitCode === null) {
+        alive.push(svc.name);
+      } else {
+        dead.push(svc.name);
+      }
+    }
+
+    if (dead.length === 0) {
+      log.info(`[heartbeat] supervisor alive, ${alive.length} services running: ${alive.join(', ')}`);
+      return;
+    }
+
+    // 至少一个 expected service 不在
+    const sev = dead.some((n) => expectedServices.find((s) => s.name === n)?.critical) ? 'error' : 'warn';
+    log[sev](
+      `[heartbeat] DEGRADED — dead services: ${dead.join(', ')} | alive: ${alive.join(', ') || '(none)'}`
+    );
+
+    // 尝试重启
+    for (const name of dead) {
+      const svc = expectedServices.find((s) => s.name === name);
+      if (!svc) continue;
+      const attempts = restartAttempts.get(name) ?? 0;
+      if (attempts >= MAX_RESTART_ATTEMPTS) {
+        log.error(`[${name}] gave up restart after ${MAX_RESTART_ATTEMPTS} attempts — manual intervention required (check ${name === 'agent' ? 'agent.log' : name + '.log'})`);
+        continue;
+      }
+      restartAttempts.set(name, attempts + 1);
+      log.warn(`[${name}] attempting restart (${attempts + 1}/${MAX_RESTART_ATTEMPTS})`);
+      try {
+        const rec = spawnDetached(svc, paths, env);
+        // fire-and-forget health probe; non-blocking
+        waitFor(svc.health, svc.name, svc.healthTimeoutMs, 1000).then((ready) => {
+          if (ready) {
+            commitPidFile(svc, rec, paths);
+            log.info(`[${name}] restart succeeded`);
+            restartAttempts.delete(name); // 成功后重置计数，允许将来再次重启
+          } else {
+            log.warn(`[${name}] restart spawned but health probe failed`);
+          }
+        }).catch((e) => {
+          log.warn(`[${name}] restart health probe error: ${(e as Error).message}`);
+        });
+      } catch (e) {
+        log.error(`[${name}] restart spawn failed: ${(e as Error).message}`);
+      }
+    }
   }, 5 * 60_000);
   // Lock released by 'exit' handler when supervisor finally exits.
 }
