@@ -418,7 +418,8 @@ export default function SchedulerPage() {
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 剧本列表（仅在创建 chat_script 类任务时加载）
-  const [scriptOptions, setScriptOptions] = useState<Array<{ value: string; label: string; type: string; category: string | null }>>([]);
+  // vmfix30 A7: 加 packId 字段，给「指定具体剧本」按所选 pack 过滤用
+  const [scriptOptions, setScriptOptions] = useState<Array<{ value: string; label: string; type: string; category: string | null; packId: string | null }>>([]);
   const [scriptPacks, setScriptPacks] = useState<Array<{ packId: string; count: number; types: string[] }>>([]);
 
   // 素材列表 (媒体类任务用) — 按 category 加载, 含 builtin
@@ -497,6 +498,7 @@ export default function SchedulerPage() {
           label: `${s.name} (${s.type}, ${s.maxRound}回合)`,
           type: s.type,
           category: s.category,
+          packId: s.packId ?? null,   // vmfix30 A7: null = 自建（无 pack）
         })));
         setScriptPacks(Array.isArray(packsRes.data) ? packsRes.data : []);
         setAssetPools(Array.isArray(poolsRes.data) ? poolsRes.data : []);
@@ -1440,7 +1442,9 @@ export default function SchedulerPage() {
 
               // chat_script_ab / 4p / 6p — 多账号 + 剧本选择 + AI 优化
               const expectedType = isAB ? 'A+B' : is4P ? 'A+B+C+D' : 'A+B+C+D+E+F';
-              const filteredScripts = scriptOptions.filter((s) => s.type === expectedType);
+              // vmfix30 A7: filteredScripts 在内部 shouldUpdate 块里按 packId 再次过滤；
+              // 这里只保留按 type 过滤的"全集"作为 fallback 显示用。
+              const typeFilteredScripts = scriptOptions.filter((s) => s.type === expectedType);
               const rolesLabel = isAB ? 'A ⇄ B' : is4P ? 'A + B + C + D' : 'A + B + C + D + E + F';
               return (
                 <>
@@ -1534,24 +1538,46 @@ export default function SchedulerPage() {
                     ) : null}
                   </Form.Item>
 
-                  <Card size="small" style={{ marginBottom: 12 }} title={
-                    <Space>
-                      <Text strong>📜 选择剧本 (共 {filteredScripts.length} 个 {isAB ? 'A+B' : is4P ? '4P' : '6P'})</Text>
-                    </Space>
-                  }>
-                    <Form.Item name="packId" label="按剧本包随机抽" extra="留空 = 从所有同类型剧本随机抽">
-                      <Select allowClear placeholder="不限剧本包"
-                        options={scriptPacks
-                          .filter((p) => p.types.includes(isAB ? 'A+B' : is4P ? 'A+B+C+D' : 'A+B+C+D+E+F'))
-                          .map((p) => ({ value: p.packId, label: `${p.packId} (${p.count} 个)` }))}
-                      />
-                    </Form.Item>
-                    <Form.Item name="scriptId" label="或：指定具体剧本（可选）" extra="选定后将固定跑这一个剧本，content_pool 仍会随机抽变体">
-                      <Select allowClear showSearch placeholder="不指定 = 随机抽" optionFilterProp="label"
-                        options={filteredScripts}
-                      />
-                    </Form.Item>
-                  </Card>
+                  {/*
+                    vmfix30 A7: 把 packId + scriptId 两个 Form.Item 包进一个 shouldUpdate
+                    块里，让 scriptId 的 options 能按 packId 实时过滤。
+                    selectedPackId 的可能值：
+                      - undefined / null → 用户没选包 → 显示该 type 全部 21 个
+                      - "(自建)"          → 后端 listPacks 用的合成 key → 显示 packId === null 的
+                      - "official_zh_6p_v1" 等真实 pack id → 显示 packId === <该 id> 的
+                  */}
+                  <Form.Item shouldUpdate={(p, c) => p.packId !== c.packId} noStyle>
+                    {({ getFieldValue, setFieldValue }) => {
+                      const selectedPackId = getFieldValue('packId');
+                      const filteredScripts = typeFilteredScripts.filter((s) => {
+                        if (!selectedPackId) return true;
+                        if (selectedPackId === '(自建)') return s.packId === null;
+                        return s.packId === selectedPackId;
+                      });
+                      return (
+                        <Card size="small" style={{ marginBottom: 12 }} title={
+                          <Space>
+                            <Text strong>📜 选择剧本 (共 {filteredScripts.length} 个 {isAB ? 'A+B' : is4P ? '4P' : '6P'})</Text>
+                          </Space>
+                        }>
+                          <Form.Item name="packId" label="按剧本包随机抽" extra="留空 = 从所有同类型剧本随机抽">
+                            <Select allowClear placeholder="不限剧本包"
+                              // vmfix30 A7: 切换 pack 时清空 scriptId，避免旧选的 script 不属于新 pack 仍残留
+                              onChange={() => setFieldValue('scriptId', undefined)}
+                              options={scriptPacks
+                                .filter((p) => p.types.includes(isAB ? 'A+B' : is4P ? 'A+B+C+D' : 'A+B+C+D+E+F'))
+                                .map((p) => ({ value: p.packId, label: `${p.packId} (${p.count} 个)` }))}
+                            />
+                          </Form.Item>
+                          <Form.Item name="scriptId" label="或：指定具体剧本（可选）" extra="选定后将固定跑这一个剧本，content_pool 仍会随机抽变体">
+                            <Select allowClear showSearch placeholder="不指定 = 随机抽" optionFilterProp="label"
+                              options={filteredScripts}
+                            />
+                          </Form.Item>
+                        </Card>
+                      );
+                    }}
+                  </Form.Item>
 
                   <Form.Item name="aiOptimize" valuePropName="checked">
                     <Checkbox>
