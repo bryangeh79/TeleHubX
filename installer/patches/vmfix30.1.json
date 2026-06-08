@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "patchId": "vmfix30-to-vmfix30.1",
+  "fromVersions": ["vmfix30", "vmfix29.1", "vmfix29"],
+  "toVersion": "vmfix30.1",
+  "payload": [
+    "apps/server/dist/",
+    "apps/agent/dist/",
+    "apps/dashboard/dist/",
+    "tools/telehubx-supervisor.exe",
+    "tools/telehubx-start.vbs",
+    "tools/telehubx-stop.vbs",
+    "tools/telehubx-debug.vbs",
+    "tools/telehubx-open.vbs",
+    "tools/telehubx-apply-patch.vbs",
+    "tools/Apply-Patch.ps1"
+  ],
+  "postPatchSql": [
+    "UPDATE chat_scripts SET status='active' WHERE status='draft' AND \"packId\" IS NULL"
+  ],
+  "releaseNotes": "vmfix30.1 hotfix — VBS launcher Unicode encoding\n\nReal-world report: tenant on English-locale Windows tried to launch TeleHubX after installing vmfix30 and got 'Windows Script Host: Unterminated string constant at line 30' from telehubx-start.vbs. Root cause: VBS files were UTF-8 (no BOM), but Windows Script Host on non-Chinese-locale systems reads .vbs as the system code page (cp1252), which mangles the embedded Chinese strings and breaks parsing.\n\nFix: all 5 VBS launchers converted to UTF-16 LE with BOM — the WSH-supported Unicode encoding. Works on every Windows locale.\n\nAlso re-ships everything from vmfix30 (A1-A7 + Tier 2 patch infra) so this single patch covers vmfix29.1 → vmfix30.1, vmfix29 → vmfix30.1, and vmfix30 → vmfix30.1.\n\nThis patch automatically activates any DRAFT chat scripts you created before upgrading."
+}
